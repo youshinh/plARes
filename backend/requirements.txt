@@ -1,0 +1,6 @@
+google-genai
+asyncio
+websockets
+pydantic
+python-dotenv
+pytest
