@@ -21,7 +21,12 @@ import { PLAYER_ID, PLAYER_LANG, ROOM_ID, SYNC_RATE } from './utils/identity';
 import * as THREE from 'three';
 import type { WebRTCDataChannelPayload, GameEvent } from '../../shared/types/events';
 
-const WS_URL    = import.meta.env.VITE_WS_URL    ?? 'ws://localhost:8000/ws/game';
+const defaultBackendHost = (() => {
+  const rawHost = window.location.hostname || '127.0.0.1';
+  return rawHost === 'localhost' || rawHost === '::1' ? '127.0.0.1' : rawHost;
+})();
+const defaultBackendProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+const WS_URL = import.meta.env.VITE_WS_URL ?? `${defaultBackendProtocol}://${defaultBackendHost}:8000/ws/game`;
 
 const store = createXRStore();
 

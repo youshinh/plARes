@@ -2,6 +2,16 @@
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
+## E2E Smoke Test (Gemini Live)
+
+From repository root, run:
+
+```bash
+./scripts/e2e_live_smoke.sh
+```
+
+This script starts backend/frontend, runs Playwright CLI smoke steps (`ISSUE LIVE TOKEN -> CONNECT LIVE`), and validates that the UI transitions to `DISCONNECT LIVE`.
+
 Currently, two official plugins are available:
 
 - [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md) uses [Babel](https://babeljs.io/) for Fast Refresh

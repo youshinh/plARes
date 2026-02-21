@@ -1398,7 +1398,12 @@ async def handle_audio_connection(websocket: Any, request_path: str) -> None:
 
 
 async def websocket_router(websocket: Any, path: Optional[str] = None) -> None:
-    request_path = path or getattr(websocket, "path", "/")
+    request_path = path or getattr(websocket, "path", None)
+    if not request_path:
+        request_obj = getattr(websocket, "request", None)
+        request_path = getattr(request_obj, "path", "/")
+    if not isinstance(request_path, str) or not request_path:
+        request_path = "/"
 
     if request_path.startswith(GAME_PATH):
         await handle_game_connection(websocket, request_path)
