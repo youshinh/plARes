@@ -1,0 +1,36 @@
+{
+  "version": "1",
+  "generated_at": "2026-02-21T00:00:00Z",
+  "entries": [
+    {
+      "id": "polyhaven_studio_small_09",
+      "provider": "Poly Haven",
+      "license": "CC0",
+      "asset_type": "hdri",
+      "download_url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/studio_small_09_1k.hdr",
+      "target_path": "environments/studio_small_09_1k.hdr",
+      "source_page": "https://polyhaven.com/a/studio_small_09",
+      "checksum_sha256": ""
+    },
+    {
+      "id": "ambientcg_metal_plates_001",
+      "provider": "ambientCG",
+      "license": "CC0",
+      "asset_type": "pbr",
+      "download_url": "https://ambientcg.com/get?file=MetalPlates001_1K-PNG.zip",
+      "target_path": "materials/metal_plates_001.zip",
+      "source_page": "https://ambientcg.com/view?id=MetalPlates001",
+      "checksum_sha256": ""
+    },
+    {
+      "id": "kenney_sci_fi_icons",
+      "provider": "Kenney",
+      "license": "CC0",
+      "asset_type": "ui",
+      "download_url": "https://kenney.nl/assets/sci-fi-ui",
+      "target_path": "ui/sci-fi-ui.note.txt",
+      "source_page": "https://kenney.nl/assets/sci-fi-ui",
+      "checksum_sha256": ""
+    }
+  ]
+}

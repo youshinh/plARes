@@ -263,7 +263,7 @@ export class GeminiLiveService {
       this.enqueuePcm16(bytes, sampleRate);
       return;
     }
-    this.enqueueEncodedAudio(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+    this.enqueueEncodedAudio(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
   }
 
   private enqueuePcm16(bytes: Uint8Array, sampleRate: number) {

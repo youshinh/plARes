@@ -233,6 +233,7 @@ function App() {
   const { isStreaming, startStream, stopStream } = useAudioStreamer();
   const setCastingSpecial = useFSMStore(s => s.setCastingSpecial);
   const resolveSpecialResult = useFSMStore(s => s.resolveSpecialResult);
+  const setRobotStats = useFSMStore(s => s.setRobotStats);
   const robotDna = useFSMStore(s => s.robotDna);
   const robotMaterial = useFSMStore(s => s.robotMeta.material);
   const setRobotDna = useFSMStore(s => s.setRobotDna);
@@ -394,6 +395,23 @@ function App() {
           normalizeCharacterDNA(p.characterDna);
         if (candidateDna) {
           setRobotDna(evolveCharacterDNAByMatchCount(candidateDna, totalMatches));
+        }
+        const stats = p.robot_stats;
+        if (stats && typeof stats === 'object') {
+          const rawMaterial = String(p.robot_material ?? robotMaterial);
+          const material = rawMaterial === 'Metal' || rawMaterial === 'Resin' ? rawMaterial : 'Wood';
+          setRobotStats(
+            {
+              power: Number((stats as any).power ?? 40),
+              speed: Number((stats as any).speed ?? 40),
+              vit: Number((stats as any).vit ?? 40),
+            },
+            {
+              name: String(p.player_name ?? 'Plares Unit'),
+              material,
+              tone: String(p.tone ?? 'balanced'),
+            },
+          );
         }
         const recentAB = Array.isArray(p.recent_dna_ab_tests) ? p.recent_dna_ab_tests : [];
         setRecentABFeedbackCount(recentAB.length);
