@@ -19,26 +19,13 @@ export const RemoteStreamView: React.FC = () => {
   if (!visible) return null;
 
   return (
-    <div
-      style={{
-        position: 'absolute',
-        right: 20,
-        bottom: 140,
-        width: 220,
-        height: 140,
-        borderRadius: 10,
-        overflow: 'hidden',
-        border: '2px solid rgba(255,255,255,0.35)',
-        background: '#000',
-        zIndex: 10,
-      }}
-    >
+    <div className="remote-stream-view">
       <video
         ref={videoRef}
         autoPlay
         playsInline
         muted={false}
-        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+        className="remote-stream-video"
       />
     </div>
   );

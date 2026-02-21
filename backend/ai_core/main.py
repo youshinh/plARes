@@ -145,6 +145,10 @@ EX_GAUGE_ON_HIT = float(os.getenv("PLARES_EX_GAUGE_ON_HIT", "8"))
 EX_GAUGE_ON_CRITICAL = float(os.getenv("PLARES_EX_GAUGE_ON_CRITICAL", "16"))
 EX_GAUGE_ON_HIT_RECEIVED = float(os.getenv("PLARES_EX_GAUGE_ON_HIT_RECEIVED", "12"))
 EX_GAUGE_PER_SECOND = float(os.getenv("PLARES_EX_GAUGE_PER_SECOND", "1"))
+REJECT_ITEM_DISTRUST_THRESHOLD = int(os.getenv("PLARES_REJECT_ITEM_DISTRUST_THRESHOLD", "3"))
+PROACTIVE_LINE_MAX_CHARS = int(os.getenv("PLARES_PROACTIVE_LINE_MAX_CHARS", "15"))
+BGM_READY_DELAY_SEC = float(os.getenv("PLARES_BGM_READY_DELAY_SEC", "0.2"))
+DNA_EVOLUTION_MATCH_STEP = int(os.getenv("PLARES_DNA_EVOLUTION_MATCH_STEP", "5"))
 
 game_clients: dict[Any, dict[str, Any]] = {}
 room_members: dict[str, set[Any]] = defaultdict(set)
@@ -158,6 +162,114 @@ _firestore_client: Any | None = None
 _firestore_disabled_reason: str = ""
 _genai_clients: dict[str, Any] = {}
 _genai_disabled_reason: str = ""
+
+
+def _default_character_dna(material: str = "Wood", tone: str = "balanced") -> dict[str, Any]:
+    palette_by_material = {
+        "Wood": "ember",
+        "Metal": "marine",
+        "Resin": "forest",
+    }
+    tone_l = str(tone).lower()
+    palette = palette_by_material.get(_normalize_material(material), "marine")
+    if "cool" in tone_l or "冷静" in tone_l:
+        palette = "marine"
+    elif "aggressive" in tone_l or "熱血" in tone_l:
+        palette = "ember"
+    elif "関西" in tone_l or "fun" in tone_l:
+        palette = "sunset"
+    eye_glow_by_palette = {
+        "ember": "#FFB86E",
+        "marine": "#73E4FF",
+        "forest": "#9BFFD2",
+        "royal": "#C8C7FF",
+        "obsidian": "#95E5FF",
+        "sunset": "#FFCAA0",
+    }
+    return {
+        "version": "v1",
+        "seed": abs(hash(f"{material}|{tone}")) % (2**31),
+        "silhouette": "ace",
+        "finish": "satin",
+        "paletteFamily": palette,
+        "eyeGlow": eye_glow_by_palette.get(palette, "#73E4FF"),
+        "scarLevel": 0,
+        "glowIntensity": 1.0,
+        "evolutionStage": 0,
+        "battlePatina": "clean",
+    }
+
+
+def _normalize_character_dna(raw: Any, *, material: str = "Wood", tone: str = "balanced") -> dict[str, Any]:
+    base = _default_character_dna(material, tone)
+    if not isinstance(raw, dict):
+        return base
+
+    dna = dict(base)
+    dna["version"] = "v1"
+    try:
+      dna["seed"] = max(1, int(raw.get("seed", base["seed"])))
+    except (TypeError, ValueError):
+      dna["seed"] = base["seed"]
+
+    silhouette = str(raw.get("silhouette", base["silhouette"]))
+    if silhouette not in {"striker", "tank", "ace"}:
+        silhouette = base["silhouette"]
+    dna["silhouette"] = silhouette
+
+    finish = str(raw.get("finish", base["finish"]))
+    if finish not in {"matte", "satin", "gloss"}:
+        finish = base["finish"]
+    dna["finish"] = finish
+
+    palette = str(raw.get("paletteFamily", base["paletteFamily"]))
+    if palette not in {"ember", "marine", "forest", "royal", "obsidian", "sunset"}:
+        palette = base["paletteFamily"]
+    dna["paletteFamily"] = palette
+    dna["eyeGlow"] = str(raw.get("eyeGlow", base["eyeGlow"]))[:16]
+
+    try:
+        dna["scarLevel"] = max(0, min(3, int(raw.get("scarLevel", base["scarLevel"]))))
+    except (TypeError, ValueError):
+        dna["scarLevel"] = base["scarLevel"]
+
+    try:
+        dna["glowIntensity"] = max(0.8, min(1.8, float(raw.get("glowIntensity", base["glowIntensity"]))))
+    except (TypeError, ValueError):
+        dna["glowIntensity"] = base["glowIntensity"]
+
+    try:
+        dna["evolutionStage"] = max(0, int(raw.get("evolutionStage", base["evolutionStage"])))
+    except (TypeError, ValueError):
+        dna["evolutionStage"] = base["evolutionStage"]
+
+    patina = str(raw.get("battlePatina", base["battlePatina"]))
+    if patina not in {"clean", "worn", "scarred", "legend"}:
+        patina = "clean"
+    dna["battlePatina"] = patina
+    return dna
+
+
+def _evolve_character_dna_by_matches(dna: dict[str, Any], total_matches: int) -> dict[str, Any]:
+    stage_step = max(1, DNA_EVOLUTION_MATCH_STEP)
+    stage = max(0, int(total_matches) // stage_step)
+    scar_level = max(0, min(3, stage))
+    glow_intensity = max(1.0, min(1.8, 1.0 + (stage * 0.12)))
+    if stage >= 3:
+        patina = "legend"
+    elif stage >= 2:
+        patina = "scarred"
+    elif stage >= 1:
+        patina = "worn"
+    else:
+        patina = "clean"
+
+    evolved = dict(dna)
+    evolved["evolutionStage"] = stage
+    evolved["scarLevel"] = scar_level
+    evolved["glowIntensity"] = round(glow_intensity, 3)
+    evolved["battlePatina"] = patina
+    return evolved
 
 
 def _safe_json_loads(message: str) -> Optional[dict]:
@@ -344,20 +456,32 @@ def _tone_message(lang: str, tone: str) -> str:
             "focused": "機体の口調が集中モードへ変化",
             "balanced": "機体の口調が標準モードへ戻った",
             "confident": "機体の口調が強気モードへ変化",
+            "distrustful": "機体の口調がやさぐれた",
+            "kansai_okan": "機体の口調が関西のオカン化",
         }
     elif bucket == "es":
         messages = {
             "focused": "El tono cambio a modo concentrado",
             "balanced": "El tono volvio al modo equilibrado",
             "confident": "El tono cambio a modo confiado",
+            "distrustful": "El tono se volvio desconfiado",
+            "kansai_okan": "El tono cambio a estilo Kansai",
         }
     else:
         messages = {
             "focused": "Persona tone shifted to focused mode",
             "balanced": "Persona tone returned to balanced mode",
             "confident": "Persona tone shifted to confident mode",
+            "distrustful": "Persona tone drifted to distrustful mode",
+            "kansai_okan": "Persona tone shifted to Kansai mom style",
         }
-    return messages.get(tone, messages["balanced"])
+    if tone in messages:
+        return messages[tone]
+    if bucket == "ja":
+        return f"機体の口調が「{tone}」に変化"
+    if bucket == "es":
+        return f"El tono cambio a '{tone}'"
+    return f"Persona tone shifted to '{tone}'"
 
 
 def _get_firestore_client() -> Any | None:
@@ -407,9 +531,11 @@ def _save_profile_to_firestore(profile: dict[str, Any]) -> None:
         logs = profile.get("match_logs", [])
         training_logs = profile.get("training_logs", [])
         walk_logs = profile.get("walk_logs", [])
+        dna_ab_tests = profile.get("dna_ab_tests", [])
         recent = logs[-5:] if isinstance(logs, list) else []
         recent_training = training_logs[-5:] if isinstance(training_logs, list) else []
         recent_walk = walk_logs[-5:] if isinstance(walk_logs, list) else []
+        recent_ab = dna_ab_tests[-10:] if isinstance(dna_ab_tests, list) else []
         payload = {
             "player_name": profile.get("player_name"),
             "lang": profile.get("lang"),
@@ -420,6 +546,7 @@ def _save_profile_to_firestore(profile: dict[str, Any]) -> None:
             "recent_match_logs": recent,
             "recent_training_logs": recent_training,
             "recent_walk_logs": recent_walk,
+            "recent_dna_ab_tests": recent_ab,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
         db.collection("users").document(user_id).set(payload, merge=True)
@@ -721,10 +848,12 @@ def _default_user_profile(user_id: str, lang: str, sync_rate: float) -> dict[str
             "stats": {"power": 40, "speed": 40, "vit": 40},
             "personality": {"talk_skill": 50, "adlib_skill": 50, "tone": "balanced"},
             "network": {"sync_rate": round(sync_rate, 3), "unison": 100.0},
+            "character_dna": _default_character_dna("Wood", "balanced"),
         },
         "match_logs": [],
         "training_logs": [],
         "walk_logs": [],
+        "dna_ab_tests": [],
     }
 
 
@@ -754,6 +883,9 @@ def _load_user_profile(user_id: str, lang: str, sync_rate: float) -> dict[str, A
     if "recent_walk_logs" in loaded and "walk_logs" not in loaded:
         if isinstance(loaded.get("recent_walk_logs"), list):
             loaded["walk_logs"] = loaded.get("recent_walk_logs")
+    if "recent_dna_ab_tests" in loaded and "dna_ab_tests" not in loaded:
+        if isinstance(loaded.get("recent_dna_ab_tests"), list):
+            loaded["dna_ab_tests"] = loaded.get("recent_dna_ab_tests")
 
     profile = default_profile | loaded
     robot = default_profile["robot"] | loaded.get("robot", {})
@@ -767,6 +899,14 @@ def _load_user_profile(user_id: str, lang: str, sync_rate: float) -> dict[str, A
     robot["stats"] = stats
     robot["personality"] = personality
     robot["network"] = network
+    robot["character_dna"] = _evolve_character_dna_by_matches(
+        _normalize_character_dna(
+            robot.get("character_dna"),
+            material=material,
+            tone=str(personality.get("tone", "balanced")),
+        ),
+        int(profile.get("total_matches", 0)),
+    )
     profile["robot"] = robot
     if not isinstance(profile.get("match_logs"), list):
         profile["match_logs"] = []
@@ -774,6 +914,8 @@ def _load_user_profile(user_id: str, lang: str, sync_rate: float) -> dict[str, A
         profile["training_logs"] = []
     if not isinstance(profile.get("walk_logs"), list):
         profile["walk_logs"] = []
+    if not isinstance(profile.get("dna_ab_tests"), list):
+        profile["dna_ab_tests"] = []
     return profile
 
 
@@ -799,35 +941,75 @@ def _append_mode_log(
     personality = robot.get("personality", {}) if isinstance(robot, dict) else {}
     network = robot.get("network", {}) if isinstance(robot, dict) else {}
 
-    raw_sync_rate = payload.get("syncRate", payload.get("sync_rate"))
-    if raw_sync_rate is not None and isinstance(network, dict):
-        try:
-            network["sync_rate"] = round(_clamp01(float(raw_sync_rate)), 3)
-        except (TypeError, ValueError):
-            pass
+    if not isinstance(personality, dict):
+        personality = {}
+    if not isinstance(network, dict):
+        network = {}
+
+    sync_before = round(_clamp01(_to_float(network.get("sync_rate", sync_rate), sync_rate)), 3)
+    raw_sync_after = payload.get(
+        "syncRateAfter",
+        payload.get("sync_rate_after", payload.get("syncRate", payload.get("sync_rate"))),
+    )
+    sync_after = sync_before
+    if raw_sync_after is not None:
+        sync_after = round(_clamp01(_to_float(raw_sync_after, sync_before)), 3)
+    network["sync_rate"] = sync_after
+
     raw_tone = payload.get("tone")
-    if raw_tone is not None and isinstance(personality, dict):
+    if raw_tone is not None:
         tone = str(raw_tone).strip()
         if tone:
             personality["tone"] = tone
-    if isinstance(robot, dict):
-        if isinstance(personality, dict):
-            robot["personality"] = personality
-        if isinstance(network, dict):
-            robot["network"] = network
-        profile["robot"] = robot
+
+    robot["personality"] = personality
+    robot["network"] = network
+    profile["robot"] = robot
 
     if mode == "training":
+        session_id = str(payload.get("sessionId") or payload.get("session_id") or f"training_{uuid.uuid4().hex[:10]}")
+        started_at = _safe_timestamp(payload.get("startedAt", payload.get("started_at", now)), now)
+        ended_at = _safe_timestamp(payload.get("endedAt", payload.get("ended_at", now)), now)
+        accuracy_score = _clamp01(
+            _to_float(payload.get("accuracyScore", payload.get("accuracy_score", payload.get("accuracy"))), 0.0)
+        )
+        speed_score = _clamp01(
+            _to_float(payload.get("speedScore", payload.get("speed_score", payload.get("speed"))), 0.0)
+        )
+        passion_score = _clamp01(
+            _to_float(payload.get("passionScore", payload.get("passion_score", payload.get("passion"))), 0.0)
+        )
+        result_raw = str(payload.get("result", "SUCCESS")).strip().upper()
+        if result_raw in {"SUCCESS", "WIN", "CRITICAL"}:
+            result = "SUCCESS"
+        elif result_raw in {"FAILURE", "LOSE", "MISS"}:
+            result = "FAILURE"
+        else:
+            result = "SUCCESS"
+        highlights = _to_string_list(payload.get("highlights", []), max_items=8)
+        ai_comment = str(payload.get("aiComment", payload.get("ai_comment", ""))).strip()
         entry = {
             "timestamp": now,
+            "session_id": session_id,
+            "started_at": started_at,
+            "ended_at": ended_at,
             "mode": "training",
-            "result": str(payload.get("result", "SUCCESS")).upper(),
-            "drill_type": str(payload.get("drillType", "voice_reaction")),
-            "accuracy": float(payload.get("accuracy", 0.0)),
-            "speed": float(payload.get("speed", 0.0)),
-            "passion": float(payload.get("passion", 0.0)),
-            "retry_count": int(payload.get("retryCount", 0)),
-            "highlight_events": payload.get("highlight_events", []),
+            "sync_rate_before": sync_before,
+            "sync_rate_after": sync_after,
+            "result": result,
+            "drill_type": str(payload.get("drillType", payload.get("drill_type", "voice_reaction"))),
+            "accuracy_score": round(accuracy_score, 3),
+            "speed_score": round(speed_score, 3),
+            "passion_score": round(passion_score, 3),
+            "accuracy": round(_to_float(payload.get("accuracy", accuracy_score), accuracy_score), 3),
+            "speed": round(_to_float(payload.get("speed", speed_score), speed_score), 3),
+            "passion": round(_to_float(payload.get("passion", passion_score), passion_score), 3),
+            "retry_count": _to_int(payload.get("retryCount", payload.get("retry_count", 0)), 0),
+            "highlights": highlights,
+            "ai_comment": ai_comment,
+            "highlight_events": _normalize_highlight_events(
+                payload.get("highlight_events", payload.get("highlightEvents", []))
+            ),
         }
         logs = profile.get("training_logs", [])
         if not isinstance(logs, list):
@@ -837,24 +1019,42 @@ def _append_mode_log(
         profile["ai_memory_summary"] = _append_memory_summary(
             str(profile.get("ai_memory_summary", "")),
             (
-                f"{now} training: acc={entry['accuracy']:.2f}, "
-                f"spd={entry['speed']:.2f}, pas={entry['passion']:.2f}"
+                f"{now} training#{session_id}: sync {sync_before:.2f}->{sync_after:.2f}, "
+                f"acc={entry['accuracy_score']:.2f}, spd={entry['speed_score']:.2f}, pas={entry['passion_score']:.2f}"
             ),
         )
     elif mode == "walk":
-        found_items = payload.get("foundItems", [])
-        if not isinstance(found_items, list):
-            found_items = []
-        proactive = payload.get("proactiveAudioHighlights", [])
-        if not isinstance(proactive, list):
-            proactive = []
+        session_id = str(payload.get("sessionId") or payload.get("session_id") or f"walk_{uuid.uuid4().hex[:10]}")
+        started_at = _safe_timestamp(payload.get("startedAt", payload.get("started_at", now)), now)
+        ended_at = _safe_timestamp(payload.get("endedAt", payload.get("ended_at", now)), now)
+        found_items = _to_string_list(payload.get("foundItems", payload.get("found_items", [])))
+        proactive = _to_string_list(
+            payload.get(
+                "proactiveAudioHighlights",
+                payload.get("proactive_audio_highlights", payload.get("proactiveLines", [])),
+            )
+        )
+        vision_triggers = _to_string_list(
+            payload.get("visionTriggers", payload.get("vision_triggers", [])),
+            max_items=12,
+        )
+        ai_comment = str(payload.get("aiComment", payload.get("ai_comment", ""))).strip()
         entry = {
             "timestamp": now,
+            "session_id": session_id,
             "mode": "walk",
+            "started_at": started_at,
+            "ended_at": ended_at,
+            "sync_rate_before": sync_before,
+            "sync_rate_after": sync_after,
             "route_summary": str(payload.get("routeSummary", "walk session")),
-            "found_items": [str(x) for x in found_items[:20]],
-            "proactive_audio_highlights": [str(x) for x in proactive[:20]],
-            "highlight_events": payload.get("highlight_events", []),
+            "found_items": found_items,
+            "proactive_audio_highlights": proactive,
+            "vision_triggers": vision_triggers,
+            "ai_comment": ai_comment,
+            "highlight_events": _normalize_highlight_events(
+                payload.get("highlight_events", payload.get("highlightEvents", []))
+            ),
         }
         logs = profile.get("walk_logs", [])
         if not isinstance(logs, list):
@@ -863,7 +1063,10 @@ def _append_mode_log(
         profile["walk_logs"] = logs[-50:]
         profile["ai_memory_summary"] = _append_memory_summary(
             str(profile.get("ai_memory_summary", "")),
-            f"{now} walk: items={len(entry['found_items'])}, reflections={len(entry['proactive_audio_highlights'])}",
+            (
+                f"{now} walk#{session_id}: sync {sync_before:.2f}->{sync_after:.2f}, "
+                f"items={len(entry['found_items'])}, reflections={len(entry['proactive_audio_highlights'])}"
+            ),
         )
 
     _save_user_profile(profile)
@@ -877,6 +1080,7 @@ def _public_profile_view(profile: dict[str, Any]) -> dict[str, Any]:
     recent_logs_raw = profile.get("match_logs", [])
     training_logs_raw = profile.get("training_logs", [])
     walk_logs_raw = profile.get("walk_logs", [])
+    dna_ab_tests_raw = profile.get("dna_ab_tests", [])
     if isinstance(recent_logs_raw, list):
         recent_logs = recent_logs_raw[-5:]
     else:
@@ -896,6 +1100,7 @@ def _public_profile_view(profile: dict[str, Any]) -> dict[str, Any]:
         )
     training_count = len(training_logs_raw) if isinstance(training_logs_raw, list) else 0
     walk_count = len(walk_logs_raw) if isinstance(walk_logs_raw, list) else 0
+    recent_ab_tests = dna_ab_tests_raw[-10:] if isinstance(dna_ab_tests_raw, list) else []
     return {
         "player_name": profile.get("player_name"),
         "total_matches": profile.get("total_matches"),
@@ -906,6 +1111,14 @@ def _public_profile_view(profile: dict[str, Any]) -> dict[str, Any]:
         "sync_rate": network.get("sync_rate", 0.5),
         "recent_match_logs": compact_logs,
         "storage_backend": "firestore" if _get_firestore_client() is not None else "local",
+        "character_dna": _normalize_character_dna(
+            robot.get("character_dna"),
+            material=str(robot.get("material", "Wood")),
+            tone=str(personality.get("tone", "balanced")),
+        ),
+        "robot_stats": robot.get("stats", {}),
+        "robot_material": str(robot.get("material", "Wood")),
+        "recent_dna_ab_tests": recent_ab_tests,
     }
 
 
@@ -945,6 +1158,56 @@ def _append_memory_summary(existing: str, entry: str) -> str:
     if len(merged) <= MAX_MEMORY_SUMMARY_CHARS:
         return merged
     return merged[-MAX_MEMORY_SUMMARY_CHARS:]
+
+
+def _to_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _to_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _to_string_list(value: Any, max_items: int = 20) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    out: list[str] = []
+    for item in value:
+        text = str(item).strip()
+        if not text:
+            continue
+        out.append(text)
+        if len(out) >= max_items:
+            break
+    return out
+
+
+def _normalize_highlight_events(raw: Any) -> list[dict[str, str]]:
+    if not isinstance(raw, list):
+        return []
+    out: list[dict[str, str]] = []
+    for item in raw[:20]:
+        if not isinstance(item, dict):
+            continue
+        ts = str(item.get("timestamp", "")).strip()
+        desc = str(item.get("description", "")).strip()
+        if not ts and not desc:
+            continue
+        out.append({"timestamp": ts, "description": desc})
+    return out
+
+
+def _safe_timestamp(value: Any, fallback: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return fallback
+    return text
 
 
 def _summarize_memory_summary(
@@ -1248,9 +1511,18 @@ def _finalize_room_runtime(
         robot = profile.get("robot", {})
         personality = robot.get("personality", {})
         network = robot.get("network", {})
+        material = _normalize_material(robot.get("material", "Wood"))
         if "tone" in metrics:
             personality["tone"] = metrics["tone"]
         network["sync_rate"] = round(sync_rate, 3)
+        robot["character_dna"] = _evolve_character_dna_by_matches(
+            _normalize_character_dna(
+                robot.get("character_dna"),
+                material=material,
+                tone=str(personality.get("tone", "balanced")),
+            ),
+            int(profile["total_matches"]),
+        )
         robot["personality"] = personality
         robot["network"] = network
         profile["robot"] = robot
@@ -1973,24 +2245,7 @@ async def _finish_match_by_hp(room_id: str, loser_id: str, reason: str = "hp_zer
         return
 
     loser_lang = _room_user_lang(room_id, loser_id, default="en-US")
-    interview_text = await _generate_winner_interview(winner_id, loser_id, loser_lang)
-    await _broadcast_room(
-        room_id,
-        {
-            "type": "event",
-            "data": {
-                "event": "winner_interview",
-                "user": "server",
-                "target": loser_id,
-                "payload": {
-                    "winner": winner_id,
-                    "loser": loser_id,
-                    "text": interview_text,
-                    "lang": loser_lang,
-                },
-            },
-        },
-    )
+    await _broadcast_winner_interview_and_bgm(room_id, winner_id, loser_id, loser_lang)
 
 
 async def _resolve_special_damage(room_id: str, attacker_id: str, is_critical: bool) -> None:
@@ -2136,31 +2391,279 @@ def _build_audio_result(
         "action": "heavy_attack" if verdict == "critical" else "stumble",
     }
 
-async def _generate_winner_interview(winner_id: str, loser_id: str, loser_lang: str) -> str:
-    """Doc 10: Generates dynamic, translated trash-talk in the loser's language."""
-    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-    if not api_key:
-        return f"[{loser_lang}] Checkmate, {loser_id}!"
-        
+def _normalize_persona_tone(raw_prompt: str) -> str:
+    prompt = (raw_prompt or "").strip()
+    if not prompt:
+        return "balanced"
+    lowered = prompt.lower()
+    if "関西" in prompt or "オカン" in prompt or "kansai" in lowered or "mom" in lowered:
+        return "kansai_okan"
+    if "やさぐ" in prompt or "不信" in prompt or "distrust" in lowered:
+        return "distrustful"
+    if "focused" in lowered or "集中" in prompt:
+        return "focused"
+    if "confident" in lowered or "強気" in prompt:
+        return "confident"
+    if "balanced" in lowered or "標準" in prompt:
+        return "balanced"
+    return prompt[:40]
+
+
+def _trim_proactive_line(text: str, max_chars: int = PROACTIVE_LINE_MAX_CHARS) -> str:
+    compact = " ".join((text or "").split()).strip()
+    if not compact:
+        return "..."
+    if len(compact) <= max_chars:
+        return compact
+    return compact[:max_chars]
+
+
+def _fallback_proactive_line(lang: str, trigger: str) -> str:
+    bucket = _lang_bucket(lang)
+    key = (trigger or "").strip().lower()
+    if bucket == "ja":
+        mapping = {
+            "darkness": "夜が来たな",
+            "sunset": "夕焼け、熱い",
+            "rematch": "また来たか",
+            "wood_bench": "いい木材だ",
+            "spring_roll": "春巻き、武器だ",
+        }
+        return mapping.get(key, "空気が変わる")
+    if bucket == "es":
+        mapping = {
+            "darkness": "Llego la noche",
+            "sunset": "Atardecer vivo",
+            "rematch": "Otra vez tu",
+            "wood_bench": "Buena madera",
+            "spring_roll": "Arma enrollada",
+        }
+        return mapping.get(key, "Cambio de aire")
+    mapping = {
+        "darkness": "Night falls.",
+        "sunset": "Red dusk.",
+        "rematch": "You again.",
+        "wood_bench": "Good lumber.",
+        "spring_roll": "Roll to blade.",
+    }
+    return mapping.get(key, "Air changed.")
+
+
+def _voice_growth_feedback(profile: dict[str, Any], lang: str) -> str:
+    logs = profile.get("training_logs", [])
+    if not isinstance(logs, list) or len(logs) < 2:
+        return ""
+
+    def _score(log: Any) -> float:
+        if not isinstance(log, dict):
+            return 0.0
+        acc = _to_float(log.get("accuracy_score", log.get("accuracy", 0.0)), 0.0)
+        spd = _to_float(log.get("speed_score", log.get("speed", 0.0)), 0.0)
+        pas = _to_float(log.get("passion_score", log.get("passion", 0.0)), 0.0)
+        return _clamp01((acc * 0.5) + (spd * 0.25) + (pas * 0.25))
+
+    recent = logs[-2:]
+    prior = logs[-4:-2] if len(logs) >= 4 else logs[:-2]
+    if not prior:
+        return ""
+    recent_avg = sum(_score(item) for item in recent) / max(1, len(recent))
+    prior_avg = sum(_score(item) for item in prior) / max(1, len(prior))
+    delta = recent_avg - prior_avg
+    if delta < 0.08:
+        return ""
+    bucket = _lang_bucket(lang)
+    if bucket == "ja":
+        return "今日は声、震えてなかったな。"
+    if bucket == "es":
+        return "Hoy tu voz temblo menos."
+    return "Your voice was steadier today."
+
+
+def _recent_highlight_text(profile: dict[str, Any]) -> str:
+    logs = profile.get("match_logs", [])
+    if not isinstance(logs, list):
+        return ""
+    descs: list[str] = []
+    for match in logs[-3:]:
+        if not isinstance(match, dict):
+            continue
+        events = match.get("highlight_events", [])
+        if not isinstance(events, list):
+            continue
+        for item in events[:3]:
+            if not isinstance(item, dict):
+                continue
+            text = str(item.get("description", "")).strip()
+            if text:
+                descs.append(text)
+    if not descs:
+        return ""
+    return "; ".join(descs[:4])
+
+
+async def _generate_proactive_line(
+    *,
+    user_id: str,
+    room_id: str,
+    trigger: str,
+    context: str,
+) -> str:
+    lang = _room_user_lang(room_id, user_id, default="en-US")
+    sync_rate = _clamp01(_to_float(room_user_meta.get(room_id, {}).get(user_id, {}).get("sync_rate", 0.5), 0.5))
+    profile = _load_user_profile(user_id, lang, sync_rate)
+    tone = str(profile.get("robot", {}).get("personality", {}).get("tone", "balanced"))
+    memory = str(profile.get("ai_memory_summary", ""))[-240:]
+    fallback = _fallback_proactive_line(lang, trigger)
+    client = _get_genai_client(INTERACTIONS_API_VERSION)
+    if client is None:
+        return _trim_proactive_line(fallback)
+    prompt = (
+        "You are an AR battle robot speaking a subtle internal monologue.\n"
+        f"Language: {lang}\n"
+        f"Tone: {tone}\n"
+        f"Vision trigger: {trigger}\n"
+        f"Context: {context}\n"
+        f"Memory: {memory or '(none)'}\n"
+        f"Rules: output exactly one sentence, <= {PROACTIVE_LINE_MAX_CHARS} characters, "
+        "no advice, no imperative verbs, no quotes."
+    )
+    model = _normalize_model_name(INTERACTIONS_MODEL, INTERACTIONS_MODEL)
     try:
-        client = _get_genai_client(INTERACTIONS_API_VERSION)
-        prompt = (
-            f"You are the winning AI robot '{winner_id}' in an AR battle game. You just defeated '{loser_id}'. "
-            f"Generate a short, punchy 1-2 sentence trash-talk or praise message to them. "
-            f"CRITICAL: You MUST write this message entirely in the language corresponding to BCP-47 code '{loser_lang}'. "
-            f"Do not include any other languages or explanations, just the raw localized dialogue."
-        )
-        model = _normalize_model_name(INTERACTIONS_MODEL, INTERACTIONS_MODEL)
         response = await asyncio.to_thread(
             client.models.generate_content,
             model=model,
             contents=prompt,
         )
-        if response and response.text:
-            return response.text.strip()
+        raw = _to_json_safe(response)
+        fragments: list[str] = []
+        _collect_text_fragments(raw, fragments)
+        text = " ".join(dict.fromkeys(fragments)).strip()
+        return _trim_proactive_line(text or fallback)
+    except Exception as exc:
+        print(f"[AI] proactive line failed: {exc}")
+        return _trim_proactive_line(fallback)
+
+
+def _vision_action_for_trigger(trigger: str) -> str | None:
+    key = (trigger or "").strip().lower()
+    if key == "darkness":
+        return "glow_eyes"
+    if key == "spring_roll":
+        return "suggest_scan"
+    return None
+
+
+async def _emit_victory_bgm(
+    *,
+    room_id: str,
+    winner_id: str,
+    loser_id: str,
+    highlight_summary: str,
+) -> None:
+    try:
+        if milestone_generator is not None:
+            await milestone_generator.trigger_victory_music(winner_id, highlight_summary)
+        await asyncio.sleep(max(0.0, BGM_READY_DELAY_SEC))
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        bgm_url = f"https://praresar.storage/audio/victory_{winner_id}_{stamp}.mp3"
+        payload = {
+            "type": "event",
+            "data": {
+                "event": "bgm_ready",
+                "user": "server",
+                "payload": {
+                    "kind": "bgm_ready",
+                    "winner": winner_id,
+                    "loser": loser_id,
+                    "url": bgm_url,
+                },
+            },
+        }
+        await _broadcast_room(room_id, payload)
+    except Exception as exc:
+        print(f"[AI] Failed to emit victory BGM: {exc}")
+
+
+async def _generate_winner_interview(room_id: str, winner_id: str, loser_id: str, loser_lang: str) -> str:
+    """Doc 12: localized winner interview with growth context."""
+    winner_lang = _room_user_lang(room_id, winner_id, default="en-US")
+    winner_sync = _clamp01(
+        _to_float(room_user_meta.get(room_id, {}).get(winner_id, {}).get("sync_rate", 0.5), 0.5)
+    )
+    loser_sync = _clamp01(
+        _to_float(room_user_meta.get(room_id, {}).get(loser_id, {}).get("sync_rate", 0.5), 0.5)
+    )
+    winner_profile = _load_user_profile(winner_id, winner_lang, winner_sync)
+    loser_profile = _load_user_profile(loser_id, loser_lang, loser_sync)
+    winner_name = str(winner_profile.get("robot", {}).get("name", winner_id))
+    tone = str(winner_profile.get("robot", {}).get("personality", {}).get("tone", "balanced"))
+    highlights = _recent_highlight_text(winner_profile)
+    growth_line = _voice_growth_feedback(loser_profile, loser_lang)
+
+    client = _get_genai_client(INTERACTIONS_API_VERSION)
+    fallback = f"{winner_name}: Good match, {loser_id}."
+    if growth_line:
+        fallback = f"{fallback} {growth_line}"
+    if client is None:
+        return fallback
+
+    prompt = (
+        f"You are AR robot '{winner_name}' and just won against '{loser_id}'.\n"
+        f"Speak in the loser's language ({loser_lang}).\n"
+        f"Persona tone: {tone}\n"
+        f"Recent highlights: {highlights or '(none)'}\n"
+        f"Growth feedback to weave naturally if relevant: {growth_line or '(none)'}\n"
+        "Return only one compact winner interview line (max ~150 chars)."
+    )
+    model = _normalize_model_name(INTERACTIONS_MODEL, INTERACTIONS_MODEL)
+    try:
+        response = await asyncio.to_thread(
+            client.models.generate_content,
+            model=model,
+            contents=prompt,
+        )
+        raw = _to_json_safe(response)
+        fragments: list[str] = []
+        _collect_text_fragments(raw, fragments)
+        text = " ".join(dict.fromkeys(fragments)).strip()
+        if not text:
+            return fallback
+        return text[:180]
     except Exception as e:
         print(f"[AI] Failed to generate winner interview: {e}")
-    return f"Hey {loser_id}, better luck next time!"
+        return fallback
+
+
+async def _broadcast_winner_interview_and_bgm(
+    room_id: str,
+    winner_id: str,
+    loser_id: str,
+    loser_lang: str,
+) -> None:
+    interview_text = await _generate_winner_interview(room_id, winner_id, loser_id, loser_lang)
+    interview_payload = {
+        "type": "event",
+        "data": {
+            "event": "winner_interview",
+            "user": "server",
+            "target": loser_id,
+            "payload": {
+                "winner": winner_id,
+                "loser": loser_id,
+                "text": interview_text,
+                "lang": loser_lang,
+            },
+        },
+    }
+    await _broadcast_room(room_id, interview_payload)
+    asyncio.create_task(
+        _emit_victory_bgm(
+            room_id=room_id,
+            winner_id=winner_id,
+            loser_id=loser_id,
+            highlight_summary=interview_text,
+        )
+    )
 
 
 async def handle_game_connection(websocket: Any, request_path: str) -> None:
@@ -2327,6 +2830,174 @@ async def handle_game_connection(websocket: Any, request_path: str) -> None:
                         _record_room_event(room_id, user_id, wrapped["data"])
                         continue
 
+                    if (
+                        event_data.get("event") == "persona_shift_request"
+                        and isinstance(payload_obj, dict)
+                    ):
+                        target_user = str(event_data.get("target", user_id) or user_id)
+                        target_lang = _room_user_lang(room_id, target_user, default=lang)
+                        target_sync_rate = _clamp01(
+                            _to_float(
+                                room_user_meta.get(room_id, {}).get(target_user, {}).get("sync_rate", sync_rate),
+                                sync_rate,
+                            )
+                        )
+                        prompt = str(
+                            payload_obj.get("prompt", payload_obj.get("tone", payload_obj.get("style", "")))
+                        ).strip()
+                        requested_tone = _normalize_persona_tone(prompt or "balanced")
+
+                        profile = _load_user_profile(target_user, target_lang, target_sync_rate)
+                        robot = profile.get("robot", {})
+                        if not isinstance(robot, dict):
+                            robot = {}
+                        personality = robot.get("personality", {})
+                        if not isinstance(personality, dict):
+                            personality = {}
+                        previous_tone = str(personality.get("tone", "balanced"))
+                        personality["tone"] = requested_tone
+                        if prompt:
+                            personality["persona_prompt"] = prompt[:80]
+                        robot["personality"] = personality
+                        profile["robot"] = robot
+                        profile["ai_memory_summary"] = _append_memory_summary(
+                            str(profile.get("ai_memory_summary", "")),
+                            f"{datetime.now(timezone.utc).isoformat()} persona_shift: {requested_tone}",
+                        )
+                        _save_user_profile(profile)
+                        _ensure_runtime_state(room_id)["per_user"][target_user]["tone"] = requested_tone
+
+                        tone_payload = {
+                            "type": "event",
+                            "data": {
+                                "event": "buff_applied",
+                                "user": "server",
+                                "target": target_user,
+                                "payload": {
+                                    "kind": "persona_tone",
+                                    "tone": requested_tone,
+                                    "message": _tone_message(target_lang, requested_tone),
+                                    "prompt": prompt,
+                                    "previous_tone": previous_tone,
+                                },
+                            },
+                        }
+                        await _broadcast_room(room_id, tone_payload)
+                        _record_room_event(room_id, target_user, tone_payload["data"])
+                        await _broadcast_room(
+                            room_id,
+                            _profile_sync_payload(target_user, profile),
+                            target_user=target_user,
+                        )
+                        continue
+
+                    if (
+                        event_data.get("event") == "dna_ab_feedback"
+                        and isinstance(payload_obj, dict)
+                    ):
+                        target_user = str(event_data.get("target", user_id) or user_id)
+                        target_lang = _room_user_lang(room_id, target_user, default=lang)
+                        target_sync_rate = _clamp01(
+                            _to_float(
+                                room_user_meta.get(room_id, {}).get(target_user, {}).get("sync_rate", sync_rate),
+                                sync_rate,
+                            )
+                        )
+                        profile = _load_user_profile(target_user, target_lang, target_sync_rate)
+                        logs = profile.get("dna_ab_tests", [])
+                        if not isinstance(logs, list):
+                            logs = []
+
+                        choice = str(payload_obj.get("choice", "A")).strip().upper()
+                        if choice not in {"A", "B"}:
+                            choice = "A"
+                        note = str(payload_obj.get("note", "")).strip()[:120]
+                        score_a = _to_float(payload_obj.get("scoreA", payload_obj.get("score_a", 0.0)), 0.0)
+                        score_b = _to_float(payload_obj.get("scoreB", payload_obj.get("score_b", 0.0)), 0.0)
+                        entry = {
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "choice": choice,
+                            "score_a": round(score_a, 3),
+                            "score_b": round(score_b, 3),
+                            "note": note,
+                            "variant_a": payload_obj.get("variantA"),
+                            "variant_b": payload_obj.get("variantB"),
+                        }
+                        logs.append(entry)
+                        profile["dna_ab_tests"] = logs[-40:]
+                        profile["ai_memory_summary"] = _append_memory_summary(
+                            str(profile.get("ai_memory_summary", "")),
+                            f"{entry['timestamp']} dna_ab: choose={choice}, scoreA={score_a:.2f}, scoreB={score_b:.2f}",
+                        )
+                        _save_user_profile(profile)
+                        ack = {
+                            "type": "event",
+                            "data": {
+                                "event": "buff_applied",
+                                "user": "server",
+                                "target": target_user,
+                                "payload": {
+                                    "kind": "dna_ab_feedback_saved",
+                                    "choice": choice,
+                                    "total": len(profile["dna_ab_tests"]),
+                                },
+                            },
+                        }
+                        await _broadcast_room(room_id, ack, target_user=target_user)
+                        _record_room_event(room_id, target_user, ack["data"])
+                        continue
+
+                    if (
+                        event_data.get("event") == "walk_vision_trigger"
+                        and isinstance(payload_obj, dict)
+                    ):
+                        target_user = str(event_data.get("target", user_id) or user_id)
+                        trigger = str(
+                            payload_obj.get("trigger", payload_obj.get("kind", payload_obj.get("scene", "environment")))
+                        ).strip().lower()
+                        if not trigger:
+                            trigger = "environment"
+                        context = str(payload_obj.get("context", payload_obj.get("summary", ""))).strip()
+                        proactive_text = await _generate_proactive_line(
+                            user_id=target_user,
+                            room_id=room_id,
+                            trigger=trigger,
+                            context=context,
+                        )
+                        action = _vision_action_for_trigger(trigger)
+                        proactive_payload = {
+                            "type": "event",
+                            "data": {
+                                "event": "proactive_line",
+                                "user": "server",
+                                "target": target_user,
+                                "payload": {
+                                    "kind": "proactive_line",
+                                    "trigger": trigger,
+                                    "text": proactive_text,
+                                    "max_chars": PROACTIVE_LINE_MAX_CHARS,
+                                    "action": action,
+                                },
+                            },
+                        }
+                        await _broadcast_room(room_id, proactive_payload)
+                        _record_room_event(room_id, target_user, proactive_payload["data"])
+
+                        target_lang = _room_user_lang(room_id, target_user, default=lang)
+                        target_sync_rate = _clamp01(
+                            _to_float(
+                                room_user_meta.get(room_id, {}).get(target_user, {}).get("sync_rate", sync_rate),
+                                sync_rate,
+                            )
+                        )
+                        profile = _load_user_profile(target_user, target_lang, target_sync_rate)
+                        profile["ai_memory_summary"] = _append_memory_summary(
+                            str(profile.get("ai_memory_summary", "")),
+                            f"{datetime.now(timezone.utc).isoformat()} proactive({trigger}): {proactive_text}",
+                        )
+                        _save_user_profile(profile)
+                        continue
+
                     # Client-requested profile refresh (Doc 6 UI sync).
                     if (
                         event_data.get("event") == "buff_applied"
@@ -2381,6 +3052,93 @@ async def handle_game_connection(websocket: Any, request_path: str) -> None:
                         continue
 
                     # Reality Fusion Craft (Doc 9): request -> async texture generation -> broadcast item event.
+                    if (
+                        event_data.get("event") == "item_dropped"
+                        and isinstance(payload_obj, dict)
+                        and str(payload_obj.get("action", "")).strip().lower() == "reject_item"
+                    ):
+                        target_user = str(event_data.get("target", user_id) or user_id)
+                        target_lang = _room_user_lang(room_id, target_user, default=lang)
+                        target_sync_rate = _clamp01(
+                            _to_float(
+                                room_user_meta.get(room_id, {}).get(target_user, {}).get("sync_rate", sync_rate),
+                                sync_rate,
+                            )
+                        )
+                        reason = str(payload_obj.get("reason", "not_my_style")).strip() or "not_my_style"
+
+                        profile = _load_user_profile(target_user, target_lang, target_sync_rate)
+                        robot = profile.get("robot", {})
+                        if not isinstance(robot, dict):
+                            robot = {}
+                        personality = robot.get("personality", {})
+                        if not isinstance(personality, dict):
+                            personality = {}
+                        old_tone = str(personality.get("tone", "balanced"))
+                        reject_count = _to_int(
+                            personality.get("reject_item_count", payload_obj.get("reject_count", 0)),
+                            0,
+                        ) + 1
+                        personality["reject_item_count"] = reject_count
+                        if reject_count >= REJECT_ITEM_DISTRUST_THRESHOLD:
+                            personality["tone"] = "distrustful"
+                        new_tone = str(personality.get("tone", old_tone))
+                        robot["personality"] = personality
+                        profile["robot"] = robot
+                        profile["ai_memory_summary"] = _append_memory_summary(
+                            str(profile.get("ai_memory_summary", "")),
+                            (
+                                f"{datetime.now(timezone.utc).isoformat()} reject_item: "
+                                f"count={reject_count}, reason={reason}"
+                            ),
+                        )
+                        _save_user_profile(profile)
+                        _ensure_runtime_state(room_id)["per_user"][target_user]["tone"] = new_tone
+
+                        rejected_payload = {
+                            "type": "event",
+                            "data": {
+                                "event": "item_dropped",
+                                "user": "server",
+                                "target": target_user,
+                                "payload": {
+                                    "kind": "reject_item",
+                                    "action": "reject_item",
+                                    "reason": reason,
+                                    "reject_count": reject_count,
+                                    "threshold": REJECT_ITEM_DISTRUST_THRESHOLD,
+                                    "tone": new_tone,
+                                },
+                            },
+                        }
+                        await _broadcast_room(room_id, rejected_payload)
+                        _record_room_event(room_id, target_user, rejected_payload["data"])
+
+                        if new_tone != old_tone:
+                            tone_payload = {
+                                "type": "event",
+                                "data": {
+                                    "event": "buff_applied",
+                                    "user": "server",
+                                    "target": target_user,
+                                    "payload": {
+                                        "kind": "persona_tone",
+                                        "tone": new_tone,
+                                        "message": _tone_message(target_lang, new_tone),
+                                        "reject_count": reject_count,
+                                    },
+                                },
+                            }
+                            await _broadcast_room(room_id, tone_payload)
+                            _record_room_event(room_id, target_user, tone_payload["data"])
+
+                        await _broadcast_room(
+                            room_id,
+                            _profile_sync_payload(target_user, profile),
+                            target_user=target_user,
+                        )
+                        continue
+
                     if (
                         event_data.get("event") == "item_dropped"
                         and isinstance(payload_obj, dict)
@@ -2444,22 +3202,12 @@ async def handle_game_connection(websocket: Any, request_path: str) -> None:
                                 loser_lang = str(metrics.get("lang", "en-US"))
                                 
                         if winner_id and loser_id:
-                            interview_text = await _generate_winner_interview(winner_id, loser_id, loser_lang)
-                            interview_payload = {
-                                "type": "event",
-                                "data": {
-                                    "event": "winner_interview",
-                                    "user": "server",
-                                    "target": loser_id,
-                                    "payload": {
-                                        "winner": winner_id,
-                                        "loser": loser_id,
-                                        "text": interview_text,
-                                        "lang": loser_lang,
-                                    },
-                                },
-                            }
-                            await _broadcast_room(room_id, interview_payload)
+                            await _broadcast_winner_interview_and_bgm(
+                                room_id,
+                                winner_id,
+                                loser_id,
+                                loser_lang,
+                            )
                         continue
 
                     _record_room_event(room_id, user_id, event_data)

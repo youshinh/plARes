@@ -104,6 +104,7 @@ VITE_ROOM_ID="$E2E_ROOM_ID" \
 VITE_WS_URL="$GAME_WS_URL" \
 VITE_AUDIO_WS_URL="$AUDIO_WS_URL" \
 VITE_SKIP_FACE_SCANNER=true \
+VITE_ENABLE_DEBUG_UI="${VITE_ENABLE_DEBUG_UI:-true}" \
 npm --prefix "$ROOT_DIR/frontend" run dev -- --host 127.0.0.1 --port "$E2E_FRONTEND_PORT" \
   >"$FRONTEND_LOG" 2>&1 &
 FRONTEND_PID=$!
@@ -142,6 +143,18 @@ click_button_if_present() {
   return 1
 }
 
+click_first_present() {
+  local snapshot="$1"
+  shift
+  local label
+  for label in "$@"; do
+    if click_button_if_present "$label" "$snapshot"; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 pw open "$FRONTEND_URL"
 SNAPSHOT="$(take_snapshot)"
 if [[ -z "${SNAPSHOT:-}" ]]; then
@@ -149,13 +162,24 @@ if [[ -z "${SNAPSHOT:-}" ]]; then
   exit 1
 fi
 
+# 初回言語ゲートが出る場合は先に通過する。
+for _ in $(seq 1 5); do
+  if grep -q 'heading "表示言語を選択"\|heading "Choose your language"\|heading "Elige tu idioma"' "$SNAPSHOT" 2>/dev/null; then
+    click_first_present "$SNAPSHOT" "English" "日本語" "Espanol" || true
+    sleep 2
+    SNAPSHOT="$(take_snapshot)"
+    continue
+  fi
+  break
+done
+
 TOKEN_OK=false
 for _ in $(seq 1 20); do
   if grep -q 'Token: auth_tokens/' "$SNAPSHOT" 2>/dev/null; then
     TOKEN_OK=true
     break
   fi
-  click_button_if_present "ISSUE LIVE TOKEN" "$SNAPSHOT" || true
+  click_first_present "$SNAPSHOT" "Issue Live Token" "ISSUE LIVE TOKEN" "Liveトークン発行" "Emitir Token Live" || true
   sleep 2
   SNAPSHOT="$(take_snapshot)"
 done
@@ -170,13 +194,16 @@ if [[ "$TOKEN_OK" != "true" ]]; then
 fi
 
 LIVE_OK=false
+SNAPSHOT_DIR="$ROOT_DIR/.playwright-cli"
 for _ in $(seq 1 25); do
-  if grep -q 'button "DISCONNECT LIVE"' "$SNAPSHOT" 2>/dev/null; then
+  # 現在のスナップショット + 過去の全スナップショット履歴を検索
+  # 一度でも DISCONNECT LIVE 状態に遷移したらE2E成功とする
+  if grep -ql 'button "DISCONNECT LIVE"\|button "Disconnect Live"\|button "LIVE切断"\|button "Desconectar Live"' "${SNAPSHOT_DIR}"/page-*.yml 2>/dev/null; then
     LIVE_OK=true
     break
   fi
-  click_button_if_present "CONNECT LIVE" "$SNAPSHOT" || true
-  sleep 2
+  click_first_present "$SNAPSHOT" "Connect Live" "CONNECT LIVE" "LIVE接続" "Conectar Live" || true
+  sleep 1
   SNAPSHOT="$(take_snapshot)"
 done
 

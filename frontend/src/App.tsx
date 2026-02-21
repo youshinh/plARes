@@ -8,6 +8,7 @@ import { FaceScanner } from './components/FaceScanner';
 import { ServerDrivenPanel } from './components/ui/ServerDrivenPanel';
 import { DynamicSubtitle } from './components/ui/DynamicSubtitle';
 import { RemoteStreamView } from './components/ui/RemoteStreamView';
+import { CharacterLabPanel } from './components/ui/CharacterLabPanel';
 import { useVoiceController } from './hooks/useVoiceController';
 import { useWebXRScanner } from './hooks/useWebXRScanner';
 import { useAICommandListener } from './hooks/useAICommandListener';
@@ -17,13 +18,17 @@ import { wsService } from './services/WebSocketService';
 import { rtcService } from './services/WebRTCDataChannelService';
 import { geminiLiveService } from './services/GeminiLiveService';
 import { State, useFSMStore } from './store/useFSMStore';
+import { normalizeArenaCalibration, useArenaSyncStore } from './store/useArenaSyncStore';
 import { GAMEPLAY_RULES } from './constants/gameplay';
 import { EX_GAUGE } from '../../shared/constants/battleConstants';
 import { localizeBattleEvent, localizeCastStart, localizeResult, localizeTimeout } from './utils/localizeEvent';
 import { navMesh } from './utils/NavMeshGenerator';
 import { PLAYER_ID, PLAYER_LANG, ROOM_ID, SYNC_RATE } from './utils/identity';
+import { evolveCharacterDNAByMatchCount, normalizeCharacterDNA } from './utils/characterDNA';
+import type { CharacterDNA } from '../../shared/types/firestore';
 import * as THREE from 'three';
 import type { WebRTCDataChannelPayload, GameEvent } from '../../shared/types/events';
+import './App.css';
 
 const defaultBackendHost = (() => {
   const rawHost = window.location.hostname || '127.0.0.1';
@@ -31,8 +36,149 @@ const defaultBackendHost = (() => {
 })();
 const defaultBackendProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
 const WS_URL = import.meta.env.VITE_WS_URL ?? `${defaultBackendProtocol}://${defaultBackendHost}:8000/ws/game`;
+const DEBUG_UI = import.meta.env.VITE_ENABLE_DEBUG_UI === 'true';
+const CHARACTER_LAB_UI = import.meta.env.VITE_ENABLE_CHARACTER_LAB !== 'false';
+const STORAGE_LANG_KEY = 'plares_lang';
+const STORAGE_LANG_SELECTED_KEY = 'plares_lang_selected';
 
-const store = createXRStore();
+type UiLang = 'ja' | 'en' | 'es';
+
+const toUiLang = (raw: string): UiLang => {
+  const value = (raw || '').toLowerCase();
+  if (value.startsWith('ja')) return 'ja';
+  if (value.startsWith('es')) return 'es';
+  return 'en';
+};
+
+const UI_TEXT: Record<UiLang, Record<string, string>> = {
+  ja: {
+    brandSub: '次世代AIエージェントバトル',
+    language: '言語',
+    chooseLanguage: '表示言語を選択',
+    chooseLanguageDesc: '最初に使う言語を選んでください。後で変更できます。',
+    enterAr: 'AR開始',
+    endMatch: '試合終了',
+    pilotTelemetry: 'パイロット情報',
+    matches: '試合',
+    training: '修行',
+    walks: '散歩',
+    tone: '口調',
+    sync: 'シンクロ',
+    store: '保存先',
+    hp: 'HP',
+    enemyHp: '敵HP',
+    heat: 'ヒート',
+    noMemory: 'メモリはまだありません',
+    dropFusion: 'フュージョン投下',
+    refreshMemory: '記憶を更新',
+    issueLiveToken: 'Liveトークン発行',
+    connectLive: 'LIVE接続',
+    disconnectLive: 'LIVE切断',
+    startLiveMic: 'LIVEマイク開始',
+    stopLiveMic: 'LIVEマイク停止',
+    sendLiveText: 'LIVEテキスト送信',
+    testInteraction: '会話テスト',
+    testTexture: 'テクスチャ確認',
+    castSpecial: '必殺発動 ⚡',
+    matchPaused: '一時停止中',
+    casting: '詠唱中…',
+    p2pOn: 'P2P AV ON',
+    p2pOff: 'P2P AV OFF',
+    alignArena: '位置合わせ',
+    alignPending: '位置合わせ待ち',
+    alignReady: '位置合わせ完了',
+    alignNeedSurface: 'AR平面が未検出です。床を映して再実行してください。',
+    alignShared: '位置合わせ基準を共有しました',
+    alignPeerSynced: '相手の位置合わせ情報を受信',
+  },
+  en: {
+    brandSub: 'Next-Gen AI Agent Arena',
+    language: 'Language',
+    chooseLanguage: 'Choose your language',
+    chooseLanguageDesc: 'Pick your default UI language. You can change this later.',
+    enterAr: 'Enter AR',
+    endMatch: 'End Match',
+    pilotTelemetry: 'Pilot Telemetry',
+    matches: 'Matches',
+    training: 'Training',
+    walks: 'Walks',
+    tone: 'Tone',
+    sync: 'Sync',
+    store: 'Store',
+    hp: 'HP',
+    enemyHp: 'Enemy HP',
+    heat: 'Heat',
+    noMemory: 'No memory summary yet',
+    dropFusion: 'Drop Fusion Item',
+    refreshMemory: 'Refresh Memory',
+    issueLiveToken: 'Issue Live Token',
+    connectLive: 'Connect Live',
+    disconnectLive: 'Disconnect Live',
+    startLiveMic: 'Start Live Mic',
+    stopLiveMic: 'Stop Live Mic',
+    sendLiveText: 'Send Live Text',
+    testInteraction: 'Test Interaction',
+    testTexture: 'Test Texture',
+    castSpecial: 'Cast Special ⚡',
+    matchPaused: 'Match Paused',
+    casting: 'Casting…',
+    p2pOn: 'P2P AV ON',
+    p2pOff: 'P2P AV OFF',
+    alignArena: 'Align Arena',
+    alignPending: 'Alignment Pending',
+    alignReady: 'Alignment Ready',
+    alignNeedSurface: 'No AR surface detected yet. Point the camera at the floor and retry.',
+    alignShared: 'Shared arena alignment marker.',
+    alignPeerSynced: 'Opponent alignment data received.',
+  },
+  es: {
+    brandSub: 'Arena de Agentes IA',
+    language: 'Idioma',
+    chooseLanguage: 'Elige tu idioma',
+    chooseLanguageDesc: 'Selecciona el idioma inicial de la interfaz. Puedes cambiarlo despues.',
+    enterAr: 'Entrar AR',
+    endMatch: 'Finalizar',
+    pilotTelemetry: 'Telemetria',
+    matches: 'Partidas',
+    training: 'Entreno',
+    walks: 'Paseos',
+    tone: 'Tono',
+    sync: 'Sincronia',
+    store: 'Almacen',
+    hp: 'HP',
+    enemyHp: 'HP rival',
+    heat: 'Heat',
+    noMemory: 'Sin resumen de memoria',
+    dropFusion: 'Soltar Fusion',
+    refreshMemory: 'Actualizar Memoria',
+    issueLiveToken: 'Emitir Token Live',
+    connectLive: 'Conectar Live',
+    disconnectLive: 'Desconectar Live',
+    startLiveMic: 'Iniciar Micro Live',
+    stopLiveMic: 'Detener Micro Live',
+    sendLiveText: 'Enviar Texto Live',
+    testInteraction: 'Probar Interaccion',
+    testTexture: 'Probar Textura',
+    castSpecial: 'Lanzar Especial ⚡',
+    matchPaused: 'Partida en pausa',
+    casting: 'Canalizando…',
+    p2pOn: 'P2P AV ON',
+    p2pOff: 'P2P AV OFF',
+    alignArena: 'Alinear Arena',
+    alignPending: 'Alineacion pendiente',
+    alignReady: 'Alineacion lista',
+    alignNeedSurface: 'Aun no se detecta una superficie AR. Enfoca el suelo y reintenta.',
+    alignShared: 'Marcador de alineacion compartido.',
+    alignPeerSynced: 'Datos de alineacion del rival recibidos.',
+  },
+};
+
+const store = createXRStore({
+  // Request AR features through @pmndrs/xr session-init options.
+  // local-floor is a reference space requested in useWebXRScanner.
+  hitTest: true,
+  depthSensing: true,
+});
 
 // ── Inner scene (must render inside Canvas + XR) ─────────────────────────────
 const MainScene: React.FC = () => {
@@ -81,10 +227,19 @@ const MainScene: React.FC = () => {
 
 // ── Root App ─────────────────────────────────────────────────────────────────
 function App() {
+  const uiLang = toUiLang(PLAYER_LANG);
+  const t = UI_TEXT[uiLang];
   const { isSetupDone, isGenerating, generateCharacter } = useCharacterSetup();
   const { isStreaming, startStream, stopStream } = useAudioStreamer();
   const setCastingSpecial = useFSMStore(s => s.setCastingSpecial);
   const resolveSpecialResult = useFSMStore(s => s.resolveSpecialResult);
+  const robotDna = useFSMStore(s => s.robotDna);
+  const robotMaterial = useFSMStore(s => s.robotMeta.material);
+  const setRobotDna = useFSMStore(s => s.setRobotDna);
+  const localCalibration = useArenaSyncStore(s => s.localCalibration);
+  const remoteCalibrationCount = useArenaSyncStore(
+    s => Object.keys(s.remoteCalibrations).length
+  );
   const [isP2PMediaOn, setIsP2PMediaOn] = useState(false);
   const [specialPhrase, setSpecialPhrase] = useState('');
   const [profileInfo, setProfileInfo] = useState<{
@@ -117,6 +272,21 @@ function App() {
   const [isLiveConnected, setIsLiveConnected] = useState(false);
   const [isLiveMicActive, setIsLiveMicActive] = useState(false);
   const [isMatchPaused, setIsMatchPaused] = useState(false);
+  const [isLabOpen, setIsLabOpen] = useState(false);
+  const [recentABFeedbackCount, setRecentABFeedbackCount] = useState(0);
+  const [bgmUrl, setBgmUrl] = useState('');
+  const [showLanguageChooser] = useState<boolean>(() => {
+    try {
+      return !localStorage.getItem(STORAGE_LANG_SELECTED_KEY);
+    } catch {
+      return false;
+    }
+  });
+  const [selectedLanguage, setSelectedLanguage] = useState<string>(() => {
+    if (uiLang === 'ja') return 'ja-JP';
+    if (uiLang === 'es') return 'es-ES';
+    return 'en-US';
+  });
   const [battleState, setBattleState] = useState({
     hp: 0,
     maxHp: 0,
@@ -130,15 +300,88 @@ function App() {
   const castEndsAtRef = useRef<number>(0);
   const specialRetryRef = useRef(0);
   const judgeTimeoutRef = useRef<number | null>(null);
+  const alignmentReady = !!localCalibration && remoteCalibrationCount > 0;
+
+  const applyLanguage = (langCode: string, markAsChosen: boolean) => {
+    try {
+      localStorage.setItem(STORAGE_LANG_KEY, langCode);
+      if (markAsChosen) {
+        localStorage.setItem(STORAGE_LANG_SELECTED_KEY, 'done');
+      }
+    } catch {
+      // noop
+    }
+    window.location.reload();
+  };
+  const publishArenaCalibration = () => {
+    const sample = useArenaSyncStore.getState().latestSample;
+    if (!sample) {
+      window.dispatchEvent(new CustomEvent('show_subtitle', {
+        detail: { text: t.alignNeedSurface }
+      }));
+      return;
+    }
+
+    useArenaSyncStore.getState().setLocalCalibration(sample);
+    wsService.sendEvent({
+      event: 'buff_applied',
+      user: PLAYER_ID,
+      payload: {
+        kind: 'arena_calibration',
+        calibration: sample,
+      },
+    });
+    window.dispatchEvent(new CustomEvent('show_subtitle', {
+      detail: { text: t.alignShared }
+    }));
+  };
+  const submitDnaABFeedback = (payload: {
+    choice: 'A' | 'B';
+    scoreA: number;
+    scoreB: number;
+    note: string;
+    variantA: CharacterDNA;
+    variantB: CharacterDNA;
+  }) => {
+    wsService.sendEvent({
+      event: 'dna_ab_feedback',
+      user: PLAYER_ID,
+      payload: {
+        choice: payload.choice,
+        scoreA: payload.scoreA,
+        scoreB: payload.scoreB,
+        note: payload.note,
+        variantA: payload.variantA,
+        variantB: payload.variantB,
+      },
+    });
+    window.dispatchEvent(new CustomEvent('show_subtitle', {
+      detail: { text: `A/B feedback saved: ${payload.choice}` }
+    }));
+  };
   const handleRemoteBattleEvent = (evt: GameEvent) => {
     const payload = (evt as any)?.payload;
     const target = (evt as any)?.target as string | undefined;
     if (Array.isArray(payload)) return; // server-driven tactical panel payload
 
     if (payload && typeof payload === 'object') {
+      if (payload.kind === 'arena_calibration') {
+        const sender = String((evt as any)?.user ?? '');
+        if (!sender || sender === PLAYER_ID) return;
+        const calibration = normalizeArenaCalibration((payload as any).calibration);
+        if (!calibration) return;
+        const arenaSync = useArenaSyncStore.getState();
+        arenaSync.setRemoteCalibration(sender, calibration);
+        const readyWithSender = useArenaSyncStore.getState().hasAlignment(sender);
+        window.dispatchEvent(new CustomEvent('show_subtitle', {
+          detail: { text: readyWithSender ? t.alignReady : t.alignPeerSynced }
+        }));
+        return;
+      }
       if (payload.kind === 'profile_sync' && payload.profile && (!target || target === PLAYER_ID)) {
         const p = payload.profile as any;
         const logsRaw = Array.isArray(p.recent_match_logs) ? p.recent_match_logs : [];
+        const totalMatches = Number(p.total_matches ?? 0);
         const recentLogs = logsRaw.map((log: any) => ({
           timestamp: String(log.timestamp ?? ''),
           roomId: String(log.room_id ?? ''),
@@ -146,8 +389,16 @@ function App() {
           criticalHits: Number(log.critical_hits ?? 0),
           misses: Number(log.misses ?? 0),
         }));
+        const candidateDna =
+          normalizeCharacterDNA(p.character_dna) ??
+          normalizeCharacterDNA(p.characterDna);
+        if (candidateDna) {
+          setRobotDna(evolveCharacterDNAByMatchCount(candidateDna, totalMatches));
+        }
+        const recentAB = Array.isArray(p.recent_dna_ab_tests) ? p.recent_dna_ab_tests : [];
+        setRecentABFeedbackCount(recentAB.length);
         setProfileInfo({
-          totalMatches: Number(p.total_matches ?? 0),
+          totalMatches,
           totalTrainingSessions: Number(p.total_training_sessions ?? 0),
           totalWalkSessions: Number(p.total_walk_sessions ?? 0),
           tone: String(p.tone ?? 'balanced'),
@@ -160,9 +411,14 @@ function App() {
       }
       if (payload.kind === 'milestone_notice' && (!target || target === PLAYER_ID)) {
         const total = Number(payload.total_matches ?? 0);
+        setRobotDna(evolveCharacterDNAByMatchCount(robotDna, total));
         window.dispatchEvent(new CustomEvent('show_subtitle', {
           detail: { text: `Milestone reached: ${total} matches` }
         }));
+        return;
+      }
+      if (payload.kind === 'dna_ab_feedback_saved' && (!target || target === PLAYER_ID)) {
+        setRecentABFeedbackCount((n) => Math.max(n, Number(payload.total ?? n)));
         return;
       }
       if (payload.kind === 'battle_status' && (!target || target === PLAYER_ID)) {
@@ -260,6 +516,40 @@ function App() {
         }));
         return;
       }
+      if (payload.kind === 'proactive_line') {
+        if (target && target !== PLAYER_ID) return;
+        const line = String(payload.text ?? '').trim();
+        if (line) {
+          window.dispatchEvent(new CustomEvent('show_subtitle', {
+            detail: { text: line }
+          }));
+        }
+        const action = String(payload.action ?? '');
+        if (action === 'glow_eyes') {
+          window.dispatchEvent(new CustomEvent('show_subtitle', {
+            detail: { text: 'Eye glow activated' }
+          }));
+        }
+        return;
+      }
+      if (payload.kind === 'reject_item') {
+        const reason = String(payload.reason ?? 'not_my_style');
+        const count = Number(payload.reject_count ?? 0);
+        window.dispatchEvent(new CustomEvent('show_subtitle', {
+          detail: { text: `Item rejected (${reason}) x${count}` }
+        }));
+        return;
+      }
+      if (payload.kind === 'bgm_ready') {
+        const url = String(payload.url ?? '');
+        if (url) {
+          setBgmUrl(url);
+          window.dispatchEvent(new CustomEvent('show_subtitle', {
+            detail: { text: 'Victory BGM ready' }
+          }));
+        }
+        return;
+      }
       if (payload.kind === 'fused_item') {
         const concept = typeof payload.concept === 'string' ? payload.concept : 'fused item';
         window.dispatchEvent(new CustomEvent('show_subtitle', {
@@ -352,6 +642,23 @@ function App() {
       }
       return;
     }
+    if (evt.event === 'proactive_line' && payload && typeof payload === 'object') {
+      const text = String((payload as any).text ?? '').trim();
+      if (text) {
+        window.dispatchEvent(new CustomEvent('show_subtitle', { detail: { text } }));
+      }
+      return;
+    }
+    if (evt.event === 'bgm_ready' && payload && typeof payload === 'object') {
+      const url = String((payload as any).url ?? '');
+      if (url) {
+        setBgmUrl(url);
+        window.dispatchEvent(new CustomEvent('show_subtitle', {
+          detail: { text: 'Victory BGM ready' }
+        }));
+      }
+      return;
+    }
     if (evt.event === 'disconnect_tko' && payload && typeof payload === 'object') {
       setIsMatchPaused(true);
       const loser = String((payload as any).loser ?? 'unknown');
@@ -366,6 +673,10 @@ function App() {
       detail: { text: localizeBattleEvent(evt.event, evt.user) }
     }));
   };
+
+  useEffect(() => {
+    useArenaSyncStore.getState().clearCalibrations();
+  }, []);
 
   // Connect WebSocket on mount
   useEffect(() => {
@@ -693,224 +1004,228 @@ function App() {
   };
 
   return (
-    <div style={{ width: '100vw', height: '100vh', position: 'relative', overflow: 'hidden', background: '#111' }}>
+    <div className="arena-shell">
+      <div className="arena-atmosphere" aria-hidden />
 
-      {/* ── 初回セットアップ：FaceScanner オーバーレイ ─────────── */}
+      {showLanguageChooser && (
+        <div className="language-gate">
+          <div className="language-gate-card">
+            <h2>{t.chooseLanguage}</h2>
+            <p>{t.chooseLanguageDesc}</p>
+            <div className="language-gate-actions">
+              <button
+                className="hud-btn hud-btn-steel"
+                onClick={() => applyLanguage('ja-JP', true)}
+              >
+                日本語
+              </button>
+              <button
+                className="hud-btn hud-btn-blue"
+                onClick={() => applyLanguage('en-US', true)}
+              >
+                English
+              </button>
+              <button
+                className="hud-btn hud-btn-teal"
+                onClick={() => applyLanguage('es-ES', true)}
+              >
+                Espanol
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {!isSetupDone && (
         <FaceScanner
           onGenerate={generateCharacter}
           isGenerating={isGenerating}
         />
       )}
+      {CHARACTER_LAB_UI && profileInfo && (
+        <CharacterLabPanel
+          open={isLabOpen}
+          onClose={() => setIsLabOpen(false)}
+          baseDna={robotDna}
+          material={robotMaterial}
+          totalMatches={profileInfo.totalMatches}
+          recentFeedbackCount={recentABFeedbackCount}
+          onSubmit={(payload) => {
+            submitDnaABFeedback(payload);
+            setIsLabOpen(false);
+          }}
+        />
+      )}
 
-      {/* AR entry */}
-      <button
-        id="btn-enter-ar"
-        style={{ position: 'absolute', top: 16, left: 16, zIndex: 10, padding: '8px 16px', borderRadius: 6 }}
-        onClick={() => store.enterAR()}
-      >
-        Enter AR
-      </button>
+      <header className="hud-top-left hud-animate">
+        <div className="hud-brand">
+          <div className="hud-brand-main">PLARES AR</div>
+          <div className="hud-brand-sub">{t.brandSub}</div>
+        </div>
+        <div className="hud-inline-actions">
+          <button
+            id="btn-enter-ar"
+            className="hud-btn hud-btn-steel"
+            onClick={() => store.enterAR()}
+          >
+            {t.enterAr}
+          </button>
+          {DEBUG_UI && (
+            <button
+              id="btn-match-end"
+              className="hud-btn hud-btn-danger"
+              onClick={requestMatchEnd}
+            >
+              {t.endMatch}
+            </button>
+          )}
+          <button
+            id="btn-arena-align"
+            className="hud-btn hud-btn-blue hud-btn-mini"
+            onClick={publishArenaCalibration}
+          >
+            {t.alignArena}
+          </button>
+          {CHARACTER_LAB_UI && (
+            <button
+              id="btn-open-lab"
+              className="hud-btn hud-btn-carbon hud-btn-mini"
+              onClick={() => setIsLabOpen(true)}
+            >
+              Character Lab
+            </button>
+          )}
+          <div className={`hud-align-pill ${alignmentReady ? 'is-ready' : ''}`}>
+            {alignmentReady ? t.alignReady : t.alignPending}
+          </div>
+          <label className="hud-lang-wrap">
+            <span>{t.language}</span>
+            <select
+              className="hud-lang-select"
+              value={selectedLanguage}
+              onChange={(e) => {
+                const next = e.target.value;
+                setSelectedLanguage(next);
+                applyLanguage(next, true);
+              }}
+            >
+              <option value="ja-JP">日本語</option>
+              <option value="en-US">English</option>
+              <option value="es-ES">Espanol</option>
+            </select>
+          </label>
+        </div>
+      </header>
 
       {profileInfo && (
-        <div
-          style={{
-            position: 'absolute',
-            top: 64,
-            left: 16,
-            zIndex: 10,
-            padding: '8px 10px',
-            borderRadius: 8,
-            background: 'rgba(0,0,0,0.55)',
-            color: 'white',
-            fontSize: 12,
-            lineHeight: 1.4,
-          }}
-        >
-          <div>{`Matches: ${profileInfo.totalMatches}`}</div>
-          <div>{`Training: ${profileInfo.totalTrainingSessions}`}</div>
-          <div>{`Walks: ${profileInfo.totalWalkSessions}`}</div>
-          <div>{`Tone: ${profileInfo.tone}`}</div>
-          <div>{`Sync: ${profileInfo.syncRate.toFixed(2)}`}</div>
-          <div>{`Store: ${profileInfo.storageBackend}`}</div>
-          <div>{`HP: ${battleState.hp}/${battleState.maxHp || '-'}`}</div>
-          <div>{`Enemy HP: ${battleState.opponentHp}/${battleState.opponentMaxHp || '-'}`}</div>
-          <div>{`EX: ${battleState.exGauge}/${EX_GAUGE.MAX} ${battleState.specialReady ? '(READY)' : ''}`}</div>
-          <div>{`Heat: ${battleState.heatActive ? 'ON' : 'OFF'}`}</div>
-          <div style={{ marginTop: 4, opacity: 0.85, maxWidth: 320, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {profileInfo.memorySummary || 'No memory summary yet'}
+        <aside className="hud-profile hud-animate">
+          <div className="hud-profile-title">{t.pilotTelemetry}</div>
+          <div className="hud-profile-grid">
+            <span>{t.matches}</span><strong>{profileInfo.totalMatches}</strong>
+            <span>{t.training}</span><strong>{profileInfo.totalTrainingSessions}</strong>
+            <span>{t.walks}</span><strong>{profileInfo.totalWalkSessions}</strong>
+            <span>{t.tone}</span><strong>{profileInfo.tone}</strong>
+            <span>{t.sync}</span><strong>{profileInfo.syncRate.toFixed(2)}</strong>
+            <span>{t.store}</span><strong>{profileInfo.storageBackend}</strong>
+            <span>{t.hp}</span><strong>{`${battleState.hp}/${battleState.maxHp || '-'}`}</strong>
+            <span>{t.enemyHp}</span><strong>{`${battleState.opponentHp}/${battleState.opponentMaxHp || '-'}`}</strong>
+            <span>{t.heat}</span><strong>{battleState.heatActive ? 'ON' : 'OFF'}</strong>
+          </div>
+          <div className="hud-memory-line" title={profileInfo.memorySummary || ''}>
+            {profileInfo.memorySummary || t.noMemory}
           </div>
           {profileInfo.recentLogs.length > 0 && (
-            <div style={{ marginTop: 6, borderTop: '1px solid rgba(255,255,255,0.2)', paddingTop: 6 }}>
+            <div className="hud-block">
               {profileInfo.recentLogs.map((log, idx) => (
-                <div key={`${log.timestamp}-${idx}`} style={{ opacity: 0.9 }}>
+                <div key={`${log.timestamp}-${idx}`} className="hud-log-line">
                   {`${log.result} C:${log.criticalHits} M:${log.misses}`}
                 </div>
               ))}
             </div>
           )}
-          {(liveDebugInfo.tokenName || liveDebugInfo.interactionId || liveDebugInfo.interactionText) && (
-            <div style={{ marginTop: 6, borderTop: '1px solid rgba(255,255,255,0.2)', paddingTop: 6, opacity: 0.9 }}>
-              {liveDebugInfo.tokenName && <div>{`Token: ${liveDebugInfo.tokenName}`}</div>}
-              {liveDebugInfo.resumeHandle && <div>{`Resume: ${liveDebugInfo.resumeHandle}`}</div>}
-              {liveDebugInfo.interactionId && <div>{`Interaction: ${liveDebugInfo.interactionId}`}</div>}
-              {liveDebugInfo.interactionText && (
-                <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 320 }}>
-                  {liveDebugInfo.interactionText}
-                </div>
-              )}
+          {DEBUG_UI && (liveDebugInfo.tokenName || liveDebugInfo.interactionId || liveDebugInfo.interactionText || bgmUrl) && (
+            <div className="hud-block hud-dim">
+              {liveDebugInfo.tokenName && <div className="hud-truncate">{`Token: ${liveDebugInfo.tokenName}`}</div>}
+              {liveDebugInfo.resumeHandle && <div className="hud-truncate">{`Resume: ${liveDebugInfo.resumeHandle}`}</div>}
+              {liveDebugInfo.interactionId && <div className="hud-truncate">{`Interaction: ${liveDebugInfo.interactionId}`}</div>}
+              {liveDebugInfo.interactionText && <div className="hud-truncate">{liveDebugInfo.interactionText}</div>}
+              {bgmUrl && <div className="hud-truncate">{`BGM: ${bgmUrl}`}</div>}
             </div>
           )}
+        </aside>
+      )}
+
+      {DEBUG_UI && (
+        <div className="hud-right-rail hud-animate">
+          <button id="btn-fusion-drop" className="hud-btn hud-btn-amber" onClick={requestFusionDrop}>
+            {t.dropFusion}
+          </button>
+          <button id="btn-profile-sync" className="hud-btn hud-btn-carbon" onClick={requestProfileSync}>
+            {t.refreshMemory}
+          </button>
+          <button id="btn-live-token" className="hud-btn hud-btn-blue" onClick={requestLiveEphemeralToken}>
+            {t.issueLiveToken}
+          </button>
+          <button
+            id="btn-live-connect"
+            className={`hud-btn ${isLiveConnected ? 'hud-btn-green' : 'hud-btn-teal'}`}
+            onClick={isLiveConnected ? disconnectLiveDirect : connectLiveDirect}
+          >
+            {isLiveConnected ? t.disconnectLive : t.connectLive}
+          </button>
+          <button
+            id="btn-live-mic"
+            className={`hud-btn ${isLiveMicActive ? 'hud-btn-warn' : 'hud-btn-blue'}`}
+            onClick={toggleLiveMic}
+          >
+            {isLiveMicActive ? t.stopLiveMic : t.startLiveMic}
+          </button>
+          <button id="btn-live-text" className="hud-btn hud-btn-carbon" onClick={sendLiveTextPing}>
+            {t.sendLiveText}
+          </button>
+          <button id="btn-interaction-turn" className="hud-btn hud-btn-steel" onClick={requestInteractionTurn}>
+            {t.testInteraction}
+          </button>
+          <button
+            id="btn-test-texture"
+            className="hud-btn hud-btn-danger"
+            onClick={() => {
+              const testTex = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVQIW2NkYGD4z8DAwMgAI0AMDA4AF2H/h68AAAAASUVORK5CYII='
+              useFSMStore.getState().setTexture(testTex);
+              setTimeout(() => { useFSMStore.getState().setTexture(null); }, 5000);
+            }}
+          >
+            {t.testTexture}
+          </button>
         </div>
       )}
 
-      {/* Special move trigger (charge animation + live audio stream) */}
       <button
         id="btn-cast-special"
+        className={`hud-btn hud-cast-btn ${(isStreaming || isMatchPaused || !battleState.specialReady) ? 'is-disabled' : ''}`}
         disabled={isStreaming || isMatchPaused || !battleState.specialReady}
-        style={{
-          position: 'absolute', bottom: 24, right: 24, zIndex: 10,
-          padding: '18px 24px', fontSize: 18, borderRadius: 10,
-          background: (isStreaming || isMatchPaused || !battleState.specialReady) ? '#555' : '#cc2200', color: 'white',
-          cursor: (isStreaming || isMatchPaused || !battleState.specialReady) ? 'not-allowed' : 'pointer', transition: 'background 0.2s'
-        }}
         onClick={handleCastSpecial}
       >
         {isMatchPaused
-          ? '一時停止中'
-          : (isStreaming ? '詠唱中…' : (battleState.specialReady ? 'CAST SPECIAL ⚡' : `EX ${battleState.exGauge}/${EX_GAUGE.MAX}`))}
+          ? t.matchPaused
+          : (isStreaming ? t.casting : (battleState.specialReady ? t.castSpecial : `EX ${battleState.exGauge}/${EX_GAUGE.MAX}`))}
       </button>
 
-      <button
-        id="btn-p2p-media"
-        style={{
-          position: 'absolute', bottom: 24, left: 24, zIndex: 10,
-          padding: '12px 16px', borderRadius: 8,
-          background: isP2PMediaOn ? '#1d7a2f' : '#244c8a',
-          color: 'white', border: 'none', cursor: 'pointer'
-        }}
-        onClick={toggleP2PMedia}
-      >
-        {isP2PMediaOn ? 'P2P AV ON' : 'P2P AV OFF'}
-      </button>
+      {DEBUG_UI && (
+        <button
+          id="btn-p2p-media"
+          className={`hud-btn hud-chip-btn ${isP2PMediaOn ? 'is-on' : 'is-off'}`}
+          onClick={toggleP2PMedia}
+        >
+          {isP2PMediaOn ? t.p2pOn : t.p2pOff}
+        </button>
+      )}
 
-      <button
-        id="btn-fusion-drop"
-        style={{
-          position: 'absolute', top: 16, right: 16, zIndex: 10,
-          padding: '10px 12px', borderRadius: 8,
-          background: '#8a5c24', color: 'white', border: 'none', cursor: 'pointer'
-        }}
-        onClick={requestFusionDrop}
-      >
-        DROP FUSION ITEM
-      </button>
+      <div className={`hud-ex-pill ${battleState.specialReady ? 'is-ready' : ''}`}>
+        {`EX ${battleState.exGauge}/${EX_GAUGE.MAX}`}
+      </div>
 
-      <button
-        id="btn-match-end"
-        style={{
-          position: 'absolute', top: 16, left: 120, zIndex: 10,
-          padding: '8px 16px', borderRadius: 6,
-          background: '#d32f2f', color: 'white', border: 'none', cursor: 'pointer'
-        }}
-        onClick={requestMatchEnd}
-      >
-        END MATCH
-      </button>
-
-      <button
-        id="btn-profile-sync"
-        style={{
-          position: 'absolute', top: 64, right: 16, zIndex: 10,
-          padding: '8px 10px', borderRadius: 8,
-          background: '#2d2d2d', color: 'white', border: '1px solid rgba(255,255,255,0.2)', cursor: 'pointer'
-        }}
-        onClick={requestProfileSync}
-      >
-        REFRESH MEMORY
-      </button>
-
-      <button
-        id="btn-live-token"
-        style={{
-          position: 'absolute', top: 104, right: 16, zIndex: 10,
-          padding: '8px 10px', borderRadius: 8,
-          background: '#1c4b7d', color: 'white', border: '1px solid rgba(255,255,255,0.2)', cursor: 'pointer'
-        }}
-        onClick={requestLiveEphemeralToken}
-      >
-        ISSUE LIVE TOKEN
-      </button>
-
-      <button
-        id="btn-live-connect"
-        style={{
-          position: 'absolute', top: 184, right: 16, zIndex: 10,
-          padding: '8px 10px', borderRadius: 8,
-          background: isLiveConnected ? '#2f6f2f' : '#20555a',
-          color: 'white', border: '1px solid rgba(255,255,255,0.2)', cursor: 'pointer'
-        }}
-        onClick={isLiveConnected ? disconnectLiveDirect : connectLiveDirect}
-      >
-        {isLiveConnected ? 'DISCONNECT LIVE' : 'CONNECT LIVE'}
-      </button>
-
-      <button
-        id="btn-live-mic"
-        style={{
-          position: 'absolute', top: 224, right: 16, zIndex: 10,
-          padding: '8px 10px', borderRadius: 8,
-          background: isLiveMicActive ? '#7a2d2d' : '#3a5f8f',
-          color: 'white', border: '1px solid rgba(255,255,255,0.2)', cursor: 'pointer'
-        }}
-        onClick={toggleLiveMic}
-      >
-        {isLiveMicActive ? 'STOP LIVE MIC' : 'START LIVE MIC'}
-      </button>
-
-      <button
-        id="btn-live-text"
-        style={{
-          position: 'absolute', top: 264, right: 16, zIndex: 10,
-          padding: '8px 10px', borderRadius: 8,
-          background: '#5b3a7e',
-          color: 'white', border: '1px solid rgba(255,255,255,0.2)', cursor: 'pointer'
-        }}
-        onClick={sendLiveTextPing}
-      >
-        SEND LIVE TEXT
-      </button>
-
-      <button
-        id="btn-interaction-turn"
-        style={{
-          position: 'absolute', top: 304, right: 16, zIndex: 10,
-          padding: '8px 10px', borderRadius: 8,
-          background: '#3f2d77', color: 'white', border: '1px solid rgba(255,255,255,0.2)', cursor: 'pointer'
-        }}
-        onClick={requestInteractionTurn}
-      >
-        TEST INTERACTION
-      </button>
-
-      <button
-        id="btn-test-texture"
-        style={{
-          position: 'absolute', top: 344, right: 16, zIndex: 10,
-          padding: '8px 10px', borderRadius: 8,
-          background: '#a52a2a', color: 'white', border: '1px solid rgba(255,255,255,0.2)', cursor: 'pointer'
-        }}
-        onClick={() => {
-          // A tiny 2x2 placeholder generated pattern demonstrating texture replacement
-          const testTex = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVQIW2NkYGD4z8DAwMgAI0AMDA4AF2H/h68AAAAASUVORK5CYII='
-          useFSMStore.getState().setTexture(testTex);
-          setTimeout(() => { useFSMStore.getState().setTexture(null); }, 5000);
-        }}
-      >
-        TEST TEXTURE
-      </button>
-
-      <Canvas shadows>
+      <Canvas className="arena-canvas" shadows>
         <XR store={store}>
           <MainScene />
           <RemoteRobotCharacter />

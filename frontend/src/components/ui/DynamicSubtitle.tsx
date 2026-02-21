@@ -17,20 +17,7 @@ export const DynamicSubtitle: React.FC = () => {
   if (!subtitle) return null;
 
   return (
-    <div style={{ 
-      position: 'absolute', 
-      bottom: 50, 
-      left: '50%', 
-      transform: 'translateX(-50%)', 
-      background: 'rgba(255, 0, 0, 0.8)', 
-      color: 'white', 
-      padding: '15px 30px', 
-      borderRadius: 12,
-      fontSize: '24px',
-      fontWeight: 'bold',
-      textAlign: 'center',
-      pointerEvents: 'none'
-    }}>
+    <div className="hud-subtitle">
       {subtitle}
     </div>
   );

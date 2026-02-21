@@ -6,6 +6,7 @@ __pycache__/
 *$py.class
 *.so
 *.egg-info/
+*__pycache__*
 *.egg
 dist/
 build/
@@ -64,6 +65,8 @@ Desktop.ini
 # ==========================
 logs/
 *.log
+backend/runtime/
+output/
 
 # ==========================
 # Misc

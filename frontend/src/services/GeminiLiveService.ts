@@ -92,7 +92,11 @@ export class GeminiLiveService {
             this.handleMessage(message);
           },
           onerror: () => {
+            this.cleanupMic();
+            this.cleanupPlayback();
+            this.session = null;
             dispatchError('Gemini Live socket error');
+            dispatchStatus({ connected: false, message: 'Gemini Live disconnected (error)' });
           },
           onclose: () => {
             this.cleanupMic();

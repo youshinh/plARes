@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { wsService } from '../services/WebSocketService';
+import { useArenaSyncStore } from '../store/useArenaSyncStore';
 import type { SyncData, WebRTCDataChannelPayload } from '../../../shared/types/events';
 import { PLAYER_ID } from '../utils/identity';
 
@@ -12,7 +13,8 @@ export const RemoteRobotCharacter: React.FC = () => {
   useEffect(() => {
     const applySync = (sync: SyncData) => {
       if (sync.userId === PLAYER_ID) return;
-      targetRef.current.set(sync.position.x, sync.position.y + 0.5, sync.position.z);
+      const mapped = useArenaSyncStore.getState().mapRemotePosition(sync.userId, sync.position);
+      targetRef.current.set(mapped.x, mapped.y + 0.5, mapped.z);
     };
 
     const onP2P = (event: Event) => {

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useXR } from '@react-three/xr';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
+import { useArenaSyncStore } from '../store/useArenaSyncStore';
 
 interface XRScannerState {
   isScanning: boolean;
@@ -29,9 +30,18 @@ const MIN_NAVMESH_POINTS = 50; // trigger NavMesh rebuild once we have enough su
 
 export const useWebXRScanner = () => {
   const { session } = useXR();
+  const setLatestSample = useArenaSyncStore(s => s.setLatestSample);
   const hitTestSourceRef = useRef<XRHitTestSource | null>(null);
-  const localSpaceRef = useRef<XRReferenceSpace | null>(null);
+  const localSpaceRef    = useRef<XRReferenceSpace | null>(null); // for depth sensing
+  const viewerSpaceRef   = useRef<XRReferenceSpace | null>(null); // for hit-test (spec requires viewer)
   const depthTextureRef = useRef<THREE.DataTexture | null>(null);
+  const lastPublishedSampleRef = useRef<{
+    x: number;
+    y: number;
+    z: number;
+    yaw: number;
+    at: number;
+  } | null>(null);
 
   const [state, setState] = useState<XRScannerState>({
     isScanning: false,
@@ -48,19 +58,30 @@ export const useWebXRScanner = () => {
 
     const init = async () => {
       try {
-        const refSpace = await session.requestReferenceSpace('local');
-        localSpaceRef.current = refSpace;
+        // 'local-floor' gives y=0 at floor level; fall back to 'local'
+        const localSpace = await session.requestReferenceSpace('local-floor')
+          .catch(() => session.requestReferenceSpace('local'));
+        localSpaceRef.current = localSpace;
+
+        // Hit-test MUST use 'viewer' space per WebXR spec.
+        // Using 'local' was a bug that caused silent failure on ARCore devices.
+        const viewerSpace = await session.requestReferenceSpace('viewer');
+        viewerSpaceRef.current = viewerSpace;
 
         // requestHitTestSource is optional – guard against unsupported devices
+        // (Desktop, iOS Safari which has no WebXR support at all)
         if (typeof (session as any).requestHitTestSource === 'function') {
-          hitSource = await (session as any).requestHitTestSource({ space: refSpace });
+          hitSource = await (session as any).requestHitTestSource({ space: viewerSpace });
           if (!cancelled) {
             hitTestSourceRef.current = hitSource;
             setState(s => ({ ...s, isScanning: true }));
-            console.log('[XR] Hit-test source acquired');
+            console.log('[XR] Hit-test source acquired (viewer space)');
           }
         } else {
-          console.warn('[XR] Hit-test not supported on this device – AR preview only');
+          console.warn('[XR] Hit-test not supported on this device – NavMesh will not build');
+          window.dispatchEvent(new CustomEvent('show_subtitle', {
+            detail: { text: 'お使いの端末はAR空間認識に対応していません。ロボットは平面上での動作になります。' }
+          }));
         }
       } catch (err) {
         console.error('[XR] Session init error:', err);
@@ -77,14 +98,26 @@ export const useWebXRScanner = () => {
 
   // ── Per-frame Processing ────────────────────────────────────────────────────
   useFrame((_state, _delta, xrFrame) => {
-    if (!xrFrame || !session || !localSpaceRef.current) return;
+    if (!xrFrame || !session) return;
     const frame = xrFrame as XRFrame;
+    // Use local-floor space for pose anchoring; viewer space is only for hit-test request
+    const poseSpace = localSpaceRef.current;
+    if (!poseSpace) return;
+    const viewerPose = frame.getViewerPose(poseSpace);
+    const primaryView = viewerPose?.views[0];
+    let viewerYaw = 0;
+    if (primaryView) {
+      const o = primaryView.transform.orientation;
+      const q = new THREE.Quaternion(o.x, o.y, o.z, o.w);
+      const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(q);
+      viewerYaw = Math.atan2(forward.x, forward.z);
+    }
 
     // ① Hit Test – record surface point
     if (hitTestSourceRef.current) {
       const results = frame.getHitTestResults(hitTestSourceRef.current);
       if (results.length > 0) {
-        const pose = results[0].getPose(localSpaceRef.current);
+        const pose = results[0].getPose(poseSpace);
         if (pose) {
           const m = new THREE.Matrix4().fromArray(pose.transform.matrix);
 
@@ -102,6 +135,28 @@ export const useWebXRScanner = () => {
               );
             }
 
+            const now = performance.now();
+            const last = lastPublishedSampleRef.current;
+            const movedEnough = !last || Math.hypot(pos.x - last.x, pos.y - last.y, pos.z - last.z) > 0.03;
+            const yawChangedEnough = !last || Math.abs(viewerYaw - last.yaw) > 0.05;
+            const elapsedEnough = !last || (now - last.at) > 120;
+            if ((movedEnough || yawChangedEnough) && elapsedEnough) {
+              setLatestSample({
+                point: { x: pos.x, y: pos.y, z: pos.z },
+                yaw: viewerYaw,
+                scale: 1.0,
+                timestamp: Date.now(),
+                frameId: 'room_v1',
+              });
+              lastPublishedSampleRef.current = {
+                x: pos.x,
+                y: pos.y,
+                z: pos.z,
+                yaw: viewerYaw,
+                at: now,
+              };
+            }
+
             return { ...prev, hoverMatrix: m, pointCloud: nextCloud };
           });
         }
@@ -110,7 +165,6 @@ export const useWebXRScanner = () => {
 
     // ② Depth Sensing – upload depth map as DataTexture for occlusion shader
     if (typeof (frame as any).getDepthInformation === 'function') {
-      const viewerPose = frame.getViewerPose(localSpaceRef.current);
       if (viewerPose) {
         for (const view of viewerPose.views) {
           const depthInfo: XRDepthInformation | null = (frame as any).getDepthInformation(view);

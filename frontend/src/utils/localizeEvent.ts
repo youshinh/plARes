@@ -20,6 +20,11 @@ export const localizeBattleEvent = (event: EventType, actor: string): string => 
     if (event === 'damage_applied') return `${actor} の攻撃が命中`;
     if (event === 'down_state') return `ダウンが発生`;
     if (event === 'heat_state') return `ヒート状態が切り替わった`;
+    if (event === 'persona_shift_request') return `人格シフト要求`;
+    if (event === 'walk_vision_trigger') return `散歩ビジョントリガー`;
+    if (event === 'proactive_line') return `機体が独り言を発した`;
+    if (event === 'reject_item') return `アイテムを拒否した`;
+    if (event === 'bgm_ready') return `勝利BGMの準備完了`;
     return `${actor} のアクション`;
   }
   if (isEs) {
@@ -35,6 +40,11 @@ export const localizeBattleEvent = (event: EventType, actor: string): string => 
     if (event === 'damage_applied') return `Ataque conectado`;
     if (event === 'down_state') return `Se produjo derribo`;
     if (event === 'heat_state') return `Estado de calor actualizado`;
+    if (event === 'persona_shift_request') return `Solicitud de cambio de personalidad`;
+    if (event === 'walk_vision_trigger') return `Disparador de vision de paseo`;
+    if (event === 'proactive_line') return `El robot murmuro algo`;
+    if (event === 'reject_item') return `Objeto rechazado`;
+    if (event === 'bgm_ready') return `BGM de victoria listo`;
     return `Accion de ${actor}`;
   }
   if (event === 'critical_hit') return `${actor} landed a CRITICAL HIT!`;
@@ -49,6 +59,11 @@ export const localizeBattleEvent = (event: EventType, actor: string): string => 
   if (event === 'damage_applied') return `${actor} landed a hit`;
   if (event === 'down_state') return 'Down state triggered';
   if (event === 'heat_state') return 'Heat state changed';
+  if (event === 'persona_shift_request') return 'Persona shift requested';
+  if (event === 'walk_vision_trigger') return 'Walk vision trigger fired';
+  if (event === 'proactive_line') return 'Robot murmured proactively';
+  if (event === 'reject_item') return 'Item was rejected';
+  if (event === 'bgm_ready') return 'Victory BGM ready';
   return `${actor} triggered an action`;
 };
 

@@ -18,6 +18,10 @@ export type EventType =
   | "down_state"
   | "heat_state"
   | "persona_shift_request"
+  | "walk_vision_trigger"
+  | "dna_ab_feedback"
+  | "proactive_line"
+  | "reject_item"
   | "bgm_ready";
 
 export interface GameEvent {
@@ -46,6 +50,7 @@ export interface SyncData {
   velocity: Vector;
   timestamp: number;
   action?: string; // e.g., "attack", "guard", "dodge"
+  arenaFrameId?: string;
 }
 
 export interface SignalData {

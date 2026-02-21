@@ -15,6 +15,7 @@ class MatchLog(BaseModel):
 class TrainingLog(BaseModel):
     session_id: Optional[str] = None
     timestamp: str
+    mode: Literal["training"] = "training"
     started_at: Optional[str] = None
     ended_at: Optional[str] = None
     sync_rate_before: Optional[float] = None
@@ -28,6 +29,7 @@ class TrainingLog(BaseModel):
     speed: Optional[float] = None
     passion: Optional[float] = None
     retry_count: int = 0
+    highlights: List[str] = Field(default_factory=list)
     ai_comment: Optional[str] = None
     highlight_events: List[HighlightEvent] = Field(default_factory=list)
 
@@ -67,6 +69,7 @@ class RobotStatus(BaseModel):
     stats: RobotStats
     personality: RobotPersonality
     network: RobotNetwork
+    character_dna: Optional[dict] = None
 
 
 class CharacterGenerationRequest(BaseModel):
@@ -86,6 +89,7 @@ class CharacterGenerationResult(BaseModel):
     talk_skill: int
     adlib_skill: int
     tone: str
+    character_dna: Optional[dict] = None
 
 class UserProfile(BaseModel):
     player_name: str
@@ -115,3 +119,4 @@ class SyncData(BaseModel):
     velocity: Vector
     timestamp: float
     action: Optional[str] = None
+    arena_frame_id: Optional[str] = None

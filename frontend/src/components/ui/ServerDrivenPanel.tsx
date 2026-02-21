@@ -3,7 +3,7 @@ import { wsService } from '../../services/WebSocketService';
 import { useFSMStore } from '../../store/useFSMStore';
 import * as THREE from 'three';
 import type { WebRTCDataChannelPayload, GameEvent } from '../../../../shared/types/events';
-import { PLAYER_ID } from '../../utils/identity';
+import { PLAYER_ID, PLAYER_LANG } from '../../utils/identity';
 
 interface TacticItem {
   id: string;
@@ -27,6 +27,12 @@ interface TacticItem {
 export const ServerDrivenPanel: React.FC = () => {
   const [tactics, setTactics] = useState<TacticItem[]>([]);
   const setAICommand = useFSMStore(s => s.setAICommand);
+  const lang = (PLAYER_LANG || 'en-US').toLowerCase();
+  const title = lang.startsWith('ja')
+    ? '戦術オプション'
+    : lang.startsWith('es')
+      ? 'OPCIONES TACTICAS'
+      : 'TACTICAL OPTIONS';
 
   useEffect(() => {
     const unsubscribe = wsService.addHandler((payload: WebRTCDataChannelPayload) => {
@@ -50,25 +56,16 @@ export const ServerDrivenPanel: React.FC = () => {
   if (tactics.length === 0) return null;
 
   return (
-    <div style={{
-      position: 'absolute', top: 20, right: 20,
-      background: 'rgba(0,0,0,0.75)', color: 'white',
-      padding: 12, borderRadius: 10, minWidth: 200
-    }}>
-      <h3 style={{ margin: '0 0 8px', fontSize: 14, letterSpacing: 1 }}>TACTICAL OPTIONS</h3>
+    <div className="tactics-panel hud-animate">
+      <h3 className="tactics-title">{title}</h3>
       {tactics.map(t => (
         <button
           key={t.id}
           onClick={() => onSelect(t)}
-          style={{
-            display: 'block', width: '100%', margin: '4px 0', padding: '10px 12px',
-            background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)',
-            color: 'white', cursor: 'pointer', borderRadius: 6, textAlign: 'left'
-          }}
+          className="tactics-item"
         >
-          <strong>{t.title}</strong>
-          <br />
-          <small style={{ opacity: 0.7 }}>{t.detail}</small>
+          <strong className="tactics-item-title">{t.title}</strong>
+          <small className="tactics-item-detail">{t.detail}</small>
         </button>
       ))}
     </div>

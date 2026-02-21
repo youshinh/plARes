@@ -14,6 +14,14 @@ import { useState, useCallback } from 'react';
 import { useFSMStore } from '../store/useFSMStore';
 import type { RobotGenerationRequest, RobotGenerationResult } from '../../../shared/types/firestore';
 import { PLAYER_ID } from '../utils/identity';
+import { analyzePhotoForDNA } from '../utils/photoDNAAnalyzer';
+import { analyzeFaceLandmarksForDNA } from '../utils/faceLandmarkAnalyzer';
+import {
+  buildCharacterDNA,
+  evolveCharacterDNAByMatchCount,
+  normalizeCharacterDNA,
+  refineCharacterDNAWithPhotoHints,
+} from '../utils/characterDNA';
 
 const INIT_KEY = 'plares_robot_initialized';
 
@@ -28,6 +36,7 @@ const CHARACTER_API_URL =
 
 export function useCharacterSetup() {
   const setRobotStats = useFSMStore(s => s.setRobotStats);
+  const setRobotDna = useFSMStore(s => s.setRobotDna);
 
   // 既に初期化済みかどうか
   const [isSetupDone, setIsSetupDone] = useState<boolean>(() => {
@@ -51,6 +60,8 @@ export function useCharacterSetup() {
     setError(null);
 
     try {
+      const photoHintsPromise = analyzePhotoForDNA(faceImageBase64);
+      const landmarkHintsPromise = analyzeFaceLandmarksForDNA(faceImageBase64);
       const req: RobotGenerationRequest = {
         user_id: PLAYER_ID,
         face_image_base64: faceImageBase64,
@@ -68,6 +79,8 @@ export function useCharacterSetup() {
       }
 
       const data: RobotGenerationResult = await res.json();
+      const photoHints = await photoHintsPromise;
+      const landmarkHints = await landmarkHintsPromise;
 
       setRobotStats(
         {
@@ -82,6 +95,32 @@ export function useCharacterSetup() {
         },
       );
 
+      const maybeSnakeCaseDna =
+        (data as RobotGenerationResult & { character_dna?: unknown }).character_dna;
+      const apiDna =
+        normalizeCharacterDNA(data.characterDna) ??
+        normalizeCharacterDNA(maybeSnakeCaseDna);
+      const dna = apiDna
+        ? evolveCharacterDNAByMatchCount(
+            refineCharacterDNAWithPhotoHints(apiDna, photoHints, data.personality.tone, landmarkHints),
+            0,
+          )
+        :
+          buildCharacterDNA({
+            playerId: PLAYER_ID,
+            name: data.name,
+            material: data.material,
+            tone: data.personality.tone,
+            power: data.stats.power,
+            speed: data.stats.speed,
+            vit: data.stats.vit,
+            faceImageBase64,
+            presetText,
+            photoHints,
+            landmarkHints,
+          });
+      setRobotDna(dna);
+
       localStorage.setItem(INIT_KEY, 'done');
       setIsSetupDone(true);
     } catch (err) {
@@ -93,7 +132,7 @@ export function useCharacterSetup() {
     } finally {
       setIsGenerating(false);
     }
-  }, [setRobotStats]);
+  }, [setRobotStats, setRobotDna]);
 
   /** デバッグ用：初期化フラグをリセットして再度FaceScannerを表示させる */
   const resetSetup = useCallback(() => {

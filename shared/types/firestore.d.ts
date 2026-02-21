@@ -21,6 +21,19 @@ export interface RobotNetwork {
   unison?: number; // 団体戦用共鳴度 0-100
 }
 
+export interface CharacterDNA {
+  version: "v1";
+  seed: number;
+  silhouette: "striker" | "tank" | "ace";
+  finish: "matte" | "satin" | "gloss";
+  paletteFamily: "ember" | "marine" | "forest" | "royal" | "obsidian" | "sunset";
+  eyeGlow: string;
+  scarLevel: number;
+  glowIntensity: number;
+  evolutionStage: number;
+  battlePatina: "clean" | "worn" | "scarred" | "legend";
+}
+
 export interface RobotStatus {
   name?: string;        // Geminiが提案するロボット名
   material: string;     // "Wood" | "Metal" | "Resin"
@@ -28,6 +41,7 @@ export interface RobotStatus {
   stats: RobotStats;
   personality: RobotPersonality;
   network: RobotNetwork;
+  characterDna?: CharacterDNA;
 }
 
 /** フロントエンドからバックエンドへ送信するキャラクター生成リクエスト */
@@ -53,6 +67,7 @@ export interface RobotGenerationResult {
     syncRate: number;
     unison: number;
   };
+  characterDna?: CharacterDNA;
 }
 
 export interface HighlightEvent {
@@ -78,6 +93,7 @@ export interface WalkLog {
   routeSummary: string;
   foundItems: string[];
   proactiveAudioHighlights: string[];
+  visionTriggers?: string[];
   syncRateBefore?: number;
   syncRateAfter?: number;
   aiComment?: string;
@@ -101,6 +117,7 @@ export interface TrainingLog {
   speed?: number;
   passion?: number;
   retryCount?: number;
+  highlights?: string[];
   aiComment?: string;
   highlightEvents: HighlightEvent[];
 }

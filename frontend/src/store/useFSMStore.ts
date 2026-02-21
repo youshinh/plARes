@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 import * as THREE from 'three';
+import type { CharacterDNA } from '../../../shared/types/firestore';
+import { DEFAULT_CHARACTER_DNA, normalizeCharacterDNA } from '../utils/characterDNA';
 
 export enum State {
   HOVERING = 'HOVERING',
@@ -37,7 +39,9 @@ interface FSMState {
   // ── Robot stats from character generation pipeline ──
   robotStats: RobotStats;
   robotMeta: RobotMeta;
+  robotDna: CharacterDNA;
   setRobotStats: (stats: RobotStats, meta: RobotMeta) => void;
+  setRobotDna: (dna: CharacterDNA | null | undefined) => void;
 }
 
 
@@ -48,8 +52,10 @@ export const useFSMStore = create<FSMState>((set, get) => ({
   activeTextureUrl: null,
   robotStats: { power: 40, speed: 40, vit: 40 },
   robotMeta: { name: 'レスラーMk1', material: 'Wood', tone: 'balanced' },
+  robotDna: DEFAULT_CHARACTER_DNA,
 
   setRobotStats: (stats, meta) => set({ robotStats: stats, robotMeta: meta }),
+  setRobotDna: (dna) => set({ robotDna: normalizeCharacterDNA(dna) ?? DEFAULT_CHARACTER_DNA }),
 
   setTexture: (url) => set({ activeTextureUrl: url }),
 

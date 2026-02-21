@@ -17,6 +17,7 @@ character_generator.py
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 import re
@@ -41,6 +42,9 @@ STAT_KEYS = ("power", "speed", "vit", "talkSkill", "adlibSkill")
 STAT_CAP = 200          # 全パラメーター合計の上限
 DEFAULT_SYNC_RATE = 10.0
 DEFAULT_UNISON = 100.0
+DNA_SILHOUETTES = ("striker", "tank", "ace")
+DNA_FINISHES = ("matte", "satin", "gloss")
+DNA_PALETTES = ("ember", "marine", "forest", "royal", "obsidian", "sunset")
 
 # ── プロンプト ────────────────────────────────────────────────────────────────
 
@@ -112,7 +116,77 @@ def _extract_json(text: str) -> dict:
     return json.loads(text)
 
 
-def _normalize_result(raw: dict) -> dict:
+def _build_character_dna(
+    *,
+    name: str,
+    material: str,
+    tone: str,
+    power: int,
+    speed: int,
+    vit: int,
+    face_image_base64: Optional[str],
+    preset_text: Optional[str],
+) -> dict:
+    face_hint = (face_image_base64 or "")[:512]
+    seed_source = "|".join(
+        [
+            name,
+            material,
+            tone,
+            str(power),
+            str(speed),
+            str(vit),
+            preset_text or "",
+            face_hint,
+        ]
+    )
+    digest = hashlib.sha256(seed_source.encode("utf-8")).hexdigest()
+    seed = int(digest[:8], 16)
+
+    silhouette = "ace"
+    if power >= speed + 12:
+        silhouette = "tank"
+    elif speed >= power + 12:
+        silhouette = "striker"
+
+    finish = "satin"
+    if material == "Metal":
+        finish = "gloss"
+    elif material == "Wood":
+        finish = "matte"
+
+    palette = DNA_PALETTES[seed % len(DNA_PALETTES)]
+    tone_l = tone.lower()
+    if "熱血" in tone or "aggressive" in tone_l:
+        palette = "ember"
+    elif "冷静" in tone or "cool" in tone_l:
+        palette = "marine"
+    elif "関西" in tone or "fun" in tone_l:
+        palette = "sunset"
+
+    eye_glow_by_palette = {
+        "ember": "#FFB86E",
+        "marine": "#73E4FF",
+        "forest": "#9BFFD2",
+        "royal": "#C8C7FF",
+        "obsidian": "#95E5FF",
+        "sunset": "#FFCAA0",
+    }
+    return {
+        "version": "v1",
+        "seed": seed,
+        "silhouette": silhouette if silhouette in DNA_SILHOUETTES else "ace",
+        "finish": finish if finish in DNA_FINISHES else "satin",
+        "paletteFamily": palette if palette in DNA_PALETTES else "marine",
+        "eyeGlow": eye_glow_by_palette.get(palette, "#73E4FF"),
+        "scarLevel": 0,
+        "glowIntensity": 1.0,
+        "evolutionStage": 0,
+        "battlePatina": "clean",
+    }
+
+
+def _normalize_result(raw: dict, face_image_base64: Optional[str], preset_text: Optional[str]) -> dict:
     """Geminiの出力を正規化・バリデーションし、フロントエンド向けdictを返す"""
     material = raw.get("material", "Wood")
     if material not in {"Wood", "Metal", "Resin"}:
@@ -127,15 +201,31 @@ def _normalize_result(raw: dict) -> dict:
     }
     stats = _cap_stats(stats)
 
+    name = str(raw.get("suggestedName", "レスラーMk1"))[:20]
+    tone = str(raw.get("tone", "balanced"))[:50]
+    character_dna = raw.get("characterDna")
+    if not isinstance(character_dna, dict):
+        character_dna = _build_character_dna(
+            name=name,
+            material=material,
+            tone=tone,
+            power=stats["power"],
+            speed=stats["speed"],
+            vit=stats["vit"],
+            face_image_base64=face_image_base64,
+            preset_text=preset_text,
+        )
+
     return {
-        "name":     str(raw.get("suggestedName", "レスラーMk1"))[:20],
+        "name":     name,
         "material": material,
         "power":    stats["power"],
         "speed":    stats["speed"],
         "vit":      stats["vit"],
         "talk_skill":  stats["talkSkill"],
         "adlib_skill": stats["adlibSkill"],
-        "tone":     str(raw.get("tone", "balanced"))[:50],
+        "tone":     tone,
+        "character_dna": character_dna,
     }
 
 
@@ -149,13 +239,24 @@ def _fallback_result(preset_text: Optional[str]) -> dict:
     vit        = 60 if any(w in kw for w in ("耐久", "タフ", "防御", "守り")) else 40
     talk_skill = 60 if any(w in kw for w in ("話す", "愛嬌", "面白", "トーク")) else 30
     adlib      = 30
-    return {
+    result = {
         "name": "レスラーMk1",
         "material": "Wood",
         "power": power, "speed": speed, "vit": vit,
         "talk_skill": talk_skill, "adlib_skill": adlib,
         "tone": tone,
     }
+    result["character_dna"] = _build_character_dna(
+        name=result["name"],
+        material=result["material"],
+        tone=result["tone"],
+        power=result["power"],
+        speed=result["speed"],
+        vit=result["vit"],
+        face_image_base64=None,
+        preset_text=preset_text,
+    )
+    return result
 
 
 # ── メイン関数 ────────────────────────────────────────────────────────────────
@@ -222,7 +323,7 @@ async def generate_robot_stats(
             text = "".join(getattr(p, "text", "") for p in parts)
 
         raw = _extract_json(text)
-        return _normalize_result(raw)
+        return _normalize_result(raw, face_image_base64, preset_text)
 
     except Exception as exc:
         # JSON解析失敗・API障害時はフォールバック
@@ -253,4 +354,5 @@ def build_robot_profile(result: dict, sync_rate: float = DEFAULT_SYNC_RATE) -> d
             "sync_rate": sync_rate,
             "unison":    DEFAULT_UNISON,
         },
+        "character_dna": result.get("character_dna"),
     }
