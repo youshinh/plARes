@@ -1,4 +1,4 @@
-import type { GameEvent, SyncData, WebRTCDataChannelPayload } from '../../../shared/types/events';
+import type { GameEvent, SignalData, SyncData, WebRTCDataChannelPayload } from '../../../shared/types/events';
 
 type MessageHandler = (data: WebRTCDataChannelPayload) => void;
 
@@ -51,7 +51,7 @@ class WebSocketService {
   /** Register a handler for inbound server messages */
   addHandler(handler: MessageHandler) {
     this.handlers.add(handler);
-    return () => this.handlers.delete(handler); // returns cleanup fn
+    return () => { this.handlers.delete(handler); }; // returns cleanup fn
   }
 
   /** Send position/velocity sync to opponent(s) */
@@ -62,6 +62,11 @@ class WebSocketService {
   /** Send a game event (e.g. attack result) */
   sendEvent(event: GameEvent) {
     this._send({ type: 'event', data: event });
+  }
+
+  /** Send WebRTC signaling data over the shared game socket */
+  sendSignal(signal: SignalData) {
+    this._send({ type: 'signal', data: signal });
   }
 
   private _send(payload: WebRTCDataChannelPayload) {

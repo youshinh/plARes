@@ -15,6 +15,8 @@ interface FSMState {
   targetPosition: THREE.Vector3 | null;
   setEmergencyEvade: (direction: THREE.Vector3) => void;
   setAICommand: (command: { action: string; target?: THREE.Vector3 }) => void;
+  setCastingSpecial: () => void;
+  resolveSpecialResult: (result: { verdict: 'critical' | 'miss' }) => void;
   updateBasicMovement: (position: THREE.Vector3) => void;
 }
 
@@ -43,10 +45,27 @@ export const useFSMStore = create<FSMState>((set) => ({
       let nextState = State.HOVERING;
       if (command.action === 'take_cover') nextState = State.EVADE_TO_COVER;
       if (command.action === 'flank_right') nextState = State.FLANKING_RIGHT;
+      if (command.action === 'casting_special') nextState = State.CASTING_SPECIAL;
 
       return {
         currentState: nextState,
         targetPosition: command.target || null,
+      };
+    }),
+
+  setCastingSpecial: () =>
+    set({
+      currentState: State.CASTING_SPECIAL,
+      targetPosition: null,
+    }),
+
+  resolveSpecialResult: ({ verdict }) =>
+    set((state) => {
+      if (state.currentState !== State.CASTING_SPECIAL) {
+        return state;
+      }
+      return {
+        currentState: verdict === 'critical' ? State.BASIC_ATTACK : State.HOVERING,
       };
     }),
 

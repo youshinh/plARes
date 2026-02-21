@@ -28,7 +28,15 @@ export interface SyncData {
   action?: string; // e.g., "attack", "guard", "dodge"
 }
 
+export interface SignalData {
+  kind: "presence" | "offer" | "answer" | "ice";
+  from: string;
+  to?: string;
+  sdp?: RTCSessionDescriptionInit;
+  candidate?: RTCIceCandidateInit;
+}
+
 export interface WebRTCDataChannelPayload {
-  type: "sync" | "event";
-  data: SyncData | GameEvent;
+  type: "sync" | "event" | "signal";
+  data: SyncData | GameEvent | SignalData;
 }

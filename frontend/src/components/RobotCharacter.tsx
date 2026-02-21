@@ -3,9 +3,14 @@ import { useFrame } from '@react-three/fiber';
 import { useFSMStore, State } from '../store/useFSMStore';
 import { navMesh } from '../utils/NavMeshGenerator';
 import * as THREE from 'three';
+import { rtcService } from '../services/WebRTCDataChannelService';
+import { wsService } from '../services/WebSocketService';
+import type { SyncData, WebRTCDataChannelPayload } from '../../../shared/types/events';
 
 const SPEED_NORMAL = 1.5;
 const SPEED_EVADE  = 5.0;
+const PLAYER_ID = import.meta.env.VITE_PLAYER_ID ?? 'player1';
+const ROBOT_ID = import.meta.env.VITE_ROBOT_ID ?? 'robot1';
 
 /**
  * RobotCharacter
@@ -20,6 +25,8 @@ export const RobotCharacter: React.FC = () => {
   const meshRef      = useRef<THREE.Mesh>(null);
   const waypointsRef = useRef<THREE.Vector3[]>([]);
   const lastTargetRef= useRef<THREE.Vector3 | null>(null);
+  const lastSyncAtRef = useRef<number>(0);
+  const prevPosRef = useRef<THREE.Vector3>(new THREE.Vector3(0, 0.5, -1));
 
   const { currentState, targetPosition } = useFSMStore();
 
@@ -64,6 +71,31 @@ export const RobotCharacter: React.FC = () => {
       [State.CASTING_SPECIAL]:'#ff8800',
     };
     mat.color.set(colours[currentState] ?? '#ffffff');
+
+    const now = performance.now();
+    if (now - lastSyncAtRef.current >= 100) {
+      const vel = new THREE.Vector3().subVectors(pos, prevPosRef.current).divideScalar(Math.max(delta, 0.0001));
+      const syncData: SyncData = {
+        userId: PLAYER_ID,
+        robotId: ROBOT_ID,
+        position: { x: pos.x, y: pos.y, z: pos.z },
+        velocity: { x: vel.x, y: vel.y, z: vel.z },
+        timestamp: Date.now(),
+        action: currentState,
+      };
+      const syncPayload: WebRTCDataChannelPayload = {
+        type: 'sync',
+        data: syncData,
+      };
+
+      // Prefer P2P data channel for high-frequency sync; fallback to WS relay.
+      if (!rtcService.send(syncPayload)) {
+        wsService.sendSync(syncData);
+      }
+
+      prevPosRef.current.copy(pos);
+      lastSyncAtRef.current = now;
+    }
   });
 
   return (

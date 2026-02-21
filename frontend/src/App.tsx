@@ -1,8 +1,9 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { XR, createXRStore } from '@react-three/xr';
 import { Environment, OrbitControls } from '@react-three/drei';
 import { RobotCharacter } from './components/RobotCharacter';
+import { RemoteRobotCharacter } from './components/RemoteRobotCharacter';
 import { ServerDrivenPanel } from './components/ui/ServerDrivenPanel';
 import { DynamicSubtitle } from './components/ui/DynamicSubtitle';
 import { useVoiceController } from './hooks/useVoiceController';
@@ -10,9 +11,11 @@ import { useWebXRScanner } from './hooks/useWebXRScanner';
 import { useAICommandListener } from './hooks/useAICommandListener';
 import { useAudioStreamer } from './hooks/useAudioStreamer';
 import { wsService } from './services/WebSocketService';
-import { useFSMStore } from './store/useFSMStore';
+import { rtcService } from './services/WebRTCDataChannelService';
+import { State, useFSMStore } from './store/useFSMStore';
 import { navMesh } from './utils/NavMeshGenerator';
 import * as THREE from 'three';
+import type { WebRTCDataChannelPayload, GameEvent } from '../../shared/types/events';
 
 const WS_URL    = import.meta.env.VITE_WS_URL    ?? 'ws://localhost:8000/ws/game';
 const PLAYER_ID = import.meta.env.VITE_PLAYER_ID ?? 'player1';
@@ -67,26 +70,112 @@ const MainScene: React.FC = () => {
 // ── Root App ─────────────────────────────────────────────────────────────────
 function App() {
   const { isStreaming, startStream } = useAudioStreamer();
-  const setCasting = useFSMStore(s => s.setAICommand); // reuse to flip state
+  const setCastingSpecial = useFSMStore(s => s.setCastingSpecial);
+  const resolveSpecialResult = useFSMStore(s => s.resolveSpecialResult);
+  const castEndsAtRef = useRef<number>(0);
+  const handleRemoteBattleEvent = (evt: GameEvent) => {
+    if (!evt?.event || evt.user === PLAYER_ID) return;
+    if (evt.event === 'critical_hit') {
+      window.dispatchEvent(new CustomEvent('show_subtitle', {
+        detail: { text: `${evt.user} が CRITICAL HIT!` }
+      }));
+    }
+    if (evt.event === 'debuff_applied') {
+      window.dispatchEvent(new CustomEvent('show_subtitle', {
+        detail: { text: `${evt.user} の必殺技は失敗...` }
+      }));
+    }
+  };
 
   // Connect WebSocket on mount
   useEffect(() => {
     wsService.connect(WS_URL, PLAYER_ID);
-    return () => wsService.disconnect();
+    rtcService.start(PLAYER_ID);
+    return () => {
+      rtcService.stop();
+      wsService.disconnect();
+    };
   }, []);
 
-  const handleCastSpecial = async () => {
-    // 1. Instantly set FSM state to CASTING (latency concealment – Doc §5.1)
-    setCasting({ action: 'casting_special' });
+  useEffect(() => {
+    const unsubscribe = wsService.addHandler((payload: WebRTCDataChannelPayload) => {
+      if (payload.type !== 'event') return;
+      handleRemoteBattleEvent(payload.data as GameEvent);
+    });
+    return () => unsubscribe();
+  }, []);
 
-    // 2. Show chant subtitle (localised text will come from backend in production;
-    //    this is a temporary display for the charge animation window)
+  useEffect(() => {
+    const onP2PPayload = (event: Event) => {
+      const payload = (event as CustomEvent<WebRTCDataChannelPayload>).detail;
+      if (payload?.type !== 'event') return;
+      handleRemoteBattleEvent(payload.data as GameEvent);
+    };
+    window.addEventListener('webrtc_payload', onP2PPayload as EventListener);
+    return () => window.removeEventListener('webrtc_payload', onP2PPayload as EventListener);
+  }, []);
+
+  useEffect(() => {
+    const onAttackResult = (event: Event) => {
+      const detail = (event as CustomEvent<any>).detail || {};
+      const verdict = detail.verdict === 'critical' ? 'critical' : 'miss';
+      const delay = Math.max(0, castEndsAtRef.current - Date.now());
+
+      window.setTimeout(() => {
+        resolveSpecialResult({ verdict });
+
+        const payload = {
+          event: verdict === 'critical' ? 'critical_hit' : 'debuff_applied',
+          user: PLAYER_ID,
+          payload: detail,
+        } as const;
+
+        if (!rtcService.send({ type: 'event', data: payload })) {
+          wsService.sendEvent(payload);
+        }
+
+        window.dispatchEvent(new CustomEvent('show_subtitle', {
+          detail: { text: verdict === 'critical' ? 'CRITICAL HIT!!' : 'MISS...' }
+        }));
+      }, delay);
+    };
+
+    window.addEventListener('attack_result', onAttackResult);
+    return () => window.removeEventListener('attack_result', onAttackResult);
+  }, [resolveSpecialResult]);
+
+  const handleCastSpecial = async () => {
+    // 1) Instantly enter CASTING state and lock the next 3s for latency concealment
+    castEndsAtRef.current = Date.now() + 3000;
+    setCastingSpecial();
+
+    // 2) Visual feedback starts immediately while backend inference runs in parallel
     window.dispatchEvent(new CustomEvent('show_subtitle', {
-      detail: { text: '超絶熱々揚げ春巻きストライク！！' }
+      detail: { text: '詠唱開始... 超絶熱々揚げ春巻きストライク！！' }
     }));
 
-    // 3. Start real audio stream in parallel – races against charge animation
+    // 3) Sync casting start so the opponent can render the same charge phase
+    const castEvent = {
+      event: 'buff_applied',
+      user: PLAYER_ID,
+      payload: { action: 'casting_special' }
+    } as const;
+    if (!rtcService.send({ type: 'event', data: castEvent })) {
+      wsService.sendEvent(castEvent);
+    }
+
+    // 4) Start raw audio stream in parallel with the 3s charge window
     await startStream();
+
+    // 5) Failsafe: if backend never returns, unlock after a hard timeout.
+    window.setTimeout(() => {
+      if (useFSMStore.getState().currentState === State.CASTING_SPECIAL) {
+        resolveSpecialResult({ verdict: 'miss' });
+        window.dispatchEvent(new CustomEvent('show_subtitle', {
+          detail: { text: '判定タイムアウト: MISS' }
+        }));
+      }
+    }, 6500);
   };
 
   return (
@@ -118,6 +207,7 @@ function App() {
       <Canvas shadows>
         <XR store={store}>
           <MainScene />
+          <RemoteRobotCharacter />
           <OrbitControls makeDefault />
         </XR>
       </Canvas>
