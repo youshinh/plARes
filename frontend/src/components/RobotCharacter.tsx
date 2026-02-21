@@ -26,8 +26,32 @@ export const RobotCharacter: React.FC = () => {
   const lastTargetRef= useRef<THREE.Vector3 | null>(null);
   const lastSyncAtRef = useRef<number>(0);
   const prevPosRef = useRef<THREE.Vector3>(new THREE.Vector3(0, 0.5, -1));
+  const hoverTimerRef = useRef<number>(0);
+  const materialRef = useRef<THREE.MeshStandardMaterial>(null);
+  const uniformsRef = useRef({
+    tDamage: { value: null as THREE.Texture | null },
+    mixRatio: { value: 0.0 }
+  });
 
-  const { currentState, targetPosition } = useFSMStore();
+  const { currentState, targetPosition, updateBasicMovement, activeTextureUrl } = useFSMStore();
+
+  React.useEffect(() => {
+    if (activeTextureUrl && materialRef.current) {
+      const loader = new THREE.TextureLoader();
+      loader.crossOrigin = 'anonymous';
+      loader.load(activeTextureUrl, (texture) => {
+        texture.flipY = false;
+        uniformsRef.current.tDamage.value = texture;
+        uniformsRef.current.mixRatio.value = 1.0;
+        if (materialRef.current) {
+           materialRef.current.needsUpdate = true;
+        }
+      });
+    } else {
+      uniformsRef.current.tDamage.value = null;
+      uniformsRef.current.mixRatio.value = 0.0;
+    }
+  }, [activeTextureUrl]);
 
   useFrame((_, delta) => {
     if (!meshRef.current) return;
@@ -56,6 +80,18 @@ export const RobotCharacter: React.FC = () => {
         pos.addScaledVector(dir, Math.min(speed * delta, dist));
         // Face movement direction
         meshRef.current.lookAt(nextWp.x, pos.y, nextWp.z);
+      }
+    } else if (currentState === State.HOVERING && navMesh.isReady()) {
+      // ── Priority 3: Auto-roaming when hovering ──────────────────────────
+      hoverTimerRef.current += delta;
+      if (hoverTimerRef.current > 3.0) {
+        hoverTimerRef.current = 0;
+        const randomTarget = new THREE.Vector3(
+          pos.x + (Math.random() - 0.5) * 2.0,
+          pos.y,
+          pos.z + (Math.random() - 0.5) * 2.0
+        );
+        updateBasicMovement(randomTarget);
       }
     }
 
@@ -100,7 +136,28 @@ export const RobotCharacter: React.FC = () => {
   return (
     <mesh ref={meshRef} position={[0, 0.5, -1]} castShadow>
       <boxGeometry args={[0.5, 1, 0.5]} />
-      <meshStandardMaterial color="#4488ff" />
+      <meshStandardMaterial 
+        ref={materialRef}
+        color="#4488ff" 
+        onBeforeCompile={(shader) => {
+          shader.uniforms.tDamage = uniformsRef.current.tDamage;
+          shader.uniforms.mixRatio = uniformsRef.current.mixRatio;
+          
+          shader.fragmentShader = `
+            uniform sampler2D tDamage;
+            uniform float mixRatio;
+            ${shader.fragmentShader}
+          `.replace(
+            `#include <color_fragment>`,
+            `#include <color_fragment>
+            if (mixRatio > 0.0) {
+              vec4 damageColor = texture2D(tDamage, vUv);
+              // Simple alpha blend over the base color
+              diffuseColor = mix(diffuseColor, damageColor, damageColor.a * mixRatio);
+            }`
+          );
+        }}
+      />
     </mesh>
   );
 };

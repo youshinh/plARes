@@ -13,23 +13,50 @@ export enum State {
 interface FSMState {
   currentState: State;
   targetPosition: THREE.Vector3 | null;
+  evadeTimeout: ReturnType<typeof setTimeout> | null;
   setEmergencyEvade: (direction: THREE.Vector3) => void;
   setAICommand: (command: { action: string; target?: THREE.Vector3 }) => void;
   setCastingSpecial: () => void;
   resolveSpecialResult: (result: { verdict: 'critical' | 'miss' }) => void;
   updateBasicMovement: (position: THREE.Vector3) => void;
+  clearEvadeTimeout: () => void;
+  activeTextureUrl: string | null;
+  setTexture: (url: string | null) => void;
 }
 
-export const useFSMStore = create<FSMState>((set) => ({
+export const useFSMStore = create<FSMState>((set, get) => ({
   currentState: State.HOVERING,
   targetPosition: null,
+  evadeTimeout: null,
+  activeTextureUrl: null,
+
+  setTexture: (url) => set({ activeTextureUrl: url }),
+
+  clearEvadeTimeout: () => {
+    const { evadeTimeout } = get();
+    if (evadeTimeout) clearTimeout(evadeTimeout);
+    set({ evadeTimeout: null });
+  },
 
   // Priority 1: Emergency Evade from Voice Control
-  setEmergencyEvade: (direction) =>
+  setEmergencyEvade: (direction) => {
+    get().clearEvadeTimeout();
+    
+    const timeoutMsg = setTimeout(() => {
+      set((state) => {
+        if (state.currentState === State.EMERGENCY_EVADE) {
+          return { currentState: State.HOVERING, targetPosition: null, evadeTimeout: null };
+        }
+        return { evadeTimeout: null };
+      });
+    }, 1000);
+
     set({
       currentState: State.EMERGENCY_EVADE,
       targetPosition: direction,
-    }),
+      evadeTimeout: timeoutMsg,
+    });
+  },
 
   // Priority 2: JSON from Gemini
   setAICommand: (command) =>
@@ -53,11 +80,13 @@ export const useFSMStore = create<FSMState>((set) => ({
       };
     }),
 
-  setCastingSpecial: () =>
+  setCastingSpecial: () => {
+    get().clearEvadeTimeout();
     set({
       currentState: State.CASTING_SPECIAL,
       targetPosition: null,
-    }),
+    });
+  },
 
   resolveSpecialResult: ({ verdict }) =>
     set((state) => {

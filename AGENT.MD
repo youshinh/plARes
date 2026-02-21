@@ -62,8 +62,9 @@
 
 ## 4. エージェント行動規約 (Core Principles)
 
-- **Developer Knowledge MCP Serverの常時接続**: コード実装にあたり不明点が生じた場合は、自律的に「Developer Knowledge MCP server」へ接続し、公式ドキュメントをリアルタイムに参照しながら技術的課題を解決すること。
+- **Developer Knowledge MCP Serverの活用**: コード実装にあたり不明点が生じた場合、特にGoogle Cloud等の公式情報や最新の技術ドキュメントが必要になった場合は、自律的かつ必ず「Developer Knowledge MCP Server」を使用し、リアルタイムに情報を検索・参照しながら課題を解決すること。
 - **コスト極小化とDynamic Gating**: 重い推論や生成処理（映像ストリーミング、Veo 3.1等）は常時稼働させず、特定のトリガー時のみ実行するイベント駆動型（ダイナミック・ゲーティング）設計を徹底すること。
+- **Claude Code Skillsの拡張**: 今後のADK連携強化のため、Claude Codeを使用する場合は独自スキル（`SKILL.md`）をルートディレクトリの `.claude/skills/` フォルダ内に構築し、エージェントが自律的に発見・利用できるようにすること。
 
 ## 5. Geminiネイティブ機能のパラダイムシフト
 
@@ -71,3 +72,12 @@
 
 1.  **Context Cachingの徹底**: 機体の基本人格、物理ルール、膨大な「過去の戦歴・修行ログ」は、毎フレーム送信するのではなく、ゲーム起動時に一度だけContext Caching機能を用いてキャッシュ領域にロードすること。これにより初動トークン生成（TTFT）を爆速化せよ。
 2.  **Multimodal Bidi-streamingの完全統合**: 音声だけでなく、スマホカメラのフレーム映像を `LiveRequestQueue` に同時に流し込み、AIに現実の状況やプレイヤーの体の動きをリアルタイムに理解させること。
+
+## 6. 今後の拡張構想 (Future Extensibility from Awesome ADK Agents)
+
+[Awesome ADK Agents](https://github.com/Sri-Krishna-V/awesome-adk-agents) の知見に基づき、今後のプロジェクト成長において以下のアーキテクチャ・パターンの導入を検討・推奨する。
+
+1. **A2A (Agent-to-Agent) プロトコルの導入**: 他のマルチエージェントシステム（例: 観客側のエージェントや外部システム）と標準的なプロトコルで通信・連携する基盤の構築（`A2A_ADK_MCP` の事例参照）。
+2. **Datastore / Firestore Session Serviceへの移行**: 現在の `InMemorySessionService` から脱却し、Cloud Datastore（Firestore）をバックエンドとした持続的なセッション管理サービスへと移行することで、Cloud Run等のサーバーレス環境でのステートレススケールアウトを実現する。
+3. **Ralph Loop (Verify, Not Guess) パターン**: エージェントが生成した出力（例：UIコンポーネントや戦術ロジック）をそのまま適用するのではなく、実行前に外部検証を挟み、成功基準を満たすまで自律的に反復修正（イテレーション）を行う堅牢なパイプラインの構築。
+4. **MCP Agent Tool Adapters**: 既存のMCPツール群を単純な関数として呼び出すだけでなく、直接ADKのTool（またはSub-Agent）としてラップ・変換させるアダプターパターンの採用。

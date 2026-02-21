@@ -5,7 +5,8 @@ export type EventType =
   | "item_dropped"
   | "milestone_reached"
   | "request_ephemeral_token"
-  | "interaction_turn";
+  | "interaction_turn"
+  | "match_end";
 
 export interface GameEvent {
   event: EventType;
@@ -47,4 +48,19 @@ export interface SignalData {
 export interface WebRTCDataChannelPayload {
   type: "sync" | "event" | "signal";
   data: SyncData | GameEvent | SignalData;
+}
+
+export interface FusedItem {
+  requested_by: string;
+  concept: string;
+  texture_url: string;
+}
+
+export interface MemoryUpdate {
+  user_id: string;
+  timestamp: string;
+  room_id: string;
+  result: "WIN" | "LOSE" | "DRAW";
+  total_matches: number;
+  ai_memory_summary: string;
 }

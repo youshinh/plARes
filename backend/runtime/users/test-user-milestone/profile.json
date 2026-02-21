@@ -1,0 +1,41 @@
+{
+  "user_id": "test-user-milestone",
+  "player_name": "test-user-milestone",
+  "lang": "en-US",
+  "total_matches": 5,
+  "ai_memory_summary": "x7f\\xd3\\x82x\\x91A\\xce4\\xe6\\x12@0\\xec\\x12s\\nO\\x9b\\x89\\xbd\\x84|\\x9f$\\xc4\\x9bT\\x0b2|\\xe0\\x9e\\x0f\\xa67\\n\\x98\\xe6i\\xafb\\\\s\\xb0\\x82\\xean?Cg\\x97\\xd5V\\xf4\\xd70[\\xbaD\\x97\\xe5UM\\x89T\\x83S\\xabu<\\x06\\x1ck2\\xe8}\\xe6+Pc\\x89\\xcdD\\xc15\\xcc\\x88k\\x13UK\\xab\\xb2\\x91\\x970E\\xffl// U\\x9c\\xf7\\xff]b\\x14\\x05\\xab\\xad\\x05\\xefr\\xc1d!\\xc2\\x87\\xa5(6\\x7f\\xcfBU\\xd6\\xf3\\xf4\\x00\\xb0o\\xacW\\x99\\x86\\xd25#\\xe3`\\xa8\\xa3\\x13\\r\\xda\\xa7\\xf8X\\x0c\\r\\x04\\xe1kah\\x1c\\xf0.\\xb9\\xf9\\xf4\\xde-\\xf7\\x7f\\x10\\x05\\xcd\\x86h\\xc6\\xc3\\xe0;1\\x9fl\\xba-\\xb0ie\\x06\\xe2\\xec\\xb8.]\\x91\\xc0p*-W1\\xf9\\xd2%[\\r0\\xaf\\xf4\\xb6\\x1b\\xf3~\\xbf\\xcd\\x8d\\xae\\xce\\xddP\\x8c\\xda\\xc11\\x7f\"4m\\xa1+D\\x19\\xbb\\'\\xe7\\'\\x89\\x11L\\x93*{P\\xf5 W\\x04\\xb7r\\xb4G\\xc1\\xbb\\xf4\\x98g\\x10ql\\x06Z \\x8d\\xbe\\xce92U\\x15jd\\xd2\\x1d\\xb5\\x1e\\xde<\\r\\x80\\x9e\\xb5\\xde\\xe7\\x01\\x06\\xaa\\xbeLd_\\xc5\\xdc\\xb4\\xe3\\xb7\\xa9ju\\x9a\\xa3j]\\xeb0\\x9f<P\\x0c\\xe6\\xed\\xf9\\xd2&\\x83M\\x8e\\xfa\\x8awSl#\\xdc\\xcb\\x8f\\xa1\\xc6\\xd0\\xfc\\xbe\\x8b\\xf6\\x0b87CY\\xb1SE/\\x0b\\nmPG\\xc4\\x08`)#\\x98\\xa2\\xed\\x80\\xf2\\xc3\\x05\\xa8-\\xd7\\x189\\xae.\\xdb\\xc6C(\\xb0\\xe9gY\\xb5\\xf3\\xb3C\\xe9\\xf6/s\\xbf6l<\\xb0L\\xe8\\x9ec\\xfc3\\xa6#!{V\\x11o#Tn\\x9f\\t^k\\xf9\\xdb\\xdb<&\\x98>\\xdeO_\\x81C\\x1f\\xfb\\\\\\x01j)\\xa3$o&' model STOP gemini-3-flash-preview rZmZaZFnq5jT6Q_T2IeACg TEXT",
+  "pending_milestone": 5,
+  "robot": {
+    "material": "wood",
+    "level": 1,
+    "personality": {
+      "tone": "balanced"
+    },
+    "network": {
+      "sync_rate": 0.5
+    }
+  },
+  "match_logs": [
+    {
+      "timestamp": "2026-02-21T11:40:21.207306+00:00",
+      "room_id": "test-room-week-5",
+      "result": "WIN",
+      "critical_hits": 5,
+      "misses": 2,
+      "highlight_events": [],
+      "expires_at": "2026-08-20T11:40:29.520088+00:00"
+    }
+  ],
+  "recent_match_logs": [
+    {
+      "timestamp": "2026-02-21T11:40:21.207306+00:00",
+      "room_id": "test-room-week-5",
+      "result": "WIN",
+      "critical_hits": 5,
+      "misses": 2,
+      "highlight_events": [],
+      "expires_at": "2026-08-20T11:40:29.520088+00:00"
+    }
+  ],
+  "updated_at": "2026-02-21T11:40:20.491809+00:00"
+}

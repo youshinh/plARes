@@ -278,6 +278,14 @@ function App() {
     });
   };
 
+  const requestMatchEnd = () => {
+    wsService.sendEvent({
+      event: 'match_end' as any,
+      user: PLAYER_ID,
+      payload: { trigger: 'manual' },
+    });
+  };
+
   const requestLiveEphemeralToken = () => {
     wsService.requestEphemeralToken({
         request_id: `req_${Date.now()}`,
@@ -592,6 +600,18 @@ function App() {
       </button>
 
       <button
+        id="btn-match-end"
+        style={{
+          position: 'absolute', top: 16, left: 120, zIndex: 10,
+          padding: '8px 16px', borderRadius: 6,
+          background: '#d32f2f', color: 'white', border: 'none', cursor: 'pointer'
+        }}
+        onClick={requestMatchEnd}
+      >
+        END MATCH
+      </button>
+
+      <button
         id="btn-profile-sync"
         style={{
           position: 'absolute', top: 64, right: 16, zIndex: 10,
@@ -664,6 +684,23 @@ function App() {
         onClick={requestInteractionTurn}
       >
         TEST INTERACTION
+      </button>
+
+      <button
+        id="btn-test-texture"
+        style={{
+          position: 'absolute', top: 344, right: 16, zIndex: 10,
+          padding: '8px 10px', borderRadius: 8,
+          background: '#a52a2a', color: 'white', border: '1px solid rgba(255,255,255,0.2)', cursor: 'pointer'
+        }}
+        onClick={() => {
+          // A tiny 2x2 placeholder generated pattern demonstrating texture replacement
+          const testTex = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVQIW2NkYGD4z8DAwMgAI0AMDA4AF2H/h68AAAAASUVORK5CYII='
+          useFSMStore.getState().setTexture(testTex);
+          setTimeout(() => { useFSMStore.getState().setTexture(null); }, 5000);
+        }}
+      >
+        TEST TEXTURE
       </button>
 
       <Canvas shadows>

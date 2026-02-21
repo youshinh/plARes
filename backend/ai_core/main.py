@@ -40,15 +40,48 @@ except Exception:
     genai_types = None
 
 try:
-    from ..infrastructure.multimodal_pipeline import RealityFusionCrafter  # type: ignore
+    from ..infrastructure.multimodal_pipeline import RealityFusionCrafter, MilestoneVideoGenerator  # type: ignore
 except Exception:
     try:
-        from backend.infrastructure.multimodal_pipeline import RealityFusionCrafter  # type: ignore
+        from backend.infrastructure.multimodal_pipeline import RealityFusionCrafter, MilestoneVideoGenerator  # type: ignore
     except Exception:
         try:
-            from infrastructure.multimodal_pipeline import RealityFusionCrafter  # type: ignore
+            from infrastructure.multimodal_pipeline import RealityFusionCrafter, MilestoneVideoGenerator  # type: ignore
         except Exception:
             RealityFusionCrafter = None
+            MilestoneVideoGenerator = None
+
+try:
+    from ..infrastructure.mcp_server import FirestoreMCPServer  # type: ignore
+    from ..infrastructure.vertex_cache import VertexContextCache  # type: ignore
+except Exception:
+    try:
+        from backend.infrastructure.mcp_server import FirestoreMCPServer  # type: ignore
+        from backend.infrastructure.vertex_cache import VertexContextCache  # type: ignore
+    except Exception:
+        try:
+            from infrastructure.mcp_server import FirestoreMCPServer  # type: ignore
+            from infrastructure.vertex_cache import VertexContextCache  # type: ignore
+        except Exception:
+            FirestoreMCPServer = None
+            VertexContextCache = None
+
+mcp_server_instance = None
+mcp_firestore_tools = None
+vertex_cache_instance = None
+
+if FirestoreMCPServer is not None:
+    try:
+        mcp_server_instance = FirestoreMCPServer(os.getenv("GCP_PROJECT", "plaresar"))
+        mcp_firestore_tools = mcp_server_instance.register_firestore_tools()
+    except Exception as e:
+        print(f"MCP init failed: {e}")
+
+if VertexContextCache is not None:
+    try:
+        vertex_cache_instance = VertexContextCache()
+    except Exception as e:
+        print(f"Vertex cache init failed: {e}")
 
 if load_dotenv is not None:
     env_path = Path(__file__).resolve().parents[1] / ".env"
@@ -87,7 +120,7 @@ EPHEMERAL_MODEL = (
 INTERACTIONS_MODEL = (
     os.getenv("PLARES_INTERACTIONS_MODEL")
     or os.getenv("PLARES_LIGHT_MODEL")
-    or "models/gemini-flash-latest"
+    or "gemini-1.5-flash"
 )
 EPHEMERAL_DEFAULT_USES = int(os.getenv("PLARES_EPHEMERAL_USES", "3"))
 EPHEMERAL_EXPIRE_MINUTES = int(os.getenv("PLARES_EPHEMERAL_EXPIRE_MINUTES", "10"))
@@ -99,6 +132,7 @@ room_user_map: dict[str, dict[str, Any]] = defaultdict(dict)
 room_user_meta: dict[str, dict[str, dict[str, Any]]] = defaultdict(dict)
 room_runtime_state: dict[str, dict[str, Any]] = {}
 reality_crafter = RealityFusionCrafter() if RealityFusionCrafter is not None else None
+milestone_generator = MilestoneVideoGenerator(project_id=os.getenv("GCP_PROJECT", "plaresar")) if MilestoneVideoGenerator is not None else None
 _firestore_client: Any | None = None
 _firestore_disabled_reason: str = ""
 _genai_clients: dict[str, Any] = {}
@@ -578,6 +612,14 @@ def _run_interaction_sync(requested: dict[str, Any], user_id: str, room_id: str)
         generation_config["max_output_tokens"] = max_output_tokens
     if generation_config:
         kwargs["generation_config"] = generation_config
+        
+    if mcp_firestore_tools and user_id:
+        kwargs["tools"] = [mcp_firestore_tools]
+        
+    if vertex_cache_instance:
+        cache_id = vertex_cache_instance.get_cache_for_user(user_id)
+        if cache_id:
+            kwargs["cached_content"] = cache_id
 
     try:
         interaction = client.interactions.create(**kwargs)
@@ -767,6 +809,58 @@ def _append_memory_summary(existing: str, entry: str) -> str:
     return merged[-MAX_MEMORY_SUMMARY_CHARS:]
 
 
+def _summarize_memory_summary(
+    *,
+    existing_summary: str,
+    memory_line: str,
+    user_highlights: list[dict[str, str]],
+    lang: str,
+    tone: str,
+    sync_rate: float,
+) -> str:
+    fallback = _append_memory_summary(existing_summary, memory_line)
+    client = _get_genai_client(INTERACTIONS_API_VERSION)
+    if client is None:
+        return fallback
+
+    highlights_text = "\n".join(
+        f"- {item.get('timestamp', '')}: {item.get('description', '')}"
+        for item in user_highlights[:8]
+    )
+    if not highlights_text:
+        highlights_text = "- (none)"
+
+    prompt = (
+        "You are updating a long-term companion memory for an AR robot battle game.\n"
+        f"Output plain text only, max {MAX_MEMORY_SUMMARY_CHARS} chars.\n"
+        "Keep emotional continuity and growth trajectory over time.\n"
+        f"Player language: {lang}\n"
+        f"Robot tone at end of match: {tone}\n"
+        f"Sync rate: {sync_rate:.3f}\n\n"
+        "Existing memory summary:\n"
+        f"{existing_summary or '(empty)'}\n\n"
+        "New match facts:\n"
+        f"- {memory_line}\n"
+        "Key highlights:\n"
+        f"{highlights_text}\n\n"
+        "Return the updated memory summary."
+    )
+    model = _normalize_model_name(INTERACTIONS_MODEL, INTERACTIONS_MODEL)
+    try:
+        response = client.models.generate_content(model=model, contents=prompt)
+        raw = _to_json_safe(response)
+        fragments: list[str] = []
+        _collect_text_fragments(raw, fragments)
+        text = " ".join(dict.fromkeys(fragments)).strip()
+        if not text:
+            return fallback
+        if len(text) <= MAX_MEMORY_SUMMARY_CHARS:
+            return text
+        return text[-MAX_MEMORY_SUMMARY_CHARS:]
+    except Exception:
+        return fallback
+
+
 def _ensure_runtime_state(room_id: str) -> dict[str, Any]:
     state = room_runtime_state.get(room_id)
     if state is not None:
@@ -780,6 +874,20 @@ def _ensure_runtime_state(room_id: str) -> dict[str, Any]:
     }
     room_runtime_state[room_id] = state
     return state
+
+
+def _seed_runtime_state_from_room_meta(room_id: str) -> None:
+    room_meta = room_user_meta.get(room_id, {})
+    if not room_meta:
+        return
+    state = _ensure_runtime_state(room_id)
+    for user_id, meta in room_meta.items():
+        user_state = state["per_user"][user_id]
+        user_state["lang"] = str(meta.get("lang", "en-US"))
+        try:
+            user_state["sync_rate"] = _clamp01(float(meta.get("sync_rate", 0.5)))
+        except (TypeError, ValueError):
+            user_state["sync_rate"] = 0.5
 
 
 def _record_room_sync(room_id: str, user_id: str, sync_data: dict[str, Any]) -> None:
@@ -820,10 +928,35 @@ def _build_highlights(events: list[dict[str, Any]]) -> list[dict[str, str]]:
     return highlights[:32]
 
 
-def _finalize_room_runtime(room_id: str) -> None:
+def _generate_global_match_summary(events: list[dict[str, Any]], highlights: list[dict[str, str]]) -> str:
+    fallback = f"{len(events)} events captured in-memory, {len(highlights)} highlights extracted."
+    client = _get_genai_client(INTERACTIONS_API_VERSION)
+    if client is None or not highlights:
+        return fallback
+
+    highlights_text = "\n".join(f"- {h.get('timestamp', '')}: {h.get('description', '')}" for h in highlights[:15])
+    prompt = (
+        "You are an AI summarizing an AR robot battle match.\n"
+        "Provide a short, thrilling 1-paragraph summary of the match based on these highlights:\n"
+        f"{highlights_text}\n\n"
+        "Output plain text only."
+    )
+    model = _normalize_model_name(INTERACTIONS_MODEL, INTERACTIONS_MODEL)
+    try:
+        response = client.models.generate_content(model=model, contents=prompt)
+        raw = _to_json_safe(response)
+        fragments: list[str] = []
+        _collect_text_fragments(raw, fragments)
+        text = " ".join(dict.fromkeys(fragments)).strip()
+        return text if text else fallback
+    except Exception:
+        return fallback
+
+
+def _finalize_room_runtime(room_id: str, trigger: str = "room_empty") -> list[dict[str, Any]]:
     state = room_runtime_state.pop(room_id, None)
     if not state:
-        return
+        return []
 
     ended_at = datetime.now(timezone.utc).isoformat()
     events = state.get("events", [])
@@ -831,17 +964,20 @@ def _finalize_room_runtime(room_id: str) -> None:
     per_user = {
         user_id: dict(metrics) for user_id, metrics in state.get("per_user", {}).items()
     }
+    sync_packets = int(state.get("sync_packets", 0))
+    if sync_packets <= 0 and len(events) == 0:
+        print(f"[MATCH] skipped empty commit room={room_id} trigger={trigger}")
+        return []
+
     summary = {
         "room_id": room_id,
         "started_at": state.get("started_at"),
         "ended_at": ended_at,
         "total_events": len(events),
-        "sync_packets": state.get("sync_packets", 0),
+        "sync_packets": sync_packets,
         "highlights": highlights,
         "per_user": per_user,
-        "memory_summary": (
-            f"{len(events)} events captured in-memory, {len(highlights)} highlights extracted."
-        ),
+        "memory_summary": _generate_global_match_summary(events, highlights),
     }
 
     MATCH_LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -850,6 +986,7 @@ def _finalize_room_runtime(room_id: str) -> None:
     out_file.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
 
     # Persist per-user memory bank and compact match logs (local fallback for Doc 6).
+    memory_updates: list[dict[str, Any]] = []
     for user_id, metrics in per_user.items():
         lang = str(metrics.get("lang", "en-US"))
         sync_rate = float(metrics.get("sync_rate", 0.5))
@@ -867,15 +1004,29 @@ def _finalize_room_runtime(room_id: str) -> None:
         user_highlights = [
             h for h in highlights if h.get("description", "").startswith(f"{user_id} ")
         ]
+        tone = str(metrics.get("tone", profile.get("robot", {}).get("personality", {}).get("tone", "balanced")))
+        audio_metrics = metrics.get("last_audio") if isinstance(metrics.get("last_audio"), dict) else {}
+        audio_fragment = ""
+        if audio_metrics:
+            audio_fragment = (
+                f", audio(acc={audio_metrics.get('accuracy', 0)}, "
+                f"spd={audio_metrics.get('speed', 0)}, "
+                f"pas={audio_metrics.get('passion', 0)})"
+            )
         memory_line = (
             f"{ended_at} {result}: critical={critical_hits}, miss={misses}, "
-            f"room={room_id}, highlights={len(user_highlights)}"
+            f"room={room_id}, highlights={len(user_highlights)}{audio_fragment}"
         )
 
         profile["total_matches"] = int(profile.get("total_matches", 0)) + 1
         profile["lang"] = lang
-        profile["ai_memory_summary"] = _append_memory_summary(
-            str(profile.get("ai_memory_summary", "")), memory_line
+        profile["ai_memory_summary"] = _summarize_memory_summary(
+            existing_summary=str(profile.get("ai_memory_summary", "")),
+            memory_line=memory_line,
+            user_highlights=user_highlights,
+            lang=lang,
+            tone=tone,
+            sync_rate=sync_rate,
         )
 
         robot = profile.get("robot", {})
@@ -909,12 +1060,28 @@ def _finalize_room_runtime(room_id: str) -> None:
         _save_user_profile(profile)
         _save_match_log_to_firestore(user_id, match_log)
 
+        if milestone_generator is not None:
+            if result == "WIN":
+                asyncio.create_task(milestone_generator.trigger_victory_music(user_id, str(profile.get("ai_memory_summary", ""))))
+            asyncio.create_task(milestone_generator.check_and_generate_highlight_reel(profile["total_matches"], user_id))
+
         user_log_dir = USER_RUNTIME_DIR / user_id / "match_logs"
         user_log_dir.mkdir(parents=True, exist_ok=True)
         user_log_file = user_log_dir / f"{room_id}_{stamp}.json"
         user_log_file.write_text(json.dumps(match_log, ensure_ascii=False, indent=2), encoding="utf-8")
+        memory_updates.append(
+            {
+                "user_id": user_id,
+                "timestamp": ended_at,
+                "room_id": room_id,
+                "result": result,
+                "total_matches": profile["total_matches"],
+                "ai_memory_summary": profile["ai_memory_summary"],
+            }
+        )
 
-    print(f"[MATCH] committed runtime summary room={room_id} file={out_file}")
+    print(f"[MATCH] committed runtime summary room={room_id} trigger={trigger} file={out_file}")
+    return memory_updates
 
 
 def _cleanup_game_client(websocket: Any) -> bool:
@@ -933,7 +1100,7 @@ def _cleanup_game_client(websocket: Any) -> bool:
         room_members.pop(room_id, None)
         room_user_map.pop(room_id, None)
         room_user_meta.pop(room_id, None)
-        _finalize_room_runtime(room_id)
+        _finalize_room_runtime(room_id, trigger="room_empty")
         return True
     return False
 
@@ -1034,7 +1201,13 @@ def _special_prompt_payload(user_id: str, lang: str) -> dict:
     }
 
 
-def _update_persona_tone(room_id: str, user_id: str, verdict: str, lang: str) -> Optional[dict]:
+def _update_persona_tone(
+    room_id: str,
+    user_id: str,
+    verdict: str,
+    lang: str,
+    audio_result: Optional[dict[str, Any]] = None,
+) -> Optional[dict]:
     state = _ensure_runtime_state(room_id)
     metrics = state["per_user"][user_id]
     critical_hits = int(metrics.get("critical_hits", 0))
@@ -1057,6 +1230,13 @@ def _update_persona_tone(room_id: str, user_id: str, verdict: str, lang: str) ->
     metrics["critical_hits"] = critical_hits
     metrics["misses"] = misses
     metrics["tone"] = new_tone
+    if isinstance(audio_result, dict):
+        metrics["last_audio"] = {
+            "accuracy": round(float(audio_result.get("accuracy", 0.0)), 3),
+            "speed": round(float(audio_result.get("speed", 0.0)), 3),
+            "passion": round(float(audio_result.get("passion", 0.0)), 3),
+            "score": round(float(audio_result.get("score", 0.0)), 3),
+        }
 
     if new_tone == old_tone:
         return None
@@ -1124,9 +1304,39 @@ def _build_audio_result(
     duration_score = _clamp01(frame_count / (16000 * 1.3))
     packet_rate = packet_count / elapsed
 
-    accuracy = _clamp01(0.45 + 0.55 * duration_score)
     speed = _clamp01(packet_rate / 8.0)
-    passion = _clamp01((avg_amplitude * 1.2) + (peak_amplitude * 0.35))
+    
+    # We blend PCM physical amplitude with GenAI semantic passion if supported
+    # Fallback uses pure amplitude:
+    pcm_passion = _clamp01((avg_amplitude * 1.2) + (peak_amplitude * 0.35))
+    
+    client = _get_genai_client(INTERACTIONS_API_VERSION)
+    if client is None:
+        accuracy = _clamp01(0.45 + 0.55 * duration_score)
+        passion = pcm_passion
+    else:
+        model = _normalize_model_name(INTERACTIONS_MODEL, INTERACTIONS_MODEL)
+        prompt = (
+            "You are evaluating a player shouting a special move in an AR game.\n"
+            f"The player's vocal amplitude was measured at {pcm_passion:.2f}/1.0.\n"
+            "Assess their passion and accuracy out of 1.0. Output valid JSON only, like:\n"
+            '{"accuracy": 0.8, "passion": 0.9}'
+        )
+        try:
+            response = client.models.generate_content(model=model, contents=prompt)
+            txt = response.text.strip()
+            # Try parsing
+            import json
+            if txt.startswith("```json"): txt = txt[7:]
+            if txt.endswith("```"): txt = txt[:-3]
+            parsed = json.loads(txt.strip())
+            accuracy = float(parsed.get("accuracy", 0.7))
+            ai_passion = float(parsed.get("passion", 0.7))
+            passion = (pcm_passion * 0.4) + (ai_passion * 0.6)
+        except Exception as e:
+            print(f"[AUDIO] GenAI eval failed: {e}")
+            accuracy = _clamp01(0.45 + 0.55 * duration_score)
+            passion = pcm_passion
 
     base_total = (accuracy * 0.45) + (speed * 0.2) + (passion * 0.35)
     sync_bonus = (sync_rate - 0.5) * 0.16
@@ -1146,12 +1356,53 @@ def _build_audio_result(
         "action": "heavy_attack" if verdict == "critical" else "stumble",
     }
 
+async def _generate_winner_interview(winner_id: str, loser_id: str, loser_lang: str) -> str:
+    """Doc 10: Generates dynamic, translated trash-talk in the loser's language."""
+    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    if not api_key:
+        return f"[{loser_lang}] Checkmate, {loser_id}!"
+        
+    try:
+        client = _get_genai_client(INTERACTIONS_API_VERSION)
+        prompt = (
+            f"You are the winning AI robot '{winner_id}' in an AR battle game. You just defeated '{loser_id}'. "
+            f"Generate a short, punchy 1-2 sentence trash-talk or praise message to them. "
+            f"CRITICAL: You MUST write this message entirely in the language corresponding to BCP-47 code '{loser_lang}'. "
+            f"Do not include any other languages or explanations, just the raw localized dialogue."
+        )
+        model = _normalize_model_name(INTERACTIONS_MODEL, INTERACTIONS_MODEL)
+        response = await asyncio.to_thread(
+            client.models.generate_content,
+            model=model,
+            contents=prompt,
+        )
+        if response and response.text:
+            return response.text.strip()
+    except Exception as e:
+        print(f"[AI] Failed to generate winner interview: {e}")
+    return f"Hey {loser_id}, better luck next time!"
+
 
 async def handle_game_connection(websocket: Any, request_path: str) -> None:
     user_id, room_id, lang, sync_rate = _parse_game_identity(request_path)
     _register_game_client(websocket, user_id, room_id, lang, sync_rate)
     profile = _load_user_profile(user_id, lang, sync_rate)
     _save_user_profile(profile)
+    
+    if vertex_cache_instance is not None:
+        async def _init_cache():
+            sys_inst = (
+                f"You are evaluating game tactics. Player {user_id} speaks {lang}. "
+                f"Tone: {profile.get('robot', {}).get('personality', {}).get('tone', 'balanced')}, "
+                f"Sync: {profile.get('robot', {}).get('network', {}).get('sync_rate', 0.5)}"
+            )
+            contents = [
+                f"Memory Summary: {profile.get('ai_memory_summary', 'None')}",
+                json.dumps(profile.get('match_logs', []), ensure_ascii=False)
+            ]
+            await vertex_cache_instance.load_historical_context(user_id, sys_inst, contents)
+            
+        asyncio.create_task(_init_cache())
     print(
         f"[GAME] connected user={user_id} room={room_id} lang={lang} sync_rate={sync_rate:.2f} "
         f"room_clients={len(room_members.get(room_id, set()))}"
@@ -1283,6 +1534,47 @@ async def handle_game_connection(websocket: Any, request_path: str) -> None:
                         wrapped = {"type": "event", "data": generated}
                         await _broadcast_room(room_id, wrapped)
                         _record_room_event(room_id, user_id, generated)
+                        continue
+
+                    if (
+                        event_data.get("event") == "match_end"
+                    ):
+                        _record_room_event(room_id, user_id, event_data)
+                        _finalize_room_runtime(room_id, trigger="match_end")
+                        await _broadcast_room(room_id, payload)
+                        
+                        # Generate Winner Interview (Doc 10)
+                        room_state = room_runtime_state.get(room_id, {})
+                        per_user = room_state.get("per_user", {})
+                        
+                        winner_id, loser_id, loser_lang = None, None, "en-US"
+                        
+                        for u_id, metrics in per_user.items():
+                            criticals = int(metrics.get("critical_hits", 0))
+                            misses = int(metrics.get("misses", 0))
+                            if criticals >= misses:
+                                winner_id = u_id
+                            else:
+                                loser_id = u_id
+                                loser_lang = str(metrics.get("lang", "en-US"))
+                                
+                        if winner_id and loser_id:
+                            interview_text = await _generate_winner_interview(winner_id, loser_id, loser_lang)
+                            interview_payload = {
+                                "type": "event",
+                                "data": {
+                                    "event": "winner_interview",
+                                    "user": "server",
+                                    "target": loser_id,
+                                    "payload": {
+                                        "winner": winner_id,
+                                        "loser": loser_id,
+                                        "text": interview_text,
+                                        "lang": loser_lang
+                                    }
+                                }
+                            }
+                            await _broadcast_room(room_id, interview_payload)
                         continue
 
                     _record_room_event(room_id, user_id, event_data)

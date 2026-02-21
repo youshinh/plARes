@@ -24,3 +24,17 @@ class FunctionCallResponse(BaseModel):
     action: ActionCommand
     articulation_score: Optional[ArticulationScore] = None
     speech_text: Optional[str] = None
+
+class FusedItem(BaseModel):
+    requested_by: str
+    concept: str
+    texture_url: str
+
+class MemoryUpdate(BaseModel):
+    user_id: str
+    timestamp: str
+    room_id: str
+    result: str
+    total_matches: int
+    ai_memory_summary: str
+

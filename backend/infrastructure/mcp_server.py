@@ -32,22 +32,26 @@ class FirestoreMCPServer:
         self.tools_registered = True
         
         mcp_tool = {
-            "name": "search_firestore_logs",
-            "description": "Autonomously query past match logs from Firestore to fetch context about previous rivals or events.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "user_id": {
-                        "type": "string",
-                        "description": "The target user's ID."
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Max documents to return (Default 5)"
+            "function_declarations": [
+                {
+                    "name": "search_firestore_logs",
+                    "description": "Autonomously query past match logs from Firestore to fetch context about previous rivals or events.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "user_id": {
+                                "type": "string",
+                                "description": "The target user's ID."
+                            },
+                            "limit": {
+                                "type": "integer",
+                                "description": "Max documents to return (Default 5)"
+                            }
+                        },
+                        "required": ["user_id"]
                     }
-                },
-                "required": ["user_id"]
-            }
+                }
+            ]
         }
         
         return mcp_tool

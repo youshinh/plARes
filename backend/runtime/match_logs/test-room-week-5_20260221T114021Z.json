@@ -1,0 +1,17 @@
+{
+  "room_id": "test-room-week-5",
+  "started_at": "2026-02-21T11:40:21.207293+00:00",
+  "ended_at": "2026-02-21T11:40:21.207306+00:00",
+  "total_events": 0,
+  "sync_packets": 100,
+  "highlights": [],
+  "per_user": {
+    "test-user-milestone": {
+      "critical_hits": 5,
+      "misses": 2,
+      "lang": "en-US",
+      "sync_rate": 0.5
+    }
+  },
+  "memory_summary": "0 events captured in-memory, 0 highlights extracted."
+}
