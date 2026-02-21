@@ -21,11 +21,11 @@ const SPEED_EVADE  = 5.0;
  * - Debug colour changes per FSM state for verification in AR view.
  */
 export const RobotCharacter: React.FC = () => {
-  const meshRef      = useRef<THREE.Mesh>(null);
+  const groupRef     = useRef<THREE.Group>(null);
   const waypointsRef = useRef<THREE.Vector3[]>([]);
   const lastTargetRef= useRef<THREE.Vector3 | null>(null);
   const lastSyncAtRef = useRef<number>(0);
-  const prevPosRef = useRef<THREE.Vector3>(new THREE.Vector3(0, 0.5, -1));
+  const prevPosRef = useRef<THREE.Vector3>(new THREE.Vector3(0, 0, -1));
   const hoverTimerRef = useRef<number>(0);
   const materialRef = useRef<THREE.MeshStandardMaterial>(null);
   const uniformsRef = useRef({
@@ -33,7 +33,21 @@ export const RobotCharacter: React.FC = () => {
     mixRatio: { value: 0.0 }
   });
 
-  const { currentState, targetPosition, updateBasicMovement, activeTextureUrl } = useFSMStore();
+  const { currentState, targetPosition, updateBasicMovement, activeTextureUrl,
+          robotStats, robotMeta } = useFSMStore();
+
+  // Per-part refs for stat-driven dynamic scaling (Doc §7 bone.scale)
+  const leftArmRef  = useRef<THREE.Group>(null);
+  const rightArmRef = useRef<THREE.Group>(null);
+  const leftLegRef  = useRef<THREE.Group>(null);
+  const rightLegRef = useRef<THREE.Group>(null);
+
+  // Material presets by material type (Wood / Metal / Resin)
+  const MATERIAL_PRESETS = {
+    Wood:  { color: '#8B5E3C', roughness: 0.85, metalness: 0.05 },
+    Metal: { color: '#7A9DB8', roughness: 0.25, metalness: 0.85 },
+    Resin: { color: '#54D18C', roughness: 0.45, metalness: 0.15 },
+  } as const;
 
   React.useEffect(() => {
     if (activeTextureUrl && materialRef.current) {
@@ -54,8 +68,8 @@ export const RobotCharacter: React.FC = () => {
   }, [activeTextureUrl]);
 
   useFrame((_, delta) => {
-    if (!meshRef.current) return;
-    const pos = meshRef.current.position;
+    if (!groupRef.current) return;
+    const pos = groupRef.current.position;
 
     // ── Recompute path when target changes ────────────────────────────────
     if (
@@ -79,7 +93,7 @@ export const RobotCharacter: React.FC = () => {
         const dir = new THREE.Vector3().subVectors(nextWp, pos).normalize();
         pos.addScaledVector(dir, Math.min(speed * delta, dist));
         // Face movement direction
-        meshRef.current.lookAt(nextWp.x, pos.y, nextWp.z);
+        groupRef.current.lookAt(nextWp.x, pos.y, nextWp.z);
       }
     } else if (currentState === State.HOVERING && navMesh.isReady()) {
       // ── Priority 3: Auto-roaming when hovering ──────────────────────────
@@ -95,8 +109,7 @@ export const RobotCharacter: React.FC = () => {
       }
     }
 
-    // ── Debug colour per state ────────────────────────────────────────────
-    const mat = meshRef.current.material as THREE.MeshStandardMaterial;
+    // ── Debug colour per state – propagate to all child meshes ────────────
     const colours: Record<State, string> = {
       [State.HOVERING]:       '#4488ff',
       [State.BASIC_ATTACK]:   '#ff4444',
@@ -105,7 +118,35 @@ export const RobotCharacter: React.FC = () => {
       [State.EMERGENCY_EVADE]:'#ffff00',
       [State.CASTING_SPECIAL]:'#ff8800',
     };
-    mat.color.set(colours[currentState] ?? '#ffffff');
+    const stateColour = colours[currentState] ?? '#ffffff';
+
+    // ── Stat-driven dynamic scaling (Doc §7) ──────────────────────────────
+    const preset = MATERIAL_PRESETS[robotMeta.material as keyof typeof MATERIAL_PRESETS]
+                ?? MATERIAL_PRESETS.Wood;
+    // power (1-99) → arm X/Z scale: 1.0 – 1.6
+    const armScale = 1.0 + (robotStats.power / 99) * 0.6;
+    // speed (1-99) → leg Y scale: 1.0 – 1.3 (longer legs = faster movement feel)
+    const legScaleY = 1.0 + (robotStats.speed / 99) * 0.3;
+    // speed → leg X/Z scale: 0.75 – 1.0 (faster = slimmer legs)
+    const legScaleXZ = 1.0 - (robotStats.speed / 99) * 0.25;
+
+    if (leftArmRef.current)  leftArmRef.current.scale.set(armScale, 1.0, armScale);
+    if (rightArmRef.current) rightArmRef.current.scale.set(armScale, 1.0, armScale);
+    if (leftLegRef.current)  leftLegRef.current.scale.set(legScaleXZ, legScaleY, legScaleXZ);
+    if (rightLegRef.current) rightLegRef.current.scale.set(legScaleXZ, legScaleY, legScaleXZ);
+
+    // Apply material preset + state glow to all child meshes
+    groupRef.current.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        const mat = (child as THREE.Mesh).material as THREE.MeshStandardMaterial;
+        // Blend battle-state colour with material base colour (50/50)
+        const base = new THREE.Color(preset.color);
+        const tint = new THREE.Color(stateColour);
+        mat.color.copy(base.lerp(tint, 0.35));
+        mat.roughness  = preset.roughness;
+        mat.metalness  = preset.metalness;
+      }
+    });
 
     const now = performance.now();
     if (now - lastSyncAtRef.current >= 100) {
@@ -133,31 +174,123 @@ export const RobotCharacter: React.FC = () => {
     }
   });
 
+  /**
+   * Humanoid robot body built from Three.js primitives.
+   * All measurements in metres. Total height ≈ 1.0 m standing.
+   *
+   * Hierarchy (offsets relative to group origin = feet level):
+   *   Group (position = floor-level anchor)
+   *     Torso      y=0.42  0.28×0.40×0.20
+   *     Head       y=0.78  0.20×0.20×0.18
+   *     L.Shoulder y=0.52, x=-0.22  0.12×0.12×0.12
+   *     L.Upper-arm y=0.44, x=-0.26  0.08×0.20×0.08
+   *     L.Forearm  y=0.28, x=-0.26  0.07×0.18×0.07
+   *     R.Shoulder y=0.52, x=+0.22  (mirror)
+   *     R.Upper-arm y=0.44, x=+0.26
+   *     R.Forearm  y=0.28, x=+0.26
+   *     L.Thigh    y=0.18, x=-0.09  0.10×0.22×0.10
+   *     R.Thigh    y=0.18, x=+0.09
+   *     L.Shin     y=-0.02,x=-0.09  0.08×0.20×0.08
+   *     R.Shin     y=-0.02,x=+0.09
+   */
+  const sharedMatProps = {
+    color: '#4488ff' as const,
+    roughness: 0.35,
+    metalness: 0.65,
+  };
+
   return (
-    <mesh ref={meshRef} position={[0, 0.5, -1]} castShadow>
-      <boxGeometry args={[0.5, 1, 0.5]} />
-      <meshStandardMaterial 
-        ref={materialRef}
-        color="#4488ff" 
-        onBeforeCompile={(shader) => {
-          shader.uniforms.tDamage = uniformsRef.current.tDamage;
-          shader.uniforms.mixRatio = uniformsRef.current.mixRatio;
-          
-          shader.fragmentShader = `
-            uniform sampler2D tDamage;
-            uniform float mixRatio;
-            ${shader.fragmentShader}
-          `.replace(
-            `#include <color_fragment>`,
-            `#include <color_fragment>
-            if (mixRatio > 0.0) {
-              vec4 damageColor = texture2D(tDamage, vUv);
-              // Simple alpha blend over the base color
-              diffuseColor = mix(diffuseColor, damageColor, damageColor.a * mixRatio);
-            }`
-          );
-        }}
-      />
-    </mesh>
+    // Group origin sits at floor level; robot stands upright inside
+    <group ref={groupRef} position={[0, 0, -1]} castShadow>
+      {/* ── Torso ── */}
+      <mesh position={[0, 0.42, 0]} castShadow>
+        <boxGeometry args={[0.28, 0.40, 0.20]} />
+        <meshStandardMaterial {...sharedMatProps} />
+      </mesh>
+
+      {/* ── Head ── */}
+      <mesh position={[0, 0.78, 0]} castShadow>
+        <boxGeometry args={[0.20, 0.20, 0.18]} />
+        <meshStandardMaterial {...sharedMatProps} color="#55aaff" />
+      </mesh>
+
+      {/* ── Visor (eye slit) ── */}
+      <mesh position={[0, 0.78, 0.095]} castShadow>
+        <boxGeometry args={[0.14, 0.04, 0.01]} />
+        <meshStandardMaterial color="#00ffee" emissive="#00ffee" emissiveIntensity={1.2} />
+      </mesh>
+
+      {/* ── Left arm group (ref for stat-driven scaling) ── */}
+      <group ref={leftArmRef}>
+        {/* Left shoulder */}
+        <mesh position={[-0.22, 0.60, 0]} castShadow>
+          <sphereGeometry args={[0.07, 8, 6]} />
+          <meshStandardMaterial {...sharedMatProps} />
+        </mesh>
+        {/* Left upper-arm */}
+        <mesh position={[-0.26, 0.44, 0]} castShadow>
+          <boxGeometry args={[0.08, 0.20, 0.08]} />
+          <meshStandardMaterial {...sharedMatProps} />
+        </mesh>
+        {/* Left forearm */}
+        <mesh position={[-0.26, 0.26, 0]} castShadow>
+          <boxGeometry args={[0.07, 0.18, 0.07]} />
+          <meshStandardMaterial {...sharedMatProps} />
+        </mesh>
+      </group>
+
+      {/* ── Right arm group (ref for stat-driven scaling) ── */}
+      <group ref={rightArmRef}>
+        {/* Right shoulder */}
+        <mesh position={[0.22, 0.60, 0]} castShadow>
+          <sphereGeometry args={[0.07, 8, 6]} />
+          <meshStandardMaterial {...sharedMatProps} />
+        </mesh>
+        {/* Right upper-arm */}
+        <mesh position={[0.26, 0.44, 0]} castShadow>
+          <boxGeometry args={[0.08, 0.20, 0.08]} />
+          <meshStandardMaterial {...sharedMatProps} />
+        </mesh>
+        {/* Right forearm */}
+        <mesh position={[0.26, 0.26, 0]} castShadow>
+          <boxGeometry args={[0.07, 0.18, 0.07]} />
+          <meshStandardMaterial {...sharedMatProps} />
+        </mesh>
+      </group>
+
+      {/* ── Waist / hip block ── */}
+      <mesh position={[0, 0.20, 0]} castShadow>
+        <boxGeometry args={[0.24, 0.10, 0.18]} />
+        <meshStandardMaterial {...sharedMatProps} />
+      </mesh>
+
+      {/* ── Left leg group (ref for stat-driven scaling) ── */}
+      <group ref={leftLegRef}>
+        {/* Left thigh */}
+        <mesh position={[-0.09, 0.09, 0]} castShadow>
+          <boxGeometry args={[0.10, 0.22, 0.10]} />
+          <meshStandardMaterial {...sharedMatProps} />
+        </mesh>
+        {/* Left shin */}
+        <mesh position={[-0.09, -0.08, 0]} castShadow>
+          <boxGeometry args={[0.08, 0.20, 0.08]} />
+          <meshStandardMaterial {...sharedMatProps} />
+        </mesh>
+      </group>
+
+      {/* ── Right leg group (ref for stat-driven scaling) ── */}
+      <group ref={rightLegRef}>
+        {/* Right thigh */}
+        <mesh position={[0.09, 0.09, 0]} castShadow>
+          <boxGeometry args={[0.10, 0.22, 0.10]} />
+          <meshStandardMaterial {...sharedMatProps} />
+        </mesh>
+        {/* Right shin */}
+        <mesh position={[0.09, -0.08, 0]} castShadow>
+          <boxGeometry args={[0.08, 0.20, 0.08]} />
+          <meshStandardMaterial {...sharedMatProps} />
+        </mesh>
+      </group>
+    </group>
   );
 };

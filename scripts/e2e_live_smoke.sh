@@ -46,6 +46,8 @@ if [[ ! -d "$ROOT_DIR/frontend/node_modules" ]]; then
   exit 1
 fi
 
+npx playwright install chromium >/dev/null 2>&1 || true
+
 wait_for_http() {
   local url="$1"
   local timeout="${2:-60}"
@@ -77,6 +79,9 @@ wait_for_port() {
 }
 
 cleanup() {
+  if command -v "$PWCLI" >/dev/null 2>&1; then
+    "$PWCLI" close >/dev/null 2>&1 || true
+  fi
   if [[ -n "${FRONTEND_PID:-}" ]]; then
     kill "$FRONTEND_PID" >/dev/null 2>&1 || true
   fi
@@ -98,6 +103,7 @@ VITE_PLAYER_ID="$E2E_PLAYER_ID" \
 VITE_ROOM_ID="$E2E_ROOM_ID" \
 VITE_WS_URL="$GAME_WS_URL" \
 VITE_AUDIO_WS_URL="$AUDIO_WS_URL" \
+VITE_SKIP_FACE_SCANNER=true \
 npm --prefix "$ROOT_DIR/frontend" run dev -- --host 127.0.0.1 --port "$E2E_FRONTEND_PORT" \
   >"$FRONTEND_LOG" 2>&1 &
 FRONTEND_PID=$!
@@ -110,7 +116,7 @@ pw() {
 }
 
 latest_snapshot() {
-  ls -t "$ROOT_DIR"/.playwright-cli/page-*.yml 2>/dev/null | head -n1
+  ls -t "$ROOT_DIR"/.playwright-cli/page-*.yml 2>/dev/null | sed -n '1p' || true
 }
 
 take_snapshot() {
@@ -121,7 +127,7 @@ take_snapshot() {
 extract_ref() {
   local label="$1"
   local snapshot="$2"
-  rg -o "button \"$label\" \\[.*ref=(e[0-9]+)\\]" -r '$1' "$snapshot" | head -n1
+  grep -m 1 -o "button \"$label\" \[.*ref=e[0-9]*\]" "$snapshot" 2>/dev/null | sed -n 's/.*ref=\(e[0-9]*\)\]/\1/p' || true
 }
 
 click_button_if_present() {
@@ -145,7 +151,7 @@ fi
 
 TOKEN_OK=false
 for _ in $(seq 1 20); do
-  if rg -q 'Token: auth_tokens/' "$SNAPSHOT"; then
+  if grep -q 'Token: auth_tokens/' "$SNAPSHOT" 2>/dev/null; then
     TOKEN_OK=true
     break
   fi
@@ -165,7 +171,7 @@ fi
 
 LIVE_OK=false
 for _ in $(seq 1 25); do
-  if rg -q 'button "DISCONNECT LIVE"' "$SNAPSHOT"; then
+  if grep -q 'button "DISCONNECT LIVE"' "$SNAPSHOT" 2>/dev/null; then
     LIVE_OK=true
     break
   fi

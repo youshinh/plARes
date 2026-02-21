@@ -1,4 +1,5 @@
 import type { GameEvent, SignalData, SyncData, WebRTCDataChannelPayload } from '../../../shared/types/events';
+import { GAMEPLAY_RULES } from '../constants/gameplay';
 
 type MessageHandler = (data: WebRTCDataChannelPayload) => void;
 
@@ -13,6 +14,7 @@ class WebSocketService {
   private handlers: Set<MessageHandler> = new Set();
   private reconnectDelay = 2000;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private userId: string = '';
   private roomId: string = 'default';
   private lang: string = 'en-US';
@@ -53,6 +55,7 @@ class WebSocketService {
     this.ws.onopen = () => {
       console.log('[WS] Connected');
       if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+      this.startHeartbeat();
     };
 
     this.ws.onmessage = (evt: MessageEvent) => {
@@ -67,10 +70,33 @@ class WebSocketService {
     this.ws.onerror = (e) => console.error('[WS] Error', e);
 
     this.ws.onclose = () => {
+      this.stopHeartbeat();
       if (!this.shouldReconnect) return;
       console.warn('[WS] Disconnected – reconnecting in', this.reconnectDelay, 'ms');
       this.reconnectTimer = setTimeout(() => this._open(), this.reconnectDelay);
     };
+  }
+
+  private startHeartbeat() {
+    this.stopHeartbeat();
+    this.sendEvent({
+      event: 'heartbeat',
+      user: this.userId,
+      payload: { ts: Date.now() },
+    });
+    this.heartbeatTimer = setInterval(() => {
+      this.sendEvent({
+        event: 'heartbeat',
+        user: this.userId,
+        payload: { ts: Date.now() },
+      });
+    }, GAMEPLAY_RULES.heartbeatIntervalMs);
+  }
+
+  private stopHeartbeat() {
+    if (!this.heartbeatTimer) return;
+    clearInterval(this.heartbeatTimer);
+    this.heartbeatTimer = null;
   }
 
   /** Register a handler for inbound server messages */
@@ -123,6 +149,7 @@ class WebSocketService {
   disconnect() {
     this.shouldReconnect = false;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.stopHeartbeat();
     this.ws?.close();
     this.ws = null;
   }

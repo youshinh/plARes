@@ -4,6 +4,7 @@ import { XR, createXRStore } from '@react-three/xr';
 import { Environment, OrbitControls } from '@react-three/drei';
 import { RobotCharacter } from './components/RobotCharacter';
 import { RemoteRobotCharacter } from './components/RemoteRobotCharacter';
+import { FaceScanner } from './components/FaceScanner';
 import { ServerDrivenPanel } from './components/ui/ServerDrivenPanel';
 import { DynamicSubtitle } from './components/ui/DynamicSubtitle';
 import { RemoteStreamView } from './components/ui/RemoteStreamView';
@@ -11,10 +12,13 @@ import { useVoiceController } from './hooks/useVoiceController';
 import { useWebXRScanner } from './hooks/useWebXRScanner';
 import { useAICommandListener } from './hooks/useAICommandListener';
 import { useAudioStreamer } from './hooks/useAudioStreamer';
+import { useCharacterSetup } from './hooks/useCharacterSetup';
 import { wsService } from './services/WebSocketService';
 import { rtcService } from './services/WebRTCDataChannelService';
 import { geminiLiveService } from './services/GeminiLiveService';
 import { State, useFSMStore } from './store/useFSMStore';
+import { GAMEPLAY_RULES } from './constants/gameplay';
+import { EX_GAUGE } from '../../shared/constants/battleConstants';
 import { localizeBattleEvent, localizeCastStart, localizeResult, localizeTimeout } from './utils/localizeEvent';
 import { navMesh } from './utils/NavMeshGenerator';
 import { PLAYER_ID, PLAYER_LANG, ROOM_ID, SYNC_RATE } from './utils/identity';
@@ -77,13 +81,16 @@ const MainScene: React.FC = () => {
 
 // ── Root App ─────────────────────────────────────────────────────────────────
 function App() {
-  const { isStreaming, startStream } = useAudioStreamer();
+  const { isSetupDone, isGenerating, generateCharacter } = useCharacterSetup();
+  const { isStreaming, startStream, stopStream } = useAudioStreamer();
   const setCastingSpecial = useFSMStore(s => s.setCastingSpecial);
   const resolveSpecialResult = useFSMStore(s => s.resolveSpecialResult);
   const [isP2PMediaOn, setIsP2PMediaOn] = useState(false);
   const [specialPhrase, setSpecialPhrase] = useState('');
   const [profileInfo, setProfileInfo] = useState<{
     totalMatches: number;
+    totalTrainingSessions: number;
+    totalWalkSessions: number;
     tone: string;
     syncRate: number;
     storageBackend: string;
@@ -109,8 +116,20 @@ function App() {
   });
   const [isLiveConnected, setIsLiveConnected] = useState(false);
   const [isLiveMicActive, setIsLiveMicActive] = useState(false);
+  const [isMatchPaused, setIsMatchPaused] = useState(false);
+  const [battleState, setBattleState] = useState({
+    hp: 0,
+    maxHp: 0,
+    opponentHp: 0,
+    opponentMaxHp: 0,
+    exGauge: 0,
+    specialReady: false,
+    heatActive: false,
+  });
   const pendingLiveConnectRef = useRef(false);
   const castEndsAtRef = useRef<number>(0);
+  const specialRetryRef = useRef(0);
+  const judgeTimeoutRef = useRef<number | null>(null);
   const handleRemoteBattleEvent = (evt: GameEvent) => {
     const payload = (evt as any)?.payload;
     const target = (evt as any)?.target as string | undefined;
@@ -129,6 +148,8 @@ function App() {
         }));
         setProfileInfo({
           totalMatches: Number(p.total_matches ?? 0),
+          totalTrainingSessions: Number(p.total_training_sessions ?? 0),
+          totalWalkSessions: Number(p.total_walk_sessions ?? 0),
           tone: String(p.tone ?? 'balanced'),
           syncRate: Number(p.sync_rate ?? 0.5),
           storageBackend: String(p.storage_backend ?? 'local'),
@@ -144,6 +165,76 @@ function App() {
         }));
         return;
       }
+      if (payload.kind === 'battle_status' && (!target || target === PLAYER_ID)) {
+        setBattleState(prev => ({
+          ...prev,
+          hp: Number(payload.hp ?? prev.hp),
+          maxHp: Number(payload.max_hp ?? prev.maxHp),
+          exGauge: Number(payload.ex_gauge ?? prev.exGauge),
+          specialReady: Boolean(payload.special_ready ?? prev.specialReady),
+          heatActive: Boolean(payload.heat_active ?? prev.heatActive),
+        }));
+        return;
+      }
+      if (payload.kind === 'ex_gauge_update' && (!target || target === PLAYER_ID)) {
+        setBattleState(prev => ({
+          ...prev,
+          exGauge: Number(payload.value ?? prev.exGauge),
+          specialReady: Boolean(payload.special_ready ?? prev.specialReady),
+          hp: Number(payload.hp ?? prev.hp),
+          maxHp: Number(payload.max_hp ?? prev.maxHp),
+          heatActive: Boolean(payload.heat_active ?? prev.heatActive),
+        }));
+        return;
+      }
+      if (payload.kind === 'special_ready' && (!target || target === PLAYER_ID)) {
+        const text = String(payload.text ?? '');
+        if (text) setSpecialPhrase(text);
+        setBattleState(prev => ({
+          ...prev,
+          exGauge: Number(payload.ex_gauge ?? EX_GAUGE.MAX),
+          specialReady: true,
+        }));
+        window.dispatchEvent(new CustomEvent('show_subtitle', {
+          detail: { text: text || 'Special ready!' }
+        }));
+        return;
+      }
+      if (payload.kind === 'special_not_ready' && (!target || target === PLAYER_ID)) {
+        window.dispatchEvent(new CustomEvent('show_subtitle', {
+          detail: { text: String(payload.message ?? 'EX gauge is not full') }
+        }));
+        return;
+      }
+      if (payload.kind === 'damage_applied') {
+        const victim = String(payload.target ?? '');
+        const hpAfter = Number(payload.hp_after ?? 0);
+        const maxHp = Number(payload.max_hp ?? 0);
+        if (victim === PLAYER_ID) {
+          setBattleState(prev => ({ ...prev, hp: hpAfter, maxHp }));
+        } else {
+          setBattleState(prev => ({ ...prev, opponentHp: hpAfter, opponentMaxHp: maxHp }));
+        }
+        return;
+      }
+      if (payload.kind === 'heat_state' && (!target || target === PLAYER_ID)) {
+        setBattleState(prev => ({
+          ...prev,
+          heatActive: Boolean(payload.active ?? prev.heatActive),
+          hp: Number(payload.hp ?? prev.hp),
+          maxHp: Number(payload.max_hp ?? prev.maxHp),
+        }));
+        return;
+      }
+      if (payload.kind === 'down_state') {
+        const victim = String(payload.target ?? '');
+        if (victim === PLAYER_ID) {
+          window.dispatchEvent(new CustomEvent('show_subtitle', {
+            detail: { text: 'DOWN! 体勢を立て直せ！' }
+          }));
+        }
+        return;
+      }
       if (payload.kind === 'incantation_prompt' && typeof payload.text === 'string') {
         if (target && target !== PLAYER_ID) return;
         setSpecialPhrase(payload.text);
@@ -156,6 +247,8 @@ function App() {
         if (target && target !== PLAYER_ID) return;
         setProfileInfo(prev => ({
           totalMatches: prev?.totalMatches ?? 0,
+          totalTrainingSessions: prev?.totalTrainingSessions ?? 0,
+          totalWalkSessions: prev?.totalWalkSessions ?? 0,
           tone: String(payload.tone ?? prev?.tone ?? 'balanced'),
           syncRate: prev?.syncRate ?? SYNC_RATE,
           storageBackend: prev?.storageBackend ?? 'local',
@@ -171,6 +264,32 @@ function App() {
         const concept = typeof payload.concept === 'string' ? payload.concept : 'fused item';
         window.dispatchEvent(new CustomEvent('show_subtitle', {
           detail: { text: `Fusion Drop: ${concept}` }
+        }));
+        return;
+      }
+      if (payload.kind === 'intervention_rejected') {
+        window.dispatchEvent(new CustomEvent('show_subtitle', {
+          detail: { text: String(payload.message ?? 'Intervention rejected') }
+        }));
+        return;
+      }
+      if (payload.kind === 'match_pause') {
+        setIsMatchPaused(true);
+        window.dispatchEvent(new CustomEvent('show_subtitle', {
+          detail: { text: String(payload.message ?? 'Match paused (connection issue)') }
+        }));
+        return;
+      }
+      if (payload.kind === 'match_resumed') {
+        setIsMatchPaused(false);
+        window.dispatchEvent(new CustomEvent('show_subtitle', {
+          detail: { text: String(payload.message ?? 'Match resumed') }
+        }));
+        return;
+      }
+      if (payload.kind === 'state_correction') {
+        window.dispatchEvent(new CustomEvent('show_subtitle', {
+          detail: { text: String(payload.message ?? 'State corrected by server') }
         }));
         return;
       }
@@ -224,6 +343,22 @@ function App() {
         }
         return;
       }
+    }
+
+    if (evt.event === 'winner_interview' && payload && typeof payload === 'object') {
+      const text = (payload as any).text;
+      if (typeof text === 'string' && text.trim()) {
+        window.dispatchEvent(new CustomEvent('show_subtitle', { detail: { text } }));
+      }
+      return;
+    }
+    if (evt.event === 'disconnect_tko' && payload && typeof payload === 'object') {
+      setIsMatchPaused(true);
+      const loser = String((payload as any).loser ?? 'unknown');
+      window.dispatchEvent(new CustomEvent('show_subtitle', {
+        detail: { text: `Connection TKO: ${loser}` }
+      }));
+      return;
     }
 
     if (!evt?.event || evt.user === PLAYER_ID) return;
@@ -378,6 +513,11 @@ function App() {
       const detail = (event as CustomEvent<any>).detail || {};
       const verdict = detail.verdict === 'critical' ? 'critical' : 'miss';
       const delay = Math.max(0, castEndsAtRef.current - Date.now());
+      if (judgeTimeoutRef.current) {
+        clearTimeout(judgeTimeoutRef.current);
+        judgeTimeoutRef.current = null;
+      }
+      specialRetryRef.current = 0;
 
       window.setTimeout(() => {
         resolveSpecialResult({ verdict });
@@ -468,9 +608,36 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (judgeTimeoutRef.current) {
+        clearTimeout(judgeTimeoutRef.current);
+        judgeTimeoutRef.current = null;
+      }
+    };
+  }, []);
+
   const handleCastSpecial = async () => {
+    if (isMatchPaused) {
+      window.dispatchEvent(new CustomEvent('show_subtitle', {
+        detail: { text: '試合が一時停止中です' }
+      }));
+      return;
+    }
+    if (!battleState.specialReady) {
+      window.dispatchEvent(new CustomEvent('show_subtitle', {
+        detail: { text: `EXゲージ不足 (${battleState.exGauge}/${EX_GAUGE.MAX})` }
+      }));
+      return;
+    }
     // 1) Instantly enter CASTING state and lock the next 3s for latency concealment
-    castEndsAtRef.current = Date.now() + 3000;
+    castEndsAtRef.current = Date.now() + GAMEPLAY_RULES.specialChargeMs;
+    specialRetryRef.current = 0;
+    setBattleState(prev => ({ ...prev, specialReady: false, exGauge: 0 }));
+    if (judgeTimeoutRef.current) {
+      clearTimeout(judgeTimeoutRef.current);
+      judgeTimeoutRef.current = null;
+    }
     setCastingSpecial();
 
     // 2) Visual feedback starts immediately while backend inference runs in parallel
@@ -491,19 +658,51 @@ function App() {
     // 4) Start raw audio stream in parallel with the 3s charge window
     await startStream({ preferredStream: rtcService.getLocalStream() });
 
-    // 5) Failsafe: if backend never returns, unlock after a hard timeout.
-    window.setTimeout(() => {
-      if (useFSMStore.getState().currentState === State.CASTING_SPECIAL) {
+    // 5) Failsafe: timeout at charge-end, retry once, then force MISS.
+    const scheduleJudgeTimeout = (delayMs: number) => {
+      judgeTimeoutRef.current = window.setTimeout(async () => {
+        if (useFSMStore.getState().currentState !== State.CASTING_SPECIAL) return;
+
+        if (specialRetryRef.current < GAMEPLAY_RULES.specialJudgeRetryCount) {
+          specialRetryRef.current += 1;
+          stopStream();
+          await startStream({ preferredStream: rtcService.getLocalStream() });
+          window.dispatchEvent(new CustomEvent('show_subtitle', {
+            detail: { text: '判定再試行...' }
+          }));
+          scheduleJudgeTimeout(1200);
+          return;
+        }
+
         resolveSpecialResult({ verdict: 'miss' });
+        const timeoutPayload = {
+          event: 'debuff_applied',
+          user: PLAYER_ID,
+          payload: { reason: 'special_judge_timeout', timeout: true },
+        } as const;
+        if (!rtcService.send({ type: 'event', data: timeoutPayload })) {
+          wsService.sendEvent(timeoutPayload);
+        }
         window.dispatchEvent(new CustomEvent('show_subtitle', {
           detail: { text: localizeTimeout() }
         }));
-      }
-    }, 6500);
+      }, delayMs);
+    };
+
+    scheduleJudgeTimeout(GAMEPLAY_RULES.specialChargeMs);
   };
 
   return (
     <div style={{ width: '100vw', height: '100vh', position: 'relative', overflow: 'hidden', background: '#111' }}>
+
+      {/* ── 初回セットアップ：FaceScanner オーバーレイ ─────────── */}
+      {!isSetupDone && (
+        <FaceScanner
+          onGenerate={generateCharacter}
+          isGenerating={isGenerating}
+        />
+      )}
+
       {/* AR entry */}
       <button
         id="btn-enter-ar"
@@ -529,9 +728,15 @@ function App() {
           }}
         >
           <div>{`Matches: ${profileInfo.totalMatches}`}</div>
+          <div>{`Training: ${profileInfo.totalTrainingSessions}`}</div>
+          <div>{`Walks: ${profileInfo.totalWalkSessions}`}</div>
           <div>{`Tone: ${profileInfo.tone}`}</div>
           <div>{`Sync: ${profileInfo.syncRate.toFixed(2)}`}</div>
           <div>{`Store: ${profileInfo.storageBackend}`}</div>
+          <div>{`HP: ${battleState.hp}/${battleState.maxHp || '-'}`}</div>
+          <div>{`Enemy HP: ${battleState.opponentHp}/${battleState.opponentMaxHp || '-'}`}</div>
+          <div>{`EX: ${battleState.exGauge}/${EX_GAUGE.MAX} ${battleState.specialReady ? '(READY)' : ''}`}</div>
+          <div>{`Heat: ${battleState.heatActive ? 'ON' : 'OFF'}`}</div>
           <div style={{ marginTop: 4, opacity: 0.85, maxWidth: 320, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {profileInfo.memorySummary || 'No memory summary yet'}
           </div>
@@ -562,16 +767,18 @@ function App() {
       {/* Special move trigger (charge animation + live audio stream) */}
       <button
         id="btn-cast-special"
-        disabled={isStreaming}
+        disabled={isStreaming || isMatchPaused || !battleState.specialReady}
         style={{
           position: 'absolute', bottom: 24, right: 24, zIndex: 10,
           padding: '18px 24px', fontSize: 18, borderRadius: 10,
-          background: isStreaming ? '#555' : '#cc2200', color: 'white',
-          cursor: isStreaming ? 'not-allowed' : 'pointer', transition: 'background 0.2s'
+          background: (isStreaming || isMatchPaused || !battleState.specialReady) ? '#555' : '#cc2200', color: 'white',
+          cursor: (isStreaming || isMatchPaused || !battleState.specialReady) ? 'not-allowed' : 'pointer', transition: 'background 0.2s'
         }}
         onClick={handleCastSpecial}
       >
-        {isStreaming ? '詠唱中…' : 'CAST SPECIAL ⚡'}
+        {isMatchPaused
+          ? '一時停止中'
+          : (isStreaming ? '詠唱中…' : (battleState.specialReady ? 'CAST SPECIAL ⚡' : `EX ${battleState.exGauge}/${EX_GAUGE.MAX}`))}
       </button>
 
       <button

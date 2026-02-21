@@ -10,6 +10,18 @@ export enum State {
   CASTING_SPECIAL = 'CASTING_SPECIAL',
 }
 
+interface RobotStats {
+  power: number;
+  speed: number;
+  vit: number;
+}
+
+interface RobotMeta {
+  name: string;
+  material: 'Wood' | 'Metal' | 'Resin';
+  tone: string;
+}
+
 interface FSMState {
   currentState: State;
   targetPosition: THREE.Vector3 | null;
@@ -22,15 +34,25 @@ interface FSMState {
   clearEvadeTimeout: () => void;
   activeTextureUrl: string | null;
   setTexture: (url: string | null) => void;
+  // ── Robot stats from character generation pipeline ──
+  robotStats: RobotStats;
+  robotMeta: RobotMeta;
+  setRobotStats: (stats: RobotStats, meta: RobotMeta) => void;
 }
+
 
 export const useFSMStore = create<FSMState>((set, get) => ({
   currentState: State.HOVERING,
   targetPosition: null,
   evadeTimeout: null,
   activeTextureUrl: null,
+  robotStats: { power: 40, speed: 40, vit: 40 },
+  robotMeta: { name: 'レスラーMk1', material: 'Wood', tone: 'balanced' },
+
+  setRobotStats: (stats, meta) => set({ robotStats: stats, robotMeta: meta }),
 
   setTexture: (url) => set({ activeTextureUrl: url }),
+
 
   clearEvadeTimeout: () => {
     const { evadeTimeout } = get();

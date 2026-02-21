@@ -6,13 +6,25 @@ export type EventType =
   | "milestone_reached"
   | "request_ephemeral_token"
   | "interaction_turn"
-  | "match_end";
+  | "match_end"
+  | "winner_interview"
+  | "heartbeat"
+  | "match_paused"
+  | "match_resumed"
+  | "disconnect_tko"
+  | "state_correction"
+  | "special_ready"
+  | "damage_applied"
+  | "down_state"
+  | "heat_state"
+  | "persona_shift_request"
+  | "bgm_ready";
 
 export interface GameEvent {
   event: EventType;
   user: string;
   target?: string;
-  payload?: any;
+  payload?: unknown;
 }
 
 export interface Coordinates {

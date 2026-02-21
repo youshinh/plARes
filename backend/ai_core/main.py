@@ -1,6 +1,8 @@
 import asyncio
 import json
+import math
 import os
+import random
 import time
 import uuid
 from collections import defaultdict
@@ -125,12 +127,31 @@ INTERACTIONS_MODEL = (
 EPHEMERAL_DEFAULT_USES = int(os.getenv("PLARES_EPHEMERAL_USES", "3"))
 EPHEMERAL_EXPIRE_MINUTES = int(os.getenv("PLARES_EPHEMERAL_EXPIRE_MINUTES", "10"))
 EPHEMERAL_NEW_SESSION_MINUTES = int(os.getenv("PLARES_EPHEMERAL_NEW_SESSION_MINUTES", "60"))
+SYNC_MAX_SPEED_MPS = float(os.getenv("PLARES_SYNC_MAX_SPEED_MPS", "8.0"))
+SYNC_MAX_WARP_DISTANCE = float(os.getenv("PLARES_SYNC_MAX_WARP_DISTANCE", "1.2"))
+DISCONNECT_DETECT_SEC = float(os.getenv("PLARES_DISCONNECT_DETECT_SEC", "3.0"))
+RECONNECT_GRACE_SEC = float(os.getenv("PLARES_RECONNECT_GRACE_SEC", "15.0"))
+HEARTBEAT_MISS_SEC = float(os.getenv("PLARES_HEARTBEAT_MISS_SEC", "3.0"))
+SPECTATOR_MAX_INTERVENTIONS = int(os.getenv("PLARES_SPECTATOR_MAX_INTERVENTIONS", "3"))
+SPECTATOR_COOLDOWN_SEC = float(os.getenv("PLARES_SPECTATOR_COOLDOWN_SEC", "30.0"))
+SPECTATOR_MAX_HP_RATIO = float(os.getenv("PLARES_SPECTATOR_MAX_HP_RATIO", "0.2"))
+MATERIAL_DAMAGE_MULTIPLIER: dict[str, dict[str, float]] = {
+    "Wood": {"Wood": 1.0, "Metal": 0.8, "Resin": 1.3},
+    "Metal": {"Wood": 1.3, "Metal": 1.0, "Resin": 0.8},
+    "Resin": {"Wood": 0.8, "Metal": 1.3, "Resin": 1.0},
+}
+EX_GAUGE_MAX = float(os.getenv("PLARES_EX_GAUGE_MAX", "100"))
+EX_GAUGE_ON_HIT = float(os.getenv("PLARES_EX_GAUGE_ON_HIT", "8"))
+EX_GAUGE_ON_CRITICAL = float(os.getenv("PLARES_EX_GAUGE_ON_CRITICAL", "16"))
+EX_GAUGE_ON_HIT_RECEIVED = float(os.getenv("PLARES_EX_GAUGE_ON_HIT_RECEIVED", "12"))
+EX_GAUGE_PER_SECOND = float(os.getenv("PLARES_EX_GAUGE_PER_SECOND", "1"))
 
 game_clients: dict[Any, dict[str, Any]] = {}
 room_members: dict[str, set[Any]] = defaultdict(set)
 room_user_map: dict[str, dict[str, Any]] = defaultdict(dict)
 room_user_meta: dict[str, dict[str, dict[str, Any]]] = defaultdict(dict)
 room_runtime_state: dict[str, dict[str, Any]] = {}
+room_disconnect_tasks: dict[tuple[str, str], asyncio.Task[Any]] = {}
 reality_crafter = RealityFusionCrafter() if RealityFusionCrafter is not None else None
 milestone_generator = MilestoneVideoGenerator(project_id=os.getenv("GCP_PROJECT", "plaresar")) if MilestoneVideoGenerator is not None else None
 _firestore_client: Any | None = None
@@ -384,7 +405,11 @@ def _save_profile_to_firestore(profile: dict[str, Any]) -> None:
     try:
         robot = profile.get("robot", {})
         logs = profile.get("match_logs", [])
+        training_logs = profile.get("training_logs", [])
+        walk_logs = profile.get("walk_logs", [])
         recent = logs[-5:] if isinstance(logs, list) else []
+        recent_training = training_logs[-5:] if isinstance(training_logs, list) else []
+        recent_walk = walk_logs[-5:] if isinstance(walk_logs, list) else []
         payload = {
             "player_name": profile.get("player_name"),
             "lang": profile.get("lang"),
@@ -393,6 +418,8 @@ def _save_profile_to_firestore(profile: dict[str, Any]) -> None:
             "pending_milestone": profile.get("pending_milestone", 0),
             "robot": robot,
             "recent_match_logs": recent,
+            "recent_training_logs": recent_training,
+            "recent_walk_logs": recent_walk,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
         db.collection("users").document(user_id).set(payload, merge=True)
@@ -688,12 +715,16 @@ def _default_user_profile(user_id: str, lang: str, sync_rate: float) -> dict[str
         "ai_memory_summary": "",
         "pending_milestone": 0,
         "robot": {
-            "material": "wood",
+            "name": "Plares Unit",
+            "material": "Wood",
             "level": 1,
-            "personality": {"tone": "balanced"},
-            "network": {"sync_rate": round(sync_rate, 3)},
+            "stats": {"power": 40, "speed": 40, "vit": 40},
+            "personality": {"talk_skill": 50, "adlib_skill": 50, "tone": "balanced"},
+            "network": {"sync_rate": round(sync_rate, 3), "unison": 100.0},
         },
         "match_logs": [],
+        "training_logs": [],
+        "walk_logs": [],
     }
 
 
@@ -717,16 +748,32 @@ def _load_user_profile(user_id: str, lang: str, sync_rate: float) -> dict[str, A
     if "recent_match_logs" in loaded and "match_logs" not in loaded:
         if isinstance(loaded.get("recent_match_logs"), list):
             loaded["match_logs"] = loaded.get("recent_match_logs")
+    if "recent_training_logs" in loaded and "training_logs" not in loaded:
+        if isinstance(loaded.get("recent_training_logs"), list):
+            loaded["training_logs"] = loaded.get("recent_training_logs")
+    if "recent_walk_logs" in loaded and "walk_logs" not in loaded:
+        if isinstance(loaded.get("recent_walk_logs"), list):
+            loaded["walk_logs"] = loaded.get("recent_walk_logs")
 
     profile = default_profile | loaded
     robot = default_profile["robot"] | loaded.get("robot", {})
+    stats = default_profile["robot"]["stats"] | robot.get("stats", {})
     personality = default_profile["robot"]["personality"] | robot.get("personality", {})
     network = default_profile["robot"]["network"] | robot.get("network", {})
+    material = str(robot.get("material", "Wood")).strip().capitalize()
+    if material not in {"Wood", "Metal", "Resin"}:
+        material = "Wood"
+    robot["material"] = material
+    robot["stats"] = stats
     robot["personality"] = personality
     robot["network"] = network
     profile["robot"] = robot
     if not isinstance(profile.get("match_logs"), list):
         profile["match_logs"] = []
+    if not isinstance(profile.get("training_logs"), list):
+        profile["training_logs"] = []
+    if not isinstance(profile.get("walk_logs"), list):
+        profile["walk_logs"] = []
     return profile
 
 
@@ -738,11 +785,98 @@ def _save_user_profile(profile: dict[str, Any]) -> None:
     _save_profile_to_firestore(profile)
 
 
+def _append_mode_log(
+    *,
+    user_id: str,
+    lang: str,
+    sync_rate: float,
+    mode: str,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    profile = _load_user_profile(user_id, lang, sync_rate)
+    now = datetime.now(timezone.utc).isoformat()
+    robot = profile.get("robot", {})
+    personality = robot.get("personality", {}) if isinstance(robot, dict) else {}
+    network = robot.get("network", {}) if isinstance(robot, dict) else {}
+
+    raw_sync_rate = payload.get("syncRate", payload.get("sync_rate"))
+    if raw_sync_rate is not None and isinstance(network, dict):
+        try:
+            network["sync_rate"] = round(_clamp01(float(raw_sync_rate)), 3)
+        except (TypeError, ValueError):
+            pass
+    raw_tone = payload.get("tone")
+    if raw_tone is not None and isinstance(personality, dict):
+        tone = str(raw_tone).strip()
+        if tone:
+            personality["tone"] = tone
+    if isinstance(robot, dict):
+        if isinstance(personality, dict):
+            robot["personality"] = personality
+        if isinstance(network, dict):
+            robot["network"] = network
+        profile["robot"] = robot
+
+    if mode == "training":
+        entry = {
+            "timestamp": now,
+            "mode": "training",
+            "result": str(payload.get("result", "SUCCESS")).upper(),
+            "drill_type": str(payload.get("drillType", "voice_reaction")),
+            "accuracy": float(payload.get("accuracy", 0.0)),
+            "speed": float(payload.get("speed", 0.0)),
+            "passion": float(payload.get("passion", 0.0)),
+            "retry_count": int(payload.get("retryCount", 0)),
+            "highlight_events": payload.get("highlight_events", []),
+        }
+        logs = profile.get("training_logs", [])
+        if not isinstance(logs, list):
+            logs = []
+        logs.append(entry)
+        profile["training_logs"] = logs[-50:]
+        profile["ai_memory_summary"] = _append_memory_summary(
+            str(profile.get("ai_memory_summary", "")),
+            (
+                f"{now} training: acc={entry['accuracy']:.2f}, "
+                f"spd={entry['speed']:.2f}, pas={entry['passion']:.2f}"
+            ),
+        )
+    elif mode == "walk":
+        found_items = payload.get("foundItems", [])
+        if not isinstance(found_items, list):
+            found_items = []
+        proactive = payload.get("proactiveAudioHighlights", [])
+        if not isinstance(proactive, list):
+            proactive = []
+        entry = {
+            "timestamp": now,
+            "mode": "walk",
+            "route_summary": str(payload.get("routeSummary", "walk session")),
+            "found_items": [str(x) for x in found_items[:20]],
+            "proactive_audio_highlights": [str(x) for x in proactive[:20]],
+            "highlight_events": payload.get("highlight_events", []),
+        }
+        logs = profile.get("walk_logs", [])
+        if not isinstance(logs, list):
+            logs = []
+        logs.append(entry)
+        profile["walk_logs"] = logs[-50:]
+        profile["ai_memory_summary"] = _append_memory_summary(
+            str(profile.get("ai_memory_summary", "")),
+            f"{now} walk: items={len(entry['found_items'])}, reflections={len(entry['proactive_audio_highlights'])}",
+        )
+
+    _save_user_profile(profile)
+    return profile
+
+
 def _public_profile_view(profile: dict[str, Any]) -> dict[str, Any]:
     robot = profile.get("robot", {})
     personality = robot.get("personality", {})
     network = robot.get("network", {})
     recent_logs_raw = profile.get("match_logs", [])
+    training_logs_raw = profile.get("training_logs", [])
+    walk_logs_raw = profile.get("walk_logs", [])
     if isinstance(recent_logs_raw, list):
         recent_logs = recent_logs_raw[-5:]
     else:
@@ -760,9 +894,13 @@ def _public_profile_view(profile: dict[str, Any]) -> dict[str, Any]:
                 "misses": item.get("misses", 0),
             }
         )
+    training_count = len(training_logs_raw) if isinstance(training_logs_raw, list) else 0
+    walk_count = len(walk_logs_raw) if isinstance(walk_logs_raw, list) else 0
     return {
         "player_name": profile.get("player_name"),
         "total_matches": profile.get("total_matches"),
+        "total_training_sessions": training_count,
+        "total_walk_sessions": walk_count,
         "ai_memory_summary": profile.get("ai_memory_summary", ""),
         "tone": personality.get("tone", "balanced"),
         "sync_rate": network.get("sync_rate", 0.5),
@@ -870,6 +1008,11 @@ def _ensure_runtime_state(room_id: str) -> dict[str, Any]:
         "started_at": datetime.now(timezone.utc).isoformat(),
         "events": [],
         "sync_packets": 0,
+        "spectator_interventions": 0,
+        "spectator_cooldown_until": 0.0,
+        "paused": False,
+        "pause_reason": "",
+        "combatants": [],
         "per_user": defaultdict(lambda: {"sync_packets": 0, "events": 0}),
     }
     room_runtime_state[room_id] = state
@@ -888,6 +1031,70 @@ def _seed_runtime_state_from_room_meta(room_id: str) -> None:
             user_state["sync_rate"] = _clamp01(float(meta.get("sync_rate", 0.5)))
         except (TypeError, ValueError):
             user_state["sync_rate"] = 0.5
+        user_state["last_heartbeat"] = time.monotonic()
+
+def _mark_user_heartbeat(room_id: str, user_id: str) -> None:
+    state = _ensure_runtime_state(room_id)
+    state["per_user"][user_id]["last_heartbeat"] = time.monotonic()
+    if user_id in room_user_meta.get(room_id, {}):
+        room_user_meta[room_id][user_id]["last_heartbeat"] = time.monotonic()
+
+
+def _distance_xyz(a: dict[str, Any], b: dict[str, Any]) -> float:
+    try:
+        dx = float(a.get("x", 0.0)) - float(b.get("x", 0.0))
+        dy = float(a.get("y", 0.0)) - float(b.get("y", 0.0))
+        dz = float(a.get("z", 0.0)) - float(b.get("z", 0.0))
+    except (TypeError, ValueError):
+        return 0.0
+    return math.sqrt((dx * dx) + (dy * dy) + (dz * dz))
+
+
+def _validate_sync_packet(
+    room_id: str,
+    user_id: str,
+    sync_data: dict[str, Any],
+) -> tuple[bool, dict[str, Any] | None]:
+    state = _ensure_runtime_state(room_id)
+    metrics = state["per_user"][user_id]
+    current_pos = sync_data.get("position")
+    if not isinstance(current_pos, dict):
+        return False, {
+            "kind": "state_correction",
+            "message": "Invalid sync payload: position missing",
+            "position": metrics.get("last_position", {"x": 0.0, "y": 0.0, "z": 0.0}),
+        }
+
+    now = time.monotonic()
+    last_pos = metrics.get("last_position")
+    last_server_recv = metrics.get("last_server_recv")
+    if not isinstance(last_pos, dict) or not isinstance(last_server_recv, (int, float)):
+        metrics["last_position"] = current_pos
+        metrics["last_server_recv"] = now
+        return True, None
+
+    dt = max(0.001, now - float(last_server_recv))
+    dist = _distance_xyz(current_pos, last_pos)
+    speed = dist / dt
+    if dist > SYNC_MAX_WARP_DISTANCE or speed > SYNC_MAX_SPEED_MPS:
+        return False, {
+            "kind": "state_correction",
+            "message": (
+                f"Sync corrected (dist={dist:.2f}m, speed={speed:.2f}m/s exceeds limit)"
+            ),
+            "reason": "movement_outlier",
+            "position": last_pos,
+            "stats": {
+                "distance": round(dist, 3),
+                "speed": round(speed, 3),
+                "max_speed": round(SYNC_MAX_SPEED_MPS, 3),
+                "max_distance": round(SYNC_MAX_WARP_DISTANCE, 3),
+            },
+        }
+
+    metrics["last_position"] = current_pos
+    metrics["last_server_recv"] = now
+    return True, None
 
 
 def _record_room_sync(room_id: str, user_id: str, sync_data: dict[str, Any]) -> None:
@@ -896,11 +1103,13 @@ def _record_room_sync(room_id: str, user_id: str, sync_data: dict[str, Any]) -> 
     state["per_user"][user_id]["sync_packets"] += 1
     state["per_user"][user_id]["last_action"] = sync_data.get("action")
     state["per_user"][user_id]["last_sync_ts"] = sync_data.get("timestamp")
+    _mark_user_heartbeat(room_id, user_id)
 
 
 def _record_room_event(room_id: str, user_id: str, event_data: dict[str, Any]) -> None:
     state = _ensure_runtime_state(room_id)
     state["per_user"][user_id]["events"] += 1
+    _mark_user_heartbeat(room_id, user_id)
     state["events"].append(
         {
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -953,7 +1162,11 @@ def _generate_global_match_summary(events: list[dict[str, Any]], highlights: lis
         return fallback
 
 
-def _finalize_room_runtime(room_id: str, trigger: str = "room_empty") -> list[dict[str, Any]]:
+def _finalize_room_runtime(
+    room_id: str,
+    trigger: str = "room_empty",
+    forced_results: dict[str, str] | None = None,
+) -> list[dict[str, Any]]:
     state = room_runtime_state.pop(room_id, None)
     if not state:
         return []
@@ -994,7 +1207,10 @@ def _finalize_room_runtime(room_id: str, trigger: str = "room_empty") -> list[di
 
         critical_hits = int(metrics.get("critical_hits", 0))
         misses = int(metrics.get("misses", 0))
-        if critical_hits > misses:
+        forced = (forced_results or {}).get(user_id)
+        if forced in {"WIN", "LOSE", "DRAW"}:
+            result = forced
+        elif critical_hits > misses:
             result = "WIN"
         elif critical_hits < misses:
             result = "LOSE"
@@ -1084,7 +1300,153 @@ def _finalize_room_runtime(room_id: str, trigger: str = "room_empty") -> list[di
     return memory_updates
 
 
-def _cleanup_game_client(websocket: Any) -> bool:
+def _cancel_disconnect_task(room_id: str, user_id: str) -> None:
+    key = (room_id, user_id)
+    task = room_disconnect_tasks.pop(key, None)
+    if task and not task.done():
+        task.cancel()
+
+
+def _consume_spectator_intervention(room_id: str) -> tuple[bool, str, float]:
+    state = _ensure_runtime_state(room_id)
+    now = time.monotonic()
+    cooldown_until = float(state.get("spectator_cooldown_until", 0.0))
+    if now < cooldown_until:
+        retry_after = max(0.0, cooldown_until - now)
+        return False, f"Spectator cooldown active ({retry_after:.1f}s)", retry_after
+
+    used = int(state.get("spectator_interventions", 0))
+    if used >= SPECTATOR_MAX_INTERVENTIONS:
+        return False, "Spectator interventions reached match cap", 0.0
+
+    state["spectator_interventions"] = used + 1
+    state["spectator_cooldown_until"] = now + SPECTATOR_COOLDOWN_SEC
+    return True, "ok", 0.0
+
+
+def _intervention_rejected_payload(user_id: str, message: str, retry_after: float) -> dict[str, Any]:
+    return {
+        "type": "event",
+        "data": {
+            "event": "item_dropped",
+            "user": "server",
+            "target": user_id,
+            "payload": {
+                "kind": "intervention_rejected",
+                "message": message,
+                "retry_after_sec": round(max(0.0, retry_after), 2),
+            },
+        },
+    }
+
+
+def _match_pause_payload(user_id: str, reason: str) -> dict[str, Any]:
+    return {
+        "type": "event",
+        "data": {
+            "event": "match_paused",
+            "user": "server",
+            "payload": {
+                "kind": "match_pause",
+                "missing_user": user_id,
+                "reason": reason,
+                "message": f"Match paused: waiting for {user_id} reconnection",
+                "grace_sec": RECONNECT_GRACE_SEC,
+            },
+        },
+    }
+
+
+def _match_resumed_payload(user_id: str) -> dict[str, Any]:
+    return {
+        "type": "event",
+        "data": {
+            "event": "match_resumed",
+            "user": "server",
+            "payload": {
+                "kind": "match_resumed",
+                "user": user_id,
+                "message": f"{user_id} reconnected. Match resumed.",
+            },
+        },
+    }
+
+
+def _schedule_disconnect_resolution(room_id: str, user_id: str, reason: str) -> None:
+    key = (room_id, user_id)
+    existing = room_disconnect_tasks.get(key)
+    if existing and not existing.done():
+        return
+
+    async def _runner() -> None:
+        try:
+            await asyncio.sleep(DISCONNECT_DETECT_SEC)
+            if room_user_map.get(room_id, {}).get(user_id):
+                return
+
+            state = _ensure_runtime_state(room_id)
+            state["paused"] = True
+            state["pause_reason"] = reason
+            await _broadcast_room(room_id, _match_pause_payload(user_id, reason))
+
+            await asyncio.sleep(RECONNECT_GRACE_SEC)
+            if room_user_map.get(room_id, {}).get(user_id):
+                state["paused"] = False
+                state["pause_reason"] = ""
+                await _broadcast_room(room_id, _match_resumed_payload(user_id))
+                return
+
+            state_combatants = _ensure_runtime_state(room_id).get("combatants", [])
+            users = [str(uid) for uid in state_combatants if isinstance(uid, str)]
+            if user_id not in users:
+                users.append(user_id)
+            if len(users) < 2:
+                for uid in room_user_meta.get(room_id, {}).keys():
+                    sid = str(uid)
+                    if sid not in users:
+                        users.append(sid)
+                    if len(users) >= 2:
+                        break
+            forced_results = {uid: ("LOSE" if uid == user_id else "WIN") for uid in users}
+            disconnect_payload = {
+                "type": "event",
+                "data": {
+                    "event": "disconnect_tko",
+                    "user": "server",
+                    "payload": {
+                        "kind": "disconnect_tko",
+                        "loser": user_id,
+                        "reason": reason,
+                    },
+                },
+            }
+            await _broadcast_room(room_id, disconnect_payload)
+            _record_room_event(room_id, user_id, disconnect_payload["data"])
+            _finalize_room_runtime(
+                room_id,
+                trigger="disconnect_tko",
+                forced_results=forced_results,
+            )
+            room_user_meta.get(room_id, {}).pop(user_id, None)
+            await _broadcast_room(
+                room_id,
+                {
+                    "type": "event",
+                    "data": {
+                        "event": "match_end",
+                        "user": "server",
+                        "payload": {"kind": "disconnect_tko", "loser": user_id},
+                    },
+                },
+            )
+            await _broadcast_roster(room_id)
+        finally:
+            room_disconnect_tasks.pop(key, None)
+
+    room_disconnect_tasks[key] = asyncio.create_task(_runner())
+
+
+def _cleanup_game_client(websocket: Any, reason: str = "connection_closed") -> bool:
     meta = game_clients.pop(websocket, None)
     if not meta:
         return False
@@ -1092,7 +1454,6 @@ def _cleanup_game_client(websocket: Any) -> bool:
     room_id = meta["room_id"]
     user_id = meta["user_id"]
     room_members[room_id].discard(websocket)
-    room_user_meta.get(room_id, {}).pop(user_id, None)
     current = room_user_map.get(room_id, {}).get(user_id)
     if current is websocket:
         del room_user_map[room_id][user_id]
@@ -1100,8 +1461,11 @@ def _cleanup_game_client(websocket: Any) -> bool:
         room_members.pop(room_id, None)
         room_user_map.pop(room_id, None)
         room_user_meta.pop(room_id, None)
+        for key in [k for k in room_disconnect_tasks.keys() if k[0] == room_id]:
+            _cancel_disconnect_task(key[0], key[1])
         _finalize_room_runtime(room_id, trigger="room_empty")
         return True
+    _schedule_disconnect_resolution(room_id, user_id, reason=reason)
     return False
 
 
@@ -1110,7 +1474,7 @@ def _register_game_client(
 ) -> None:
     existing = room_user_map.get(room_id, {}).get(user_id)
     if existing and existing is not websocket:
-        _cleanup_game_client(existing)
+        _cleanup_game_client(existing, reason="replaced_connection")
 
     game_clients[websocket] = {
         "user_id": user_id,
@@ -1120,10 +1484,27 @@ def _register_game_client(
     }
     room_members[room_id].add(websocket)
     room_user_map[room_id][user_id] = websocket
-    room_user_meta[room_id][user_id] = {"lang": lang, "sync_rate": sync_rate}
+    room_user_meta[room_id][user_id] = {
+        "lang": lang,
+        "sync_rate": sync_rate,
+        "last_heartbeat": time.monotonic(),
+    }
+    _cancel_disconnect_task(room_id, user_id)
     state = _ensure_runtime_state(room_id)
+    combatants = state.get("combatants")
+    if not isinstance(combatants, list):
+        combatants = []
+    if user_id not in combatants and len(combatants) < 2:
+        combatants.append(user_id)
+    state["combatants"] = combatants
     state["per_user"][user_id]["lang"] = lang
     state["per_user"][user_id]["sync_rate"] = round(sync_rate, 3)
+    state["per_user"][user_id]["last_heartbeat"] = time.monotonic()
+    has_pending_for_room = any(key[0] == room_id for key in room_disconnect_tasks.keys())
+    if state.get("paused") and not has_pending_for_room:
+        state["paused"] = False
+        state["pause_reason"] = ""
+        asyncio.create_task(_broadcast_room(room_id, _match_resumed_payload(user_id)))
 
 
 def _room_peer_ids(room_id: str) -> list[str]:
@@ -1171,7 +1552,29 @@ async def _broadcast_room(
                 stale.append(ws)
 
     for ws in stale:
-        _cleanup_game_client(ws)
+        _cleanup_game_client(ws, reason="send_failed")
+
+
+async def _heartbeat_watchdog() -> None:
+    while True:
+        await asyncio.sleep(1.0)
+        now = time.monotonic()
+        for room_id, users in list(room_user_meta.items()):
+            for user_id, meta in list(users.items()):
+                ws = room_user_map.get(room_id, {}).get(user_id)
+                if ws is None:
+                    continue
+                last = float(meta.get("last_heartbeat", 0.0))
+                if now - last <= HEARTBEAT_MISS_SEC:
+                    continue
+                key = (room_id, user_id)
+                if key in room_disconnect_tasks:
+                    continue
+                try:
+                    await ws.close()
+                except Exception:
+                    pass
+                _cleanup_game_client(ws, reason="heartbeat_timeout")
 
 
 def _initial_tactics_payload(lang: str) -> dict:
@@ -1181,22 +1584,6 @@ def _initial_tactics_payload(lang: str) -> dict:
             "event": "buff_applied",
             "user": "server",
             "payload": _localized_tactics(lang),
-        },
-    }
-
-
-def _special_prompt_payload(user_id: str, lang: str) -> dict:
-    return {
-        "type": "event",
-        "data": {
-            "event": "buff_applied",
-            "user": "server",
-            "target": user_id,
-            "payload": {
-                "kind": "incantation_prompt",
-                "lang": lang,
-                "text": _special_phrase_for_lang(lang),
-            },
         },
     }
 
@@ -1290,6 +1677,399 @@ def _score_pcm16_frame(chunk: bytes) -> tuple[float, float]:
 
 def _clamp01(value: float) -> float:
     return max(0.0, min(1.0, value))
+
+
+def _normalize_material(value: Any) -> str:
+    material = str(value or "Wood").strip().capitalize()
+    if material not in {"Wood", "Metal", "Resin"}:
+        return "Wood"
+    return material
+
+
+def _calc_max_hp(vit: int) -> int:
+    return 100 + max(1, int(vit)) * 2
+
+
+def _calc_damage(
+    attacker_power: int,
+    attacker_material: str,
+    defender_material: str,
+    is_critical: bool,
+) -> int:
+    base = 10 + (max(1, int(attacker_power)) * 0.3)
+    multiplier = MATERIAL_DAMAGE_MULTIPLIER.get(_normalize_material(attacker_material), {}).get(
+        _normalize_material(defender_material),
+        1.0,
+    )
+    crit = 2.0 if is_critical else 1.0
+    return max(1, int(math.floor(base * multiplier * crit)))
+
+
+def _calc_down_chance(vit: int) -> float:
+    return max(0.0, 0.5 - (max(1, int(vit)) / 200.0))
+
+
+def _is_heat_activated(self_hp: int, max_hp: int, opponent_hp: int) -> bool:
+    if max_hp <= 0:
+        return False
+    return (self_hp / max_hp) <= 0.2 and (opponent_hp - self_hp) > (max_hp * 0.3)
+
+
+def _combatant_ids(room_id: str) -> list[str]:
+    state = _ensure_runtime_state(room_id)
+    current_users = set(room_user_map.get(room_id, {}).keys())
+    combatants: list[str] = []
+
+    raw = state.get("combatants", [])
+    if isinstance(raw, list):
+        for uid in raw:
+            sid = str(uid)
+            if sid in current_users and sid not in combatants:
+                combatants.append(sid)
+            if len(combatants) >= 2:
+                break
+
+    if len(combatants) < 2:
+        for uid in sorted(current_users):
+            if uid not in combatants:
+                combatants.append(uid)
+            if len(combatants) >= 2:
+                break
+
+    state["combatants"] = combatants
+    return combatants
+
+
+def _room_user_lang(room_id: str, user_id: str, default: str = "en-US") -> str:
+    meta = room_user_meta.get(room_id, {}).get(user_id, {})
+    return str(meta.get("lang", default))
+
+
+def _ensure_user_battle_metrics(
+    room_id: str,
+    user_id: str,
+    profile: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    state = _ensure_runtime_state(room_id)
+    metrics = state["per_user"][user_id]
+
+    robot = profile.get("robot", {}) if isinstance(profile, dict) else {}
+    if not isinstance(robot, dict):
+        robot = {}
+    stats = robot.get("stats", {})
+    if not isinstance(stats, dict):
+        stats = {}
+
+    power = int(stats.get("power", metrics.get("power", 40)))
+    vit = int(stats.get("vit", metrics.get("vit", 40)))
+    material = _normalize_material(robot.get("material", metrics.get("material", "Wood")))
+    max_hp = _calc_max_hp(vit)
+
+    metrics["material"] = material
+    metrics["power"] = max(1, power)
+    metrics["vit"] = max(1, vit)
+    metrics["max_hp"] = max_hp
+    if "hp" not in metrics:
+        metrics["hp"] = max_hp
+    else:
+        metrics["hp"] = max(0, min(int(metrics.get("hp", max_hp)), max_hp))
+
+    metrics.setdefault("critical_hits", 0)
+    metrics.setdefault("misses", 0)
+    metrics.setdefault("ex_gauge", 0.0)
+    metrics.setdefault("special_ready", False)
+    metrics.setdefault("heat_active", False)
+    metrics.setdefault("last_ex_tick", time.monotonic())
+    return metrics
+
+
+def _set_ex_gauge(metrics: dict[str, Any], value: float) -> tuple[bool, bool]:
+    before = float(metrics.get("ex_gauge", 0.0))
+    ready_before = bool(metrics.get("special_ready", False))
+    bounded = max(0.0, min(EX_GAUGE_MAX, float(value)))
+    metrics["ex_gauge"] = bounded
+    ready_after = bounded >= (EX_GAUGE_MAX - 1e-6)
+    metrics["special_ready"] = ready_after
+    changed = int(before) != int(bounded) or ready_before != ready_after
+    became_ready = (not ready_before) and ready_after
+    return changed, became_ready
+
+
+def _apply_ex_tick(metrics: dict[str, Any], now: float) -> tuple[bool, bool]:
+    last = float(metrics.get("last_ex_tick", now))
+    elapsed = max(0.0, now - last)
+    metrics["last_ex_tick"] = now
+    if elapsed <= 0.0:
+        return False, False
+    current = float(metrics.get("ex_gauge", 0.0))
+    return _set_ex_gauge(metrics, current + (elapsed * EX_GAUGE_PER_SECOND))
+
+
+def _battle_status_payload(user_id: str, metrics: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "type": "event",
+        "data": {
+            "event": "buff_applied",
+            "user": "server",
+            "target": user_id,
+            "payload": {
+                "kind": "battle_status",
+                "hp": int(metrics.get("hp", 0)),
+                "max_hp": int(metrics.get("max_hp", 0)),
+                "ex_gauge": int(round(float(metrics.get("ex_gauge", 0.0)))),
+                "ex_max": int(EX_GAUGE_MAX),
+                "special_ready": bool(metrics.get("special_ready", False)),
+                "heat_active": bool(metrics.get("heat_active", False)),
+                "material": _normalize_material(metrics.get("material", "Wood")),
+            },
+        },
+    }
+
+
+def _ex_gauge_payload(user_id: str, metrics: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "type": "event",
+        "data": {
+            "event": "buff_applied",
+            "user": "server",
+            "target": user_id,
+            "payload": {
+                "kind": "ex_gauge_update",
+                "value": int(round(float(metrics.get("ex_gauge", 0.0)))),
+                "max": int(EX_GAUGE_MAX),
+                "special_ready": bool(metrics.get("special_ready", False)),
+                "hp": int(metrics.get("hp", 0)),
+                "max_hp": int(metrics.get("max_hp", 0)),
+                "heat_active": bool(metrics.get("heat_active", False)),
+            },
+        },
+    }
+
+
+def _special_ready_payload(room_id: str, user_id: str, metrics: dict[str, Any]) -> dict[str, Any]:
+    lang = _room_user_lang(room_id, user_id, default="en-US")
+    return {
+        "type": "event",
+        "data": {
+            "event": "special_ready",
+            "user": "server",
+            "target": user_id,
+            "payload": {
+                "kind": "special_ready",
+                "text": _special_phrase_for_lang(lang),
+                "ex_gauge": int(round(float(metrics.get("ex_gauge", 0.0)))),
+                "max": int(EX_GAUGE_MAX),
+            },
+        },
+    }
+
+
+def _heat_state_payload(user_id: str, metrics: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "type": "event",
+        "data": {
+            "event": "heat_state",
+            "user": "server",
+            "target": user_id,
+            "payload": {
+                "kind": "heat_state",
+                "active": bool(metrics.get("heat_active", False)),
+                "hp": int(metrics.get("hp", 0)),
+                "max_hp": int(metrics.get("max_hp", 0)),
+            },
+        },
+    }
+
+
+def _damage_applied_payload(
+    *,
+    attacker_id: str,
+    defender_id: str,
+    damage: int,
+    defender_metrics: dict[str, Any],
+    is_critical: bool,
+) -> dict[str, Any]:
+    return {
+        "type": "event",
+        "data": {
+            "event": "damage_applied",
+            "user": "server",
+            "payload": {
+                "kind": "damage_applied",
+                "attacker": attacker_id,
+                "target": defender_id,
+                "damage": int(damage),
+                "is_critical": bool(is_critical),
+                "hp_after": int(defender_metrics.get("hp", 0)),
+                "max_hp": int(defender_metrics.get("max_hp", 0)),
+                "material": _normalize_material(defender_metrics.get("material", "Wood")),
+            },
+        },
+    }
+
+
+def _down_state_payload(defender_id: str, chance: float) -> dict[str, Any]:
+    return {
+        "type": "event",
+        "data": {
+            "event": "down_state",
+            "user": "server",
+            "payload": {
+                "kind": "down_state",
+                "target": defender_id,
+                "down": True,
+                "chance": round(chance, 3),
+            },
+        },
+    }
+
+
+async def _tick_room_ex_gauge(room_id: str) -> None:
+    if room_id not in room_runtime_state:
+        return
+    now = time.monotonic()
+    for user_id in _combatant_ids(room_id):
+        metrics = _ensure_user_battle_metrics(room_id, user_id)
+        changed, became_ready = _apply_ex_tick(metrics, now)
+        if changed:
+            await _broadcast_room(room_id, _ex_gauge_payload(user_id, metrics), target_user=user_id)
+        if became_ready:
+            await _broadcast_room(room_id, _special_ready_payload(room_id, user_id, metrics), target_user=user_id)
+
+
+def _consume_special_gauge(room_id: str, user_id: str) -> tuple[bool, dict[str, Any]]:
+    metrics = _ensure_user_battle_metrics(room_id, user_id)
+    if not bool(metrics.get("special_ready", False)):
+        return False, metrics
+    metrics["last_ex_tick"] = time.monotonic()
+    _set_ex_gauge(metrics, 0.0)
+    return True, metrics
+
+
+async def _finish_match_by_hp(room_id: str, loser_id: str, reason: str = "hp_zero") -> None:
+    if room_id not in room_runtime_state:
+        return
+
+    combatants = _combatant_ids(room_id)
+    if loser_id not in combatants:
+        return
+    winner_id = next((uid for uid in combatants if uid != loser_id), None)
+
+    forced_results = {uid: ("LOSE" if uid == loser_id else "WIN") for uid in combatants}
+    _finalize_room_runtime(room_id, trigger=reason, forced_results=forced_results)
+    await _broadcast_room(
+        room_id,
+        {
+            "type": "event",
+            "data": {
+                "event": "match_end",
+                "user": "server",
+                "payload": {"kind": reason, "loser": loser_id, "winner": winner_id},
+            },
+        },
+    )
+
+    if not winner_id:
+        return
+
+    loser_lang = _room_user_lang(room_id, loser_id, default="en-US")
+    interview_text = await _generate_winner_interview(winner_id, loser_id, loser_lang)
+    await _broadcast_room(
+        room_id,
+        {
+            "type": "event",
+            "data": {
+                "event": "winner_interview",
+                "user": "server",
+                "target": loser_id,
+                "payload": {
+                    "winner": winner_id,
+                    "loser": loser_id,
+                    "text": interview_text,
+                    "lang": loser_lang,
+                },
+            },
+        },
+    )
+
+
+async def _resolve_special_damage(room_id: str, attacker_id: str, is_critical: bool) -> None:
+    if not is_critical:
+        return
+
+    combatants = _combatant_ids(room_id)
+    if attacker_id not in combatants:
+        return
+    defender_id = next((uid for uid in combatants if uid != attacker_id), None)
+    if not defender_id:
+        return
+
+    attacker_metrics = _ensure_user_battle_metrics(room_id, attacker_id)
+    defender_metrics = _ensure_user_battle_metrics(room_id, defender_id)
+
+    damage = _calc_damage(
+        attacker_power=int(attacker_metrics.get("power", 40)),
+        attacker_material=str(attacker_metrics.get("material", "Wood")),
+        defender_material=str(defender_metrics.get("material", "Wood")),
+        is_critical=is_critical,
+    )
+    defender_metrics["hp"] = max(0, int(defender_metrics.get("hp", 0)) - damage)
+
+    attacker_delta = EX_GAUGE_ON_CRITICAL if is_critical else EX_GAUGE_ON_HIT
+    atk_changed, atk_ready = _set_ex_gauge(
+        attacker_metrics,
+        float(attacker_metrics.get("ex_gauge", 0.0)) + attacker_delta,
+    )
+    def_changed, def_ready = _set_ex_gauge(
+        defender_metrics,
+        float(defender_metrics.get("ex_gauge", 0.0)) + EX_GAUGE_ON_HIT_RECEIVED,
+    )
+
+    if atk_changed:
+        await _broadcast_room(room_id, _ex_gauge_payload(attacker_id, attacker_metrics), target_user=attacker_id)
+    if atk_ready:
+        await _broadcast_room(room_id, _special_ready_payload(room_id, attacker_id, attacker_metrics), target_user=attacker_id)
+    if def_changed:
+        await _broadcast_room(room_id, _ex_gauge_payload(defender_id, defender_metrics), target_user=defender_id)
+    if def_ready:
+        await _broadcast_room(room_id, _special_ready_payload(room_id, defender_id, defender_metrics), target_user=defender_id)
+
+    damage_payload = _damage_applied_payload(
+        attacker_id=attacker_id,
+        defender_id=defender_id,
+        damage=damage,
+        defender_metrics=defender_metrics,
+        is_critical=is_critical,
+    )
+    await _broadcast_room(room_id, damage_payload)
+    _record_room_event(room_id, attacker_id, damage_payload["data"])
+
+    attacker_heat_before = bool(attacker_metrics.get("heat_active", False))
+    defender_heat_before = bool(defender_metrics.get("heat_active", False))
+    attacker_metrics["heat_active"] = _is_heat_activated(
+        int(attacker_metrics.get("hp", 0)),
+        int(attacker_metrics.get("max_hp", 0)),
+        int(defender_metrics.get("hp", 0)),
+    )
+    defender_metrics["heat_active"] = _is_heat_activated(
+        int(defender_metrics.get("hp", 0)),
+        int(defender_metrics.get("max_hp", 0)),
+        int(attacker_metrics.get("hp", 0)),
+    )
+    if attacker_heat_before != bool(attacker_metrics.get("heat_active", False)):
+        await _broadcast_room(room_id, _heat_state_payload(attacker_id, attacker_metrics), target_user=attacker_id)
+    if defender_heat_before != bool(defender_metrics.get("heat_active", False)):
+        await _broadcast_room(room_id, _heat_state_payload(defender_id, defender_metrics), target_user=defender_id)
+
+    if is_critical:
+        chance = _calc_down_chance(int(defender_metrics.get("vit", 40)))
+        if random.random() < chance:
+            down_payload = _down_state_payload(defender_id, chance)
+            await _broadcast_room(room_id, down_payload)
+            _record_room_event(room_id, attacker_id, down_payload["data"])
+
+    if int(defender_metrics.get("hp", 0)) <= 0:
+        await _finish_match_by_hp(room_id, defender_id)
 
 
 def _build_audio_result(
@@ -1388,6 +2168,7 @@ async def handle_game_connection(websocket: Any, request_path: str) -> None:
     _register_game_client(websocket, user_id, room_id, lang, sync_rate)
     profile = _load_user_profile(user_id, lang, sync_rate)
     _save_user_profile(profile)
+    battle_metrics = _ensure_user_battle_metrics(room_id, user_id, profile)
     
     if vertex_cache_instance is not None:
         async def _init_cache():
@@ -1418,7 +2199,7 @@ async def handle_game_connection(websocket: Any, request_path: str) -> None:
         _save_user_profile(profile)
 
     await websocket.send(json.dumps(_initial_tactics_payload(lang), ensure_ascii=False))
-    await websocket.send(json.dumps(_special_prompt_payload(user_id, lang), ensure_ascii=False))
+    await websocket.send(json.dumps(_battle_status_payload(user_id, battle_metrics), ensure_ascii=False))
     await websocket.send(json.dumps(_roster_payload(room_id), ensure_ascii=False))
     await _broadcast_roster(room_id)
 
@@ -1433,6 +2214,8 @@ async def handle_game_connection(websocket: Any, request_path: str) -> None:
             packet_type = payload.get("type")
             if packet_type not in {"sync", "event", "signal"}:
                 continue
+            _mark_user_heartbeat(room_id, user_id)
+            await _tick_room_ex_gauge(room_id)
 
             if packet_type == "signal":
                 signal_data = payload.get("data")
@@ -1452,6 +2235,20 @@ async def handle_game_connection(websocket: Any, request_path: str) -> None:
                 if isinstance(sync_data, dict):
                     sync_data["userId"] = user_id
                     payload["data"] = sync_data
+                    valid, correction = _validate_sync_packet(room_id, user_id, sync_data)
+                    if not valid:
+                        correction_event = {
+                            "type": "event",
+                            "data": {
+                                "event": "state_correction",
+                                "user": "server",
+                                "target": user_id,
+                                "payload": correction or {"kind": "state_correction"},
+                            },
+                        }
+                        await _broadcast_room(room_id, correction_event)
+                        _record_room_event(room_id, user_id, correction_event["data"])
+                        continue
                     _record_room_sync(room_id, user_id, sync_data)
                 await _broadcast_room(room_id, payload, exclude=websocket)
             elif packet_type == "event":
@@ -1460,6 +2257,37 @@ async def handle_game_connection(websocket: Any, request_path: str) -> None:
                     event_data["user"] = user_id
                     payload["data"] = event_data
                     payload_obj = event_data.get("payload")
+
+                    if event_data.get("event") == "heartbeat":
+                        _mark_user_heartbeat(room_id, user_id)
+                        continue
+
+                    if (
+                        event_data.get("event") == "buff_applied"
+                        and isinstance(payload_obj, dict)
+                        and payload_obj.get("action") == "casting_special"
+                    ):
+                        consumed, updated_metrics = _consume_special_gauge(room_id, user_id)
+                        if not consumed:
+                            rejected = {
+                                "type": "event",
+                                "data": {
+                                    "event": "buff_applied",
+                                    "user": "server",
+                                    "target": user_id,
+                                    "payload": {
+                                        "kind": "special_not_ready",
+                                        "message": "EX gauge is not full yet.",
+                                    },
+                                },
+                            }
+                            await _broadcast_room(room_id, rejected, target_user=user_id)
+                            continue
+                        await _broadcast_room(
+                            room_id,
+                            _ex_gauge_payload(user_id, updated_metrics),
+                            target_user=user_id,
+                        )
 
                     if (
                         event_data.get("event") == "request_ephemeral_token"
@@ -1503,6 +2331,45 @@ async def handle_game_connection(websocket: Any, request_path: str) -> None:
                     if (
                         event_data.get("event") == "buff_applied"
                         and isinstance(payload_obj, dict)
+                        and payload_obj.get("kind") == "training_complete"
+                    ):
+                        refreshed_profile = _append_mode_log(
+                            user_id=user_id,
+                            lang=lang,
+                            sync_rate=sync_rate,
+                            mode="training",
+                            payload=payload_obj,
+                        )
+                        await _broadcast_room(
+                            room_id,
+                            _profile_sync_payload(user_id, refreshed_profile),
+                            target_user=user_id,
+                        )
+                        continue
+
+                    if (
+                        event_data.get("event") == "buff_applied"
+                        and isinstance(payload_obj, dict)
+                        and payload_obj.get("kind") == "walk_complete"
+                    ):
+                        refreshed_profile = _append_mode_log(
+                            user_id=user_id,
+                            lang=lang,
+                            sync_rate=sync_rate,
+                            mode="walk",
+                            payload=payload_obj,
+                        )
+                        await _broadcast_room(
+                            room_id,
+                            _profile_sync_payload(user_id, refreshed_profile),
+                            target_user=user_id,
+                        )
+                        continue
+
+                    # Client-requested profile refresh (Doc 6 UI sync).
+                    if (
+                        event_data.get("event") == "buff_applied"
+                        and isinstance(payload_obj, dict)
                         and payload_obj.get("kind") == "request_profile_sync"
                     ):
                         refreshed_profile = _load_user_profile(user_id, lang, sync_rate)
@@ -1519,6 +2386,13 @@ async def handle_game_connection(websocket: Any, request_path: str) -> None:
                         and isinstance(payload_obj, dict)
                         and bool(payload_obj.get("craft_request"))
                     ):
+                        allowed, reason, retry_after = _consume_spectator_intervention(room_id)
+                        if not allowed:
+                            rejected = _intervention_rejected_payload(user_id, reason, retry_after)
+                            await _broadcast_room(room_id, rejected, target_user=user_id)
+                            _record_room_event(room_id, user_id, rejected["data"])
+                            continue
+
                         texture_url = await _generate_fusion_texture(payload_obj)
                         generated = {
                             "event": "item_dropped",
@@ -1529,6 +2403,9 @@ async def handle_game_connection(websocket: Any, request_path: str) -> None:
                                 "requested_by": user_id,
                                 "concept": str(payload_obj.get("concept", "legendary item")),
                                 "texture_url": texture_url,
+                                "effect_caps": {
+                                    "max_hp_ratio": SPECTATOR_MAX_HP_RATIO,
+                                },
                             },
                         }
                         wrapped = {"type": "event", "data": generated}
@@ -1540,16 +2417,24 @@ async def handle_game_connection(websocket: Any, request_path: str) -> None:
                         event_data.get("event") == "match_end"
                     ):
                         _record_room_event(room_id, user_id, event_data)
-                        _finalize_room_runtime(room_id, trigger="match_end")
-                        await _broadcast_room(room_id, payload)
-                        
-                        # Generate Winner Interview (Doc 10)
                         room_state = room_runtime_state.get(room_id, {})
                         per_user = room_state.get("per_user", {})
-                        
+                        raw_combatants = room_state.get("combatants", [])
+                        combatants = [
+                            str(uid)
+                            for uid in raw_combatants
+                            if str(uid) in per_user
+                        ]
+                        if not combatants:
+                            combatants = [str(uid) for uid in per_user.keys()][:2]
+                        _finalize_room_runtime(room_id, trigger="match_end")
+                        await _broadcast_room(room_id, payload)
+
+                        # Generate Winner Interview (Doc 10)
                         winner_id, loser_id, loser_lang = None, None, "en-US"
-                        
-                        for u_id, metrics in per_user.items():
+
+                        for u_id in combatants:
+                            metrics = per_user.get(u_id, {})
                             criticals = int(metrics.get("critical_hits", 0))
                             misses = int(metrics.get("misses", 0))
                             if criticals >= misses:
@@ -1570,9 +2455,9 @@ async def handle_game_connection(websocket: Any, request_path: str) -> None:
                                         "winner": winner_id,
                                         "loser": loser_id,
                                         "text": interview_text,
-                                        "lang": loser_lang
-                                    }
-                                }
+                                        "lang": loser_lang,
+                                    },
+                                },
                             }
                             await _broadcast_room(room_id, interview_payload)
                         continue
@@ -1584,7 +2469,7 @@ async def handle_game_connection(websocket: Any, request_path: str) -> None:
     except ConnectionClosed:
         pass
     finally:
-        _cleanup_game_client(websocket)
+        _cleanup_game_client(websocket, reason="connection_closed")
         await _broadcast_roster(room_id)
         print(
             f"[GAME] disconnected user={user_id} room={room_id} "
@@ -1685,6 +2570,11 @@ async def handle_audio_connection(websocket: Any, request_path: str) -> None:
         if tone_payload:
             await _broadcast_room(room_id, tone_payload, target_user=user_id)
             _record_room_event(room_id, user_id, tone_payload["data"])
+        await _resolve_special_damage(
+            room_id=room_id,
+            attacker_id=user_id,
+            is_critical=bool(result.get("verdict") == "critical"),
+        )
 
     await websocket.send(json.dumps(result, ensure_ascii=False))
 
@@ -1725,8 +2615,12 @@ async def start_server() -> None:
     print("Starting PlaresAR Backend AI Core...")
     print(f"WebSocket server listening on ws://{HOST}:{PORT}")
     print(f"Routes: {GAME_PATH}, {AUDIO_PATH}, {LIVE_PATH}")
-    async with websockets.serve(websocket_router, HOST, PORT):
-        await asyncio.Future()
+    watchdog_task = asyncio.create_task(_heartbeat_watchdog())
+    try:
+        async with websockets.serve(websocket_router, HOST, PORT):
+            await asyncio.Future()
+    finally:
+        watchdog_task.cancel()
 
 
 if __name__ == "__main__":
