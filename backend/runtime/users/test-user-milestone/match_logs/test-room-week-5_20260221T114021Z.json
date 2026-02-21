@@ -1,9 +1,0 @@
-{
-  "timestamp": "2026-02-21T11:40:21.207306+00:00",
-  "room_id": "test-room-week-5",
-  "result": "WIN",
-  "critical_hits": 5,
-  "misses": 2,
-  "highlight_events": [],
-  "expires_at": "2026-08-20T11:40:29.520088+00:00"
-}
