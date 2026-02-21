@@ -3,6 +3,7 @@ import { wsService } from '../../services/WebSocketService';
 import { useFSMStore } from '../../store/useFSMStore';
 import * as THREE from 'three';
 import type { WebRTCDataChannelPayload, GameEvent } from '../../../../shared/types/events';
+import { PLAYER_ID } from '../../utils/identity';
 
 interface TacticItem {
   id: string;
@@ -43,7 +44,7 @@ export const ServerDrivenPanel: React.FC = () => {
     const target = t.target ? new THREE.Vector3(t.target.x, t.target.y, t.target.z) : undefined;
     setAICommand({ action: t.action, target });
     // Echo selection back to backend so it can update battle log / other clients
-    wsService.sendEvent({ event: 'buff_applied', user: 'player1', payload: { action: t.action } });
+    wsService.sendEvent({ event: 'buff_applied', user: PLAYER_ID, payload: { action: t.action } });
   };
 
   if (tactics.length === 0) return null;

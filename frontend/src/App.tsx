@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { XR, createXRStore } from '@react-three/xr';
 import { Environment, OrbitControls } from '@react-three/drei';
@@ -6,6 +6,7 @@ import { RobotCharacter } from './components/RobotCharacter';
 import { RemoteRobotCharacter } from './components/RemoteRobotCharacter';
 import { ServerDrivenPanel } from './components/ui/ServerDrivenPanel';
 import { DynamicSubtitle } from './components/ui/DynamicSubtitle';
+import { RemoteStreamView } from './components/ui/RemoteStreamView';
 import { useVoiceController } from './hooks/useVoiceController';
 import { useWebXRScanner } from './hooks/useWebXRScanner';
 import { useAICommandListener } from './hooks/useAICommandListener';
@@ -13,12 +14,13 @@ import { useAudioStreamer } from './hooks/useAudioStreamer';
 import { wsService } from './services/WebSocketService';
 import { rtcService } from './services/WebRTCDataChannelService';
 import { State, useFSMStore } from './store/useFSMStore';
+import { localizeBattleEvent, localizeCastStart, localizeResult, localizeTimeout } from './utils/localizeEvent';
 import { navMesh } from './utils/NavMeshGenerator';
+import { PLAYER_ID, ROOM_ID } from './utils/identity';
 import * as THREE from 'three';
 import type { WebRTCDataChannelPayload, GameEvent } from '../../shared/types/events';
 
 const WS_URL    = import.meta.env.VITE_WS_URL    ?? 'ws://localhost:8000/ws/game';
-const PLAYER_ID = import.meta.env.VITE_PLAYER_ID ?? 'player1';
 
 const store = createXRStore();
 
@@ -72,30 +74,41 @@ function App() {
   const { isStreaming, startStream } = useAudioStreamer();
   const setCastingSpecial = useFSMStore(s => s.setCastingSpecial);
   const resolveSpecialResult = useFSMStore(s => s.resolveSpecialResult);
+  const [isP2PMediaOn, setIsP2PMediaOn] = useState(false);
   const castEndsAtRef = useRef<number>(0);
   const handleRemoteBattleEvent = (evt: GameEvent) => {
     if (!evt?.event || evt.user === PLAYER_ID) return;
-    if (evt.event === 'critical_hit') {
-      window.dispatchEvent(new CustomEvent('show_subtitle', {
-        detail: { text: `${evt.user} が CRITICAL HIT!` }
-      }));
-    }
-    if (evt.event === 'debuff_applied') {
-      window.dispatchEvent(new CustomEvent('show_subtitle', {
-        detail: { text: `${evt.user} の必殺技は失敗...` }
-      }));
-    }
+    window.dispatchEvent(new CustomEvent('show_subtitle', {
+      detail: { text: localizeBattleEvent(evt.event, evt.user) }
+    }));
   };
 
   // Connect WebSocket on mount
   useEffect(() => {
-    wsService.connect(WS_URL, PLAYER_ID);
+    wsService.connect(WS_URL, PLAYER_ID, ROOM_ID);
     rtcService.start(PLAYER_ID);
     return () => {
       rtcService.stop();
       wsService.disconnect();
     };
   }, []);
+
+  const toggleP2PMedia = async () => {
+    try {
+      if (!isP2PMediaOn) {
+        await rtcService.enableMedia({ audio: true, video: true });
+        setIsP2PMediaOn(true);
+        return;
+      }
+      await rtcService.disableMedia();
+      setIsP2PMediaOn(false);
+    } catch (error) {
+      console.error('[P2P AV] toggle failed', error);
+      window.dispatchEvent(new CustomEvent('show_subtitle', {
+        detail: { text: 'P2P AVの開始に失敗しました' }
+      }));
+    }
+  };
 
   useEffect(() => {
     const unsubscribe = wsService.addHandler((payload: WebRTCDataChannelPayload) => {
@@ -134,8 +147,12 @@ function App() {
           wsService.sendEvent(payload);
         }
 
+        const suffix =
+          typeof detail.video_frame_count === 'number'
+            ? ` (src:${detail.source ?? 'n/a'}, vf:${detail.video_frame_count})`
+            : '';
         window.dispatchEvent(new CustomEvent('show_subtitle', {
-          detail: { text: verdict === 'critical' ? 'CRITICAL HIT!!' : 'MISS...' }
+          detail: { text: `${localizeResult(verdict)}${suffix}` }
         }));
       }, delay);
     };
@@ -151,7 +168,7 @@ function App() {
 
     // 2) Visual feedback starts immediately while backend inference runs in parallel
     window.dispatchEvent(new CustomEvent('show_subtitle', {
-      detail: { text: '詠唱開始... 超絶熱々揚げ春巻きストライク！！' }
+      detail: { text: localizeCastStart() }
     }));
 
     // 3) Sync casting start so the opponent can render the same charge phase
@@ -165,14 +182,14 @@ function App() {
     }
 
     // 4) Start raw audio stream in parallel with the 3s charge window
-    await startStream();
+    await startStream({ preferredStream: rtcService.getLocalStream() });
 
     // 5) Failsafe: if backend never returns, unlock after a hard timeout.
     window.setTimeout(() => {
       if (useFSMStore.getState().currentState === State.CASTING_SPECIAL) {
         resolveSpecialResult({ verdict: 'miss' });
         window.dispatchEvent(new CustomEvent('show_subtitle', {
-          detail: { text: '判定タイムアウト: MISS' }
+          detail: { text: localizeTimeout() }
         }));
       }
     }, 6500);
@@ -204,6 +221,19 @@ function App() {
         {isStreaming ? '詠唱中…' : 'CAST SPECIAL ⚡'}
       </button>
 
+      <button
+        id="btn-p2p-media"
+        style={{
+          position: 'absolute', bottom: 24, left: 24, zIndex: 10,
+          padding: '12px 16px', borderRadius: 8,
+          background: isP2PMediaOn ? '#1d7a2f' : '#244c8a',
+          color: 'white', border: 'none', cursor: 'pointer'
+        }}
+        onClick={toggleP2PMedia}
+      >
+        {isP2PMediaOn ? 'P2P AV ON' : 'P2P AV OFF'}
+      </button>
+
       <Canvas shadows>
         <XR store={store}>
           <MainScene />
@@ -214,6 +244,7 @@ function App() {
 
       <ServerDrivenPanel />
       <DynamicSubtitle />
+      <RemoteStreamView />
     </div>
   );
 }

@@ -19,8 +19,8 @@ export const useAICommandListener = () => {
   const setAICommand = useFSMStore(s => s.setAICommand);
 
   useEffect(() => {
-    const unsubscribe = wsService.addHandler((payload: WebRTCDataChannelPayload) => {
-      if (payload.type !== 'event') return;
+    const applyPayload = (payload: WebRTCDataChannelPayload) => {
+      if (payload?.type !== 'event') return;
       const evt = payload.data as GameEvent;
 
       const cmd = (evt as any).payload as { action: string; target?: { x: number; y: number; z: number } };
@@ -31,8 +31,19 @@ export const useAICommandListener = () => {
         : undefined;
 
       setAICommand({ action: cmd.action, target });
-    });
+    };
 
-    return () => { unsubscribe(); };
+    const unsubscribe = wsService.addHandler(applyPayload);
+
+    const onP2P = (event: Event) => {
+      const payload = (event as CustomEvent<WebRTCDataChannelPayload>).detail;
+      applyPayload(payload);
+    };
+    window.addEventListener('webrtc_payload', onP2P as EventListener);
+
+    return () => {
+      unsubscribe();
+      window.removeEventListener('webrtc_payload', onP2P as EventListener);
+    };
   }, [setAICommand]);
 };

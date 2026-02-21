@@ -3,8 +3,7 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { wsService } from '../services/WebSocketService';
 import type { SyncData, WebRTCDataChannelPayload } from '../../../shared/types/events';
-
-const PLAYER_ID = import.meta.env.VITE_PLAYER_ID ?? 'player1';
+import { PLAYER_ID } from '../utils/identity';
 
 export const RemoteRobotCharacter: React.FC = () => {
   const meshRef = useRef<THREE.Mesh>(null);

@@ -29,9 +29,10 @@ export interface SyncData {
 }
 
 export interface SignalData {
-  kind: "presence" | "offer" | "answer" | "ice";
+  kind: "presence" | "offer" | "answer" | "ice" | "roster";
   from: string;
   to?: string;
+  peers?: string[];
   sdp?: RTCSessionDescriptionInit;
   candidate?: RTCIceCandidateInit;
 }

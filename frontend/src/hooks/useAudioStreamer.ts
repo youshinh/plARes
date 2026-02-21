@@ -23,26 +23,54 @@ export const useAudioStreamer = () => {
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const contextRef = useRef<AudioContext | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const ownsStreamRef = useRef<boolean>(false);
+  const videoTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const captureVideoRef = useRef<HTMLVideoElement | null>(null);
+  const captureCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const stopStream = useCallback(() => {
+    if (videoTimerRef.current) {
+      clearInterval(videoTimerRef.current);
+      videoTimerRef.current = null;
+    }
+    if (captureVideoRef.current) {
+      captureVideoRef.current.pause();
+      captureVideoRef.current.srcObject = null;
+      captureVideoRef.current = null;
+    }
+    captureCanvasRef.current = null;
+
     processorRef.current?.disconnect();
     contextRef.current?.close();
-    streamRef.current?.getTracks().forEach(t => t.stop());
+    if (ownsStreamRef.current) {
+      streamRef.current?.getTracks().forEach(t => t.stop());
+    }
     wsRef.current?.close();
     wsRef.current = null;
     contextRef.current = null;
     processorRef.current = null;
     streamRef.current = null;
+    ownsStreamRef.current = false;
     setIsStreaming(false);
   }, []);
 
-  const startStream = useCallback(async () => {
+  const startStream = useCallback(async (opts?: { preferredStream?: MediaStream | null }) => {
     if (isStreaming) return;
     setIsStreaming(true);
 
     try {
-      // 1. Acquire mic
-      const mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      const preferred = opts?.preferredStream ?? null;
+      const preferredTrack = preferred?.getAudioTracks?.()[0] ?? null;
+
+      // 1. Acquire mic (prefer existing WebRTC local stream if available)
+      let mediaStream: MediaStream;
+      if (preferredTrack) {
+        mediaStream = new MediaStream([preferredTrack]);
+        ownsStreamRef.current = false;
+      } else {
+        mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        ownsStreamRef.current = true;
+      }
       streamRef.current = mediaStream;
 
       // 2. Set up AudioContext at 16 kHz (Gemini native rate)
@@ -64,8 +92,49 @@ export const useAudioStreamer = () => {
 
       ws.onopen = () => {
         // Tell backend: open audio gate (matches ADK open_audio_gate())
-        ws.send(JSON.stringify({ cmd: 'open_audio_gate' }));
+        ws.send(JSON.stringify({
+          cmd: 'open_audio_gate',
+          source: preferredTrack ? 'webrtc_local_stream' : 'direct_mic',
+          has_video_track: !!preferred?.getVideoTracks?.().length,
+        }));
       };
+
+      // 3.5 If video exists on preferred stream, forward low-fps jpeg snapshots.
+      const preferredVideoTrack = preferred?.getVideoTracks?.()[0] ?? null;
+      if (preferredVideoTrack) {
+        const video = document.createElement('video');
+        video.autoplay = true;
+        video.muted = true;
+        video.playsInline = true;
+        video.srcObject = new MediaStream([preferredVideoTrack]);
+        captureVideoRef.current = video;
+
+        const canvas = document.createElement('canvas');
+        canvas.width = 256;
+        canvas.height = 144;
+        captureCanvasRef.current = canvas;
+        const ctx2d = canvas.getContext('2d', { alpha: false });
+
+        video.play().catch(() => {});
+
+        if (ctx2d) {
+          videoTimerRef.current = setInterval(() => {
+            if (ws.readyState !== WebSocket.OPEN || video.readyState < 2) return;
+            try {
+              ctx2d.drawImage(video, 0, 0, canvas.width, canvas.height);
+              const dataUrl = canvas.toDataURL('image/jpeg', 0.55);
+              ws.send(JSON.stringify({
+                cmd: 'video_frame',
+                mime: 'image/jpeg',
+                width: canvas.width,
+                height: canvas.height,
+                frame: dataUrl,
+                ts: Date.now(),
+              }));
+            } catch {}
+          }, 700);
+        }
+      }
 
       // 4. Send Int16 PCM frames as binary
       processor.onaudioprocess = (e) => {

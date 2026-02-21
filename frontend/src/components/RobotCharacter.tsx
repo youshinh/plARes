@@ -6,11 +6,10 @@ import * as THREE from 'three';
 import { rtcService } from '../services/WebRTCDataChannelService';
 import { wsService } from '../services/WebSocketService';
 import type { SyncData, WebRTCDataChannelPayload } from '../../../shared/types/events';
+import { PLAYER_ID, ROBOT_ID } from '../utils/identity';
 
 const SPEED_NORMAL = 1.5;
 const SPEED_EVADE  = 5.0;
-const PLAYER_ID = import.meta.env.VITE_PLAYER_ID ?? 'player1';
-const ROBOT_ID = import.meta.env.VITE_ROBOT_ID ?? 'robot1';
 
 /**
  * RobotCharacter

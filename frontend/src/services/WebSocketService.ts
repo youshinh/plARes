@@ -9,22 +9,37 @@ type MessageHandler = (data: WebRTCDataChannelPayload) => void;
  */
 class WebSocketService {
   private ws: WebSocket | null = null;
-  private url: string = '';
+  private baseUrl: string = '';
   private handlers: Set<MessageHandler> = new Set();
   private reconnectDelay = 2000;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private userId: string = '';
+  private roomId: string = 'default';
 
-  connect(url: string, userId: string) {
-    this.url = url;
+  connect(url: string, userId: string, roomId: string) {
+    this.baseUrl = url;
     this.userId = userId;
+    this.roomId = roomId;
     this._open();
+  }
+
+  private _buildUrl(): string {
+    try {
+      const built = new URL(this.baseUrl, window.location.href);
+      built.searchParams.set('user_id', this.userId);
+      built.searchParams.set('room_id', this.roomId);
+      return built.toString();
+    } catch {
+      const separator = this.baseUrl.includes('?') ? '&' : '?';
+      return `${this.baseUrl}${separator}user_id=${encodeURIComponent(this.userId)}&room_id=${encodeURIComponent(this.roomId)}`;
+    }
   }
 
   private _open() {
     if (this.ws?.readyState === WebSocket.OPEN) return;
-    console.log(`[WS] Connecting to ${this.url} as ${this.userId}`);
-    this.ws = new WebSocket(this.url);
+    const wsUrl = this._buildUrl();
+    console.log(`[WS] Connecting to ${wsUrl} as ${this.userId} room=${this.roomId}`);
+    this.ws = new WebSocket(wsUrl);
 
     this.ws.onopen = () => {
       console.log('[WS] Connected');

@@ -10,6 +10,8 @@ class WebRTCDataChannelService {
   private remoteId: string | null = null;
   private pc: RTCPeerConnection | null = null;
   private channel: RTCDataChannel | null = null;
+  private localStream: MediaStream | null = null;
+  private remoteStream: MediaStream | null = null;
   private wsUnsubscribe: (() => void) | null = null;
   private presenceTimer: ReturnType<typeof setInterval> | null = null;
   private started = false;
@@ -45,6 +47,9 @@ class WebRTCDataChannelService {
 
     this.channel?.close();
     this.channel = null;
+    this.stopLocalTracks();
+    this.localStream = null;
+    this.remoteStream = null;
     this.pc?.close();
     this.pc = null;
     this.remoteId = null;
@@ -59,6 +64,77 @@ class WebRTCDataChannelService {
     if (!this.isOpen() || !this.channel) return false;
     this.channel.send(JSON.stringify(payload));
     return true;
+  }
+
+  getLocalStream(): MediaStream | null {
+    return this.localStream;
+  }
+
+  getRemoteStream(): MediaStream | null {
+    return this.remoteStream;
+  }
+
+  async enableMedia(options: { audio?: boolean; video?: boolean } = { audio: true, video: true }) {
+    const audio = options.audio ?? true;
+    const video = options.video ?? true;
+
+    if (!audio && !video) return;
+    const stream = await navigator.mediaDevices.getUserMedia({ audio, video });
+    this.stopLocalTracks();
+    this.localStream = stream;
+
+    const pc = this.ensurePeerConnection();
+    this.attachLocalTracks(pc);
+
+    if (this.remoteId && pc.signalingState === 'stable') {
+      await this.createAndSendOffer(this.remoteId);
+    }
+  }
+
+  async disableMedia() {
+    this.stopLocalTracks();
+    this.localStream = null;
+
+    if (this.pc) {
+      for (const sender of this.pc.getSenders()) {
+        if (sender.track && (sender.track.kind === 'audio' || sender.track.kind === 'video')) {
+          this.pc.removeTrack(sender);
+        }
+      }
+      if (this.remoteId && this.pc.signalingState === 'stable') {
+        await this.createAndSendOffer(this.remoteId);
+      }
+    }
+  }
+
+  private stopLocalTracks() {
+    if (!this.localStream) return;
+    for (const track of this.localStream.getTracks()) {
+      track.stop();
+    }
+  }
+
+  private resetPeerConnection() {
+    this.channel?.close();
+    this.channel = null;
+    this.pc?.close();
+    this.pc = null;
+    this.offerInFlight = false;
+  }
+
+  private pickRemotePeer(peers: string[]): string | null {
+    const candidates = peers.filter(p => p !== this.localId).sort();
+    return candidates.length > 0 ? candidates[0] : null;
+  }
+
+  private attachLocalTracks(pc: RTCPeerConnection) {
+    if (!this.localStream) return;
+    for (const track of this.localStream.getTracks()) {
+      const already = pc.getSenders().some(s => s.track?.id === track.id);
+      if (!already) {
+        pc.addTrack(track, this.localStream);
+      }
+    }
   }
 
   private ensurePeerConnection(): RTCPeerConnection {
@@ -81,6 +157,13 @@ class WebRTCDataChannelService {
       this.attachDataChannel(event.channel);
     };
 
+    pc.ontrack = (event) => {
+      this.remoteStream = event.streams[0] ?? this.remoteStream ?? new MediaStream([event.track]);
+      window.dispatchEvent(
+        new CustomEvent('webrtc_remote_stream', { detail: { stream: this.remoteStream } })
+      );
+    };
+
     pc.onconnectionstatechange = () => {
       const state = pc.connectionState;
       if (state === 'disconnected' || state === 'failed' || state === 'closed') {
@@ -88,6 +171,7 @@ class WebRTCDataChannelService {
       }
     };
 
+    this.attachLocalTracks(pc);
     return pc;
   }
 
@@ -148,12 +232,37 @@ class WebRTCDataChannelService {
     if (!signal?.from || signal.from === this.localId) return;
     if (signal.to && signal.to !== this.localId) return;
 
-    this.remoteId = signal.from;
+    if (signal.kind === 'roster' && Array.isArray(signal.peers)) {
+      const nextRemote = this.pickRemotePeer(signal.peers);
+      if (!nextRemote) {
+        this.remoteId = null;
+        this.resetPeerConnection();
+        return;
+      }
+
+      if (this.remoteId && this.remoteId !== nextRemote) {
+        this.resetPeerConnection();
+      }
+      this.remoteId = nextRemote;
+      if (!this.isOpen() && this.localId < this.remoteId) {
+        await this.createAndSendOffer(this.remoteId);
+      } else {
+        this.sendPresence();
+      }
+      return;
+    }
+
+    if (this.remoteId && signal.from !== this.remoteId) {
+      return;
+    }
+    if (!this.remoteId) {
+      this.remoteId = signal.from;
+    }
     const pc = this.ensurePeerConnection();
 
     if (signal.kind === 'presence') {
       // deterministic offerer to avoid glare: lexicographically smaller ID starts offer
-      if (this.localId < signal.from && !this.isOpen()) {
+      if (this.localId < signal.from && !this.isOpen() && this.remoteId === signal.from) {
         await this.createAndSendOffer(signal.from);
       }
       return;
