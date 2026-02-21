@@ -1,4 +1,11 @@
-export type EventType = "critical_hit" | "buff_applied" | "debuff_applied" | "item_dropped" | "milestone_reached";
+export type EventType =
+  | "critical_hit"
+  | "buff_applied"
+  | "debuff_applied"
+  | "item_dropped"
+  | "milestone_reached"
+  | "request_ephemeral_token"
+  | "interaction_turn";
 
 export interface GameEvent {
   event: EventType;

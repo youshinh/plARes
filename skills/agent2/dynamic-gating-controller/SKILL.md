@@ -4,7 +4,7 @@ description: Guides Agent 2 in managing "Dynamic Gating" for the Live API to sav
 license: MIT
 metadata:
   author: plares-ar-team
-  version: "1.0"
+  version: "1.1"
 ---
 
 # Dynamic Gating Controller
@@ -25,6 +25,12 @@ This skill teaches the cost-saving architecture that prevents sending 24/7 conti
 2. **Video Gating**:
    - Keep frame streaming OFF normally.
    - Only forward 1-2 fps video chunks when specific UI hooks flag the backend (e.g., `is_enemy_attacking == true` or `item_scanning_mode == true`).
+3. **Manual Turn Signaling (when AAD disabled)**:
+   - At start of user speech burst: send `activityStart`.
+   - At end of speech: send `activityEnd`.
+   - After final audio chunk in the burst: send `audioStreamEnd`.
+4. **Barge-in Priority**:
+   - If the user starts speaking while model audio is playing, pause local playback first, then signal new activity upstream.
 
 ## Examples
 

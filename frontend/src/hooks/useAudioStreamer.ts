@@ -1,7 +1,22 @@
 import { useRef, useState, useCallback } from 'react';
+import { PLAYER_ID, PLAYER_LANG, ROOM_ID, SYNC_RATE } from '../utils/identity';
 
 const SAMPLE_RATE = 16000;
-const ENDPOINT = import.meta.env.VITE_AUDIO_WS_URL ?? 'ws://localhost:8000/ws/audio';
+const BASE_ENDPOINT = import.meta.env.VITE_AUDIO_WS_URL ?? 'ws://localhost:8000/ws/audio';
+
+const buildAudioEndpoint = () => {
+  try {
+    const url = new URL(BASE_ENDPOINT, window.location.href);
+    url.searchParams.set('user_id', PLAYER_ID);
+    url.searchParams.set('room_id', ROOM_ID);
+    url.searchParams.set('lang', PLAYER_LANG);
+    url.searchParams.set('sync_rate', String(SYNC_RATE));
+    return url.toString();
+  } catch {
+    const separator = BASE_ENDPOINT.includes('?') ? '&' : '?';
+    return `${BASE_ENDPOINT}${separator}user_id=${encodeURIComponent(PLAYER_ID)}&room_id=${encodeURIComponent(ROOM_ID)}&lang=${encodeURIComponent(PLAYER_LANG)}&sync_rate=${encodeURIComponent(String(SYNC_RATE))}`;
+  }
+};
 
 /**
  * Real Native Audio streaming hook.
@@ -86,7 +101,7 @@ export const useAudioStreamer = () => {
       processor.connect(ctx.destination);
 
       // 3. Open dedicated WebSocket for raw audio (separate from the game event WS)
-      const ws = new WebSocket(ENDPOINT);
+      const ws = new WebSocket(buildAudioEndpoint());
       wsRef.current = ws;
       ws.binaryType = 'arraybuffer';
 
@@ -96,6 +111,10 @@ export const useAudioStreamer = () => {
           cmd: 'open_audio_gate',
           source: preferredTrack ? 'webrtc_local_stream' : 'direct_mic',
           has_video_track: !!preferred?.getVideoTracks?.().length,
+          user_id: PLAYER_ID,
+          room_id: ROOM_ID,
+          lang: PLAYER_LANG,
+          sync_rate: SYNC_RATE,
         }));
       };
 

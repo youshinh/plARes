@@ -4,30 +4,36 @@ description: Guides Agent 2 in setting up the Agent Development Kit (ADK) sessio
 license: MIT
 metadata:
   author: plares-ar-team
-  version: "1.0"
+  version: "1.1"
 ---
 
 # ADK Session Manager
 
-This skill structures the backend AI lifecycle using an Agent Development Kit framework to keep state isolated per client.
+This skill structures the backend ADK lifecycle with one isolated live session per client.
 
 ## When to Use This Skill
 
 - When bootstrapping the main Python server entry point.
 - When creating connection handlers for new socket clients.
-- **Reference**: For the latest ADK documentation on `LiveRequestQueue`, see `references/REFERENCE.md`.
+- When mapping ADK session state to Gemini Live session resume strategy.
+- Reference: `references/REFERENCE.md`.
 
 ## Instructions
 
 1. **Application Init (Stateless)**:
-   - Define the `Agent` (model name, global tools, base instructions) exactly once at global scope.
+   - Define one global `Agent` + `Runner` and keep model/tool config environment-driven.
 2. **Session Init (Stateful)**:
-   - On client connect, retrieve or create a `SessionService` to hold that specific user's conversation history.
-   - Initialize a `RunConfig` and create a dedicated `LiveRequestQueue`.
+   - On connect, get/create ADK session for that client.
+   - Create a dedicated `LiveRequestQueue` per session (never global).
 3. **Stream Execution**:
-   - Execute the `Runner` in full-duplex mode inside an async task, passing the dedicated queue to it.
+   - Run upstream and downstream tasks concurrently; route media via `send_realtime`.
+   - Preserve tool-call round-trip behavior without stalling media ingest.
 4. **Cleanup**:
-   - Handle disconnections gracefully by sending a `close()` signal to the queue boundaries, allowing the `Runner` to finish cleanly.
+   - On disconnect: close queue, cancel tasks, await task completion.
+   - Persist resumption metadata where applicable so reconnect can continue context.
+5. **Security Boundary**:
+   - ADK backend can hold long-lived credentials.
+   - Browser-facing live media should still use backend-minted ephemeral tokens.
 
 ## Examples
 
@@ -35,7 +41,7 @@ This skill structures the backend AI lifecycle using an Agent Development Kit fr
 
 ```python
 # 1. App Init
-agent = Agent(name="PlaresBot", tools=[attack_tool])
+agent = Agent(name="PlaresBot", tools=[attack_tool], model="gemini-live-2.5-flash-preview")
 
 async def on_client_connect(client_id, stream):
     # 2. Session Init
@@ -43,8 +49,7 @@ async def on_client_connect(client_id, stream):
     queue = LiveRequestQueue()
 
     # 3. Stream Execution
-    runner = LiveRunner(agent, session)
-    run_task = asyncio.create_task(runner.run(queue, stream))
+    run_task = asyncio.create_task(runner.run_live(session_id=client_id, live_request_queue=queue))
 
     # Wait for client disconnect (pseudo-code)
     await stream.wait_closed()

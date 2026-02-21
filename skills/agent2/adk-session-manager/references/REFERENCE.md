@@ -1,37 +1,42 @@
-# ADK Session Management & Bidi-Streaming Reference
-
-This reference is based on the official Google Agent Development Kit (ADK) documentation.
+# ADK Session Management & Bidi Reference (2026-02)
 
 ## Core Concepts
 
-The ADK uses a Bidirectional (Bidi) streaming architecture to manage low-latency, real-time voice and video interactions, primarily interacting with the Gemini Live API. It moves away from "ask-and-wait" REST patterns.
+ADK `Runner.run_live()` manages the duplex loop against Gemini Live while your app handles client I/O and queueing.
 
-### LiveRequestQueue
+## Queue and Session Scope
 
-The `LiveRequestQueue` is an `asyncio`-based queue that acts as the dedicated ingestion channel. Client applications push real-time data into it.
+- Use one `LiveRequestQueue` per connected user session.
+- Keep session service keyed by stable IDs (`app_name`, `user_id`, `session_id`).
+- Never share a media queue across clients.
+
+## Conceptual Pattern
 
 ```python
-# Conceptual Usage
-from google_adk.components.live import LiveRequestQueue
+from google.adk.agents import LiveRequestQueue
 
 queue = LiveRequestQueue()
-
-# Sending text
-await queue.send_content("Hello")
-
-# Sending raw audio/video blobs
-await queue.send_realtime(audio_frame)
-
-# Cleanly closing the session queue
+await queue.send_content("hello")
+await queue.send_realtime(b"...pcm16...")
 await queue.close()
 ```
 
-### The Live Runner
+## Runner Pattern
 
-The agent's asynchronous runner `run_live()` continuously pulls jobs/messages from the `LiveRequestQueue` and manages the LiveWebSocket connection.
+- Start client read-loop and `run_live` processing loop concurrently.
+- Ensure both tasks stop cleanly on disconnect.
+- Avoid starving downstream events while ingesting upstream media.
 
-## Best Practices
+## Live API Alignment Checklist
 
-1. Keep the `LiveRequestQueue` scoped to the individual client session, not global.
-2. Use `send_realtime` exclusively for streaming media chunks (PCM 16kHz audio, low-fps video frames).
-3. Handle disconnection by intercepting client drops and explicitly calling `await queue.close()` and cancelling the runner task.
+1. Model is live-capable for this path (`gemini-live-2.5-flash-preview` family for live sessions).
+2. Tool calls from downstream are surfaced and returned in-band.
+3. Manual activity signals are supported when AAD is disabled.
+4. Session resumption metadata is captured for reconnect scenarios.
+5. Browser clients use ephemeral tokens and do not hold long-lived API keys.
+
+## Interactions API Fallback Notes
+
+- For non-live turns, preserve continuity with `previous_interaction_id`.
+- Re-send `tools`, `system_instruction`, and generation config every turn (they are not implicitly carried).
+- Use `store=false` for transient or privacy-sensitive flows.

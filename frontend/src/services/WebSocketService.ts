@@ -15,11 +15,17 @@ class WebSocketService {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private userId: string = '';
   private roomId: string = 'default';
+  private lang: string = 'en-US';
+  private syncRate: number = 0.5;
+  private shouldReconnect = false;
 
-  connect(url: string, userId: string, roomId: string) {
+  connect(url: string, userId: string, roomId: string, lang: string, syncRate: number) {
     this.baseUrl = url;
     this.userId = userId;
     this.roomId = roomId;
+    this.lang = lang;
+    this.syncRate = Math.max(0, Math.min(1, syncRate));
+    this.shouldReconnect = true;
     this._open();
   }
 
@@ -28,15 +34,18 @@ class WebSocketService {
       const built = new URL(this.baseUrl, window.location.href);
       built.searchParams.set('user_id', this.userId);
       built.searchParams.set('room_id', this.roomId);
+      built.searchParams.set('lang', this.lang);
+      built.searchParams.set('sync_rate', String(this.syncRate));
       return built.toString();
     } catch {
       const separator = this.baseUrl.includes('?') ? '&' : '?';
-      return `${this.baseUrl}${separator}user_id=${encodeURIComponent(this.userId)}&room_id=${encodeURIComponent(this.roomId)}`;
+      return `${this.baseUrl}${separator}user_id=${encodeURIComponent(this.userId)}&room_id=${encodeURIComponent(this.roomId)}&lang=${encodeURIComponent(this.lang)}&sync_rate=${encodeURIComponent(String(this.syncRate))}`;
     }
   }
 
   private _open() {
     if (this.ws?.readyState === WebSocket.OPEN) return;
+    if (!this.shouldReconnect) return;
     const wsUrl = this._buildUrl();
     console.log(`[WS] Connecting to ${wsUrl} as ${this.userId} room=${this.roomId}`);
     this.ws = new WebSocket(wsUrl);
@@ -58,6 +67,7 @@ class WebSocketService {
     this.ws.onerror = (e) => console.error('[WS] Error', e);
 
     this.ws.onclose = () => {
+      if (!this.shouldReconnect) return;
       console.warn('[WS] Disconnected – reconnecting in', this.reconnectDelay, 'ms');
       this.reconnectTimer = setTimeout(() => this._open(), this.reconnectDelay);
     };
@@ -84,6 +94,24 @@ class WebSocketService {
     this._send({ type: 'signal', data: signal });
   }
 
+  /** Ask backend to mint a Gemini Live ephemeral token for this user. */
+  requestEphemeralToken(payload: Record<string, unknown>) {
+    this.sendEvent({
+      event: 'request_ephemeral_token',
+      user: this.userId,
+      payload,
+    });
+  }
+
+  /** Ask backend to execute one Interactions API turn. */
+  requestInteractionTurn(payload: Record<string, unknown>) {
+    this.sendEvent({
+      event: 'interaction_turn',
+      user: this.userId,
+      payload,
+    });
+  }
+
   private _send(payload: WebRTCDataChannelPayload) {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(payload));
@@ -93,8 +121,10 @@ class WebSocketService {
   }
 
   disconnect() {
+    this.shouldReconnect = false;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.ws?.close();
+    this.ws = null;
   }
 }
 

@@ -1,9 +1,20 @@
+import os
+from pathlib import Path
 from google.adk.agents import LlmAgent
 from google.adk.tools import FunctionTool
 from pydantic import BaseModel, Field
 from typing import Optional
 
 from .tone_control import generate_persona
+
+try:
+    from dotenv import load_dotenv
+except Exception:  # pragma: no cover
+    load_dotenv = None
+
+if load_dotenv is not None:
+    env_path = Path(__file__).resolve().parents[2] / ".env"
+    load_dotenv(env_path, override=False)
 
 # Define Pydantic models for the function tools
 class EvaluateArticulationArgs(BaseModel):
@@ -31,6 +42,9 @@ def get_plares_agent() -> LlmAgent:
     """
     Initializes the global stateless App Agent using ADK.
     """
+    default_live_model = "models/gemini-live-2.5-flash-preview"
+    model_name = os.getenv("PLARES_ADK_MODEL", default_live_model).strip() or default_live_model
+
     evaluate_articulation_tool = FunctionTool(evaluate_articulation)
     execute_tactical_move_tool = FunctionTool(execute_tactical_move)
 
@@ -42,7 +56,7 @@ def get_plares_agent() -> LlmAgent:
 
     agent = LlmAgent(
         name="plares_agent",
-        model="models/gemini-2.0-flash-exp",
+        model=model_name,
         instruction=default_prompt,
         tools=[evaluate_articulation_tool, execute_tactical_move_tool]
     )

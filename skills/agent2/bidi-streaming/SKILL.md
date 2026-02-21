@@ -4,52 +4,65 @@ description: Guides the implementation of Bidirectional (Bidi) Streaming pipelin
 license: MIT
 metadata:
   author: plares-ar-team
-  version: "1.0"
+  version: "1.1"
 ---
 
 # Bidirectional Streaming Pipeline
 
-This skill guides the AI in handling the complex asynchronous data flow of the Gemini Multimodal Live API via WebSockets.
+This skill covers the Gemini Live API duplex flow for low-latency audio/video/text with tools.
 
 ## When to Use This Skill
 
-- When designing the ingress/egress loops for continuous media.
-- When handling user interruptions (where the user speaks over the AI).
-- **Reference**: For the latest Gemini Multimodal Live API (`BidiGenerateContent`) specs, see `references/REFERENCE.md`.
+- When designing `sendRealtimeInput` (upstream) and response handling (downstream).
+- When implementing interruptions, manual activity signaling, and tool round-trips.
+- When mapping browser capture (mic/camera) to Gemini Live sessions.
+- Reference: `references/REFERENCE.md` and official docs:
+  - https://ai.google.dev/gemini-api/docs/live
+  - https://ai.google.dev/gemini-api/docs/live-guide
+  - https://ai.google.dev/gemini-api/docs/live-tools
+  - https://ai.google.dev/gemini-api/docs/live-session
+  - https://ai.google.dev/gemini-api/docs/ephemeral-tokens
 
 ## Instructions
 
-1. **LiveRequestQueue Management**:
-   - Maintain a thread-safe, non-blocking queue (`asyncio.Queue`) for incoming user media (audio chunks, video frames).
-2. **Upstream (Input) Coroutines**:
-   - Send video frames at a controlled, extremely low FPS (1-2 fps) to save multimodal tokens.
-   - Send 16kHz PCM audio continuously or conditionally (gated).
-3. **Downstream (Output) Coroutines**:
-   - Handle incoming Native Audio chunks from Gemini's response and stream them to the WebRTC peer.
-   - Handle incoming JSON Function Calling outputs without interrupting the concurrent audio stream.
-4. **Interruption Handling**:
-   - If User Voice Activity Detection triggers while the AI is responding (downstream active), immediately send a `client_content` message to flush the context, cancelling the current downstream task to achieve natural conversational turn-taking.
+1. **Transport Selection**
+   - Browser clients: prefer WebRTC + ephemeral token.
+   - Server-to-server or trusted backend hops: WebSocket `BidiGenerateContent`.
+2. **Upstream Media**
+   - Audio input: 16-bit PCM, 16kHz, mono.
+   - Video input: keep low FPS unless a feature truly needs higher cadence.
+   - Use `sendRealtimeInput` for media chunks; do not overload `sendClientContent` for raw media.
+3. **Turn and Activity Control**
+   - With automatic activity detection (AAD) off, explicitly send `activityStart`, `activityEnd`, then `audioStreamEnd`.
+   - Keep inbound and outbound loops concurrent (`asyncio.gather`) to avoid head-of-line blocking.
+4. **Tool Calling**
+   - Process `toolCall` in-stream and respond with `sendToolResponse`.
+   - Do not pause media ingest while waiting for tool responses unless the tool itself requires gating.
+5. **Interruption and Barge-in**
+   - If user speech starts during model output, stop local playback quickly and signal the model with client content/activity events as appropriate.
+6. **Session Resilience**
+   - Persist session handles and support resume flow when reconnecting after transient drops (`goAway` or network churn).
+7. **Security**
+   - Never expose long-lived API keys in browser code. Use ephemeral tokens.
 
 ## Examples
 
-### Coroutine Boilerplate
+### Duplex Loop Skeleton
 
 ```python
-async def bidi_streaming_loop(session, queue):
-    # Upstream
-    async def send_to_gemini():
+async def live_duplex_loop(session, media_queue):
+    async def send_upstream():
         while True:
-            chunk = await queue.get()
-            await session.send(chunk)
+            chunk = await media_queue.get()
+            await session.send_realtime_input(audio=chunk)
 
-    # Downstream
-    async def receive_from_gemini():
-        async for response in session.receive():
-            if response.audio:
-                await webrtc_send_audio(response.audio)
-            elif response.function_call:
-                await websocket_send_json(response.function_call)
+    async def read_downstream():
+        async for event in session.receive():
+            if event.tool_call:
+                result = await execute_tool(event.tool_call)
+                await session.send_tool_response(result)
+            if event.server_content and event.server_content.output_transcription:
+                await publish_caption(event.server_content.output_transcription)
 
-    # Run concurrently without blocking
-    await asyncio.gather(send_to_gemini(), receive_from_gemini())
+    await asyncio.gather(send_upstream(), read_downstream())
 ```

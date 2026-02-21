@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import json
 from google.adk.sessions import InMemorySessionService
 from google.adk.runners import Runner, RunConfig
@@ -10,6 +11,71 @@ APP_NAME = "PlaresAR"
 app_agent = get_plares_agent()
 session_service = InMemorySessionService()
 runner = Runner(agent=app_agent, app_name=APP_NAME, session_service=session_service)
+
+
+def _to_json_safe(value):
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, list):
+        return [_to_json_safe(v) for v in value]
+    if isinstance(value, tuple):
+        return [_to_json_safe(v) for v in value]
+    if isinstance(value, dict):
+        return {str(k): _to_json_safe(v) for k, v in value.items()}
+
+    for method_name in ("model_dump", "dict"):
+        method = getattr(value, method_name, None)
+        if callable(method):
+            try:
+                return _to_json_safe(method())
+            except Exception:
+                pass
+    return str(value)
+
+
+async def _close_queue(queue: LiveRequestQueue) -> None:
+    maybe = queue.close()
+    if inspect.isawaitable(maybe):
+        await maybe
+
+
+def _serialize_event(event) -> dict:
+    try:
+        data = event.model_dump(mode="json")
+    except Exception:
+        try:
+            data = event.dict()
+        except Exception:
+            data = {"raw": str(event)}
+    data = _to_json_safe(data)
+
+    payload = {
+        "type": "live_event",
+        "event_type": event.__class__.__name__,
+        "data": data,
+    }
+
+    try:
+        function_calls = event.get_function_calls()
+    except Exception:
+        function_calls = None
+    if function_calls:
+        payload["function_calls"] = _to_json_safe(function_calls)
+
+    try:
+        function_responses = event.get_function_responses()
+    except Exception:
+        function_responses = None
+    if function_responses:
+        payload["function_responses"] = _to_json_safe(function_responses)
+
+    try:
+        payload["is_final_response"] = bool(event.is_final_response())
+    except Exception:
+        payload["is_final_response"] = False
+
+    return payload
+
 
 async def handle_client_connection(client_id, websocket):
     """
@@ -37,6 +103,14 @@ async def handle_client_connection(client_id, websocket):
                 else:
                     try:
                         data = json.loads(message)
+                        if isinstance(data, dict):
+                            command = str(data.get("type", "")).lower()
+                            if command == "activity_start":
+                                await queue.send_activity_start()
+                                continue
+                            if command == "activity_end":
+                                await queue.send_activity_end()
+                                continue
                         await queue.send_content(message)
                     except json.JSONDecodeError:
                         await queue.send_content(message)
@@ -44,7 +118,7 @@ async def handle_client_connection(client_id, websocket):
             print(f"Client read error: {e}")
         finally:
             # Client disconnected, shutdown queue
-            await queue.close()
+            await _close_queue(queue)
 
     async def process_downstream():
         try:
@@ -55,10 +129,7 @@ async def handle_client_connection(client_id, websocket):
                 live_request_queue=queue,
                 run_config=RunConfig(),
             ):
-                response = {
-                    "type": event.__class__.__name__,
-                    "data": str(event)
-                }
+                response = _serialize_event(event)
                 await websocket.send(json.dumps(response))
         except asyncio.CancelledError:
             print("Live loop cancelled.")
@@ -73,4 +144,3 @@ async def handle_client_connection(client_id, websocket):
 
     # 4. Cleanup
     print(f"Cleaning up ADK session {client_id}")
-    queue.close()
