@@ -3,6 +3,8 @@ import { useFrame } from '@react-three/fiber';
 import { useFSMStore, State } from '../store/useFSMStore';
 import { navMesh } from '../utils/NavMeshGenerator';
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { rtcService } from '../services/WebRTCDataChannelService';
 import { wsService } from '../services/WebSocketService';
 import { useArenaSyncStore } from '../store/useArenaSyncStore';
@@ -13,9 +15,11 @@ import {
   getSilhouetteScales,
   resolveRobotPalette,
 } from '../utils/characterDNA';
+import { createSurfaceMaps, disposeSurfaceMaps } from '../utils/proceduralPBR';
 
 const SPEED_NORMAL = 1.5;
 const SPEED_EVADE  = 5.0;
+const DEFAULT_HERO_ROBOT_GLB_URL = 'https://threejs.org/examples/models/gltf/RobotExpressive/RobotExpressive.glb';
 
 /**
  * RobotCharacter
@@ -33,14 +37,12 @@ export const RobotCharacter: React.FC = () => {
   const lastSyncAtRef = useRef<number>(0);
   const prevPosRef = useRef<THREE.Vector3>(new THREE.Vector3(0, 0, -1));
   const hoverTimerRef = useRef<number>(0);
-  const materialRef = useRef<THREE.MeshStandardMaterial>(null);
-  const uniformsRef = useRef({
-    tDamage: { value: null as THREE.Texture | null },
-    mixRatio: { value: 0.0 }
-  });
+  const materialRef = useRef<THREE.MeshPhysicalMaterial>(null);
+  const [heroScene, setHeroScene] = React.useState<THREE.Group | null>(null);
 
   const { currentState, targetPosition, updateBasicMovement, activeTextureUrl,
           robotStats, robotMeta, robotDna } = useFSMStore();
+  const heroModelUrl = import.meta.env.VITE_HERO_ROBOT_GLB_URL || DEFAULT_HERO_ROBOT_GLB_URL;
   const silhouette = getSilhouetteScales(robotDna);
   const finishTuning = getFinishMaterialTuning(robotDna.finish);
   const dnaGlowIntensity = Math.max(0.9, Math.min(1.8, robotDna.glowIntensity || 1.0));
@@ -53,20 +55,66 @@ export const RobotCharacter: React.FC = () => {
   const rightLegRef = useRef<THREE.Group>(null);
 
   React.useEffect(() => {
+    let disposed = false;
+    const loader = new GLTFLoader();
+    loader.load(
+      heroModelUrl,
+      (gltf) => {
+        if (disposed) return;
+        // SkinnedMeshは通常のclone(true)だと骨参照が壊れることがあるため、SkeletonUtilsで複製する。
+        const scene = cloneSkeleton(gltf.scene) as THREE.Group;
+        scene.traverse((node) => {
+          const mesh = node as THREE.Mesh;
+          if (!mesh.isMesh) return;
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+        });
+        setHeroScene(scene);
+        console.info('[RobotCharacter] hero GLB loaded:', heroModelUrl);
+      },
+      undefined,
+      () => {
+        if (disposed) return;
+        setHeroScene(null);
+        console.warn('[RobotCharacter] hero GLB load failed, fallback mesh active:', heroModelUrl);
+      },
+    );
+    return () => {
+      disposed = true;
+    };
+  }, [heroModelUrl]);
+
+  React.useEffect(() => {
+    return () => {
+      if (!heroScene) return;
+      heroScene.traverse((node) => {
+        const mesh = node as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        mesh.geometry?.dispose?.();
+      });
+    };
+  }, [heroScene]);
+
+  React.useEffect(() => {
     if (activeTextureUrl && materialRef.current) {
       const loader = new THREE.TextureLoader();
       loader.crossOrigin = 'anonymous';
       loader.load(activeTextureUrl, (texture) => {
         texture.flipY = false;
-        uniformsRef.current.tDamage.value = texture;
-        uniformsRef.current.mixRatio.value = 1.0;
+        texture.wrapS = THREE.RepeatWrapping;
+        texture.wrapT = THREE.RepeatWrapping;
+        texture.repeat.set(1.2, 1.2);
+        texture.colorSpace = THREE.SRGBColorSpace;
+        materialRef.current!.map = texture;
         if (materialRef.current) {
            materialRef.current.needsUpdate = true;
         }
       });
     } else {
-      uniformsRef.current.tDamage.value = null;
-      uniformsRef.current.mixRatio.value = 0.0;
+      if (materialRef.current) {
+        materialRef.current.map = null;
+        materialRef.current.needsUpdate = true;
+      }
     }
   }, [activeTextureUrl]);
 
@@ -140,7 +188,7 @@ export const RobotCharacter: React.FC = () => {
 
     groupRef.current.traverse((child) => {
       if ((child as THREE.Mesh).isMesh) {
-        const mat = (child as THREE.Mesh).material as THREE.MeshStandardMaterial;
+        const mat = (child as THREE.Mesh).material as THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial;
         // Only touch emissive – leave visor glow controlled by DNA.
         if (mat.emissive && mat.emissiveIntensity < 1.2) {
           mat.emissive.set(emissiveColor);
@@ -188,456 +236,431 @@ export const RobotCharacter: React.FC = () => {
   const C = resolveRobotPalette(robotMeta.material, robotDna);
   const tuneRough = (value: number) => Math.max(0.02, Math.min(0.98, value + finishTuning.roughnessBias));
   const tuneMetal = (value: number) => Math.max(0.0, Math.min(1.0, value + finishTuning.metalBias));
+  const surfaceMaps = React.useMemo(() => {
+    if (typeof document === 'undefined') {
+      return { white: null, blue: null, dark: null };
+    }
+    return {
+      white: createSurfaceMaps({
+        seed: robotDna.seed ^ 0x17A3,
+        baseColor: C.white,
+        lineColor: C.silver,
+        grimeColor: C.black,
+        emissiveColor: C.cyan,
+      }),
+      blue: createSurfaceMaps({
+        seed: robotDna.seed ^ 0x2B19,
+        baseColor: C.blue,
+        lineColor: C.blueL,
+        grimeColor: C.blackM,
+        emissiveColor: C.cyan,
+      }),
+      dark: createSurfaceMaps({
+        seed: robotDna.seed ^ 0x4C21,
+        baseColor: C.black,
+        lineColor: C.panel,
+        grimeColor: '#10141A',
+        emissiveColor: C.cyan,
+      }),
+    };
+  }, [robotDna.seed, C.white, C.silver, C.black, C.blue, C.blueL, C.blackM, C.panel, C.cyan]);
+  React.useEffect(() => () => {
+    disposeSurfaceMaps(surfaceMaps.white);
+    disposeSurfaceMaps(surfaceMaps.blue);
+    disposeSurfaceMaps(surfaceMaps.dark);
+  }, [surfaceMaps]);
+
+  const withMaps = React.useCallback((key: 'white' | 'blue' | 'dark') => {
+    const maps = surfaceMaps[key];
+    return maps
+      ? {
+          map: maps.albedo,
+          roughnessMap: maps.roughness,
+          metalnessMap: maps.metalness,
+          emissiveMap: maps.emissive,
+        }
+      : {};
+  }, [surfaceMaps]);
 
   // ─── Material factory helpers ────────────────────────────────────────────
   const M = {
-    white:  (r=0.30, m=0.25) => <meshStandardMaterial color={C.white}  roughness={tuneRough(r)} metalness={tuneMetal(m)} />,
-    whiteB: (r=0.40, m=0.20) => <meshStandardMaterial color={C.whiteB} roughness={tuneRough(r)} metalness={tuneMetal(m)} />,
-    blue:   (r=0.35, m=0.55) => <meshStandardMaterial color={C.blue}   roughness={tuneRough(r)} metalness={tuneMetal(m)} />,
-    blueL:  (r=0.40, m=0.45) => <meshStandardMaterial color={C.blueL}  roughness={tuneRough(r)} metalness={tuneMetal(m)} />,
-    red:    (r=0.35, m=0.40) => <meshStandardMaterial color={C.red}    roughness={tuneRough(r)} metalness={tuneMetal(m)} />,
-    redD:   (r=0.45, m=0.35) => <meshStandardMaterial color={C.redD}   roughness={tuneRough(r)} metalness={tuneMetal(m)} />,
-    yellow: (r=0.30, m=0.30) => <meshStandardMaterial color={C.yellow} roughness={tuneRough(r)} metalness={tuneMetal(m)} />,
-    black:  (r=0.50, m=0.60) => <meshStandardMaterial color={C.black}  roughness={tuneRough(r)} metalness={tuneMetal(m)} />,
-    blackM: (r=0.60, m=0.40) => <meshStandardMaterial color={C.blackM} roughness={tuneRough(r)} metalness={tuneMetal(m)} />,
-    skin:   ()               => <meshStandardMaterial color={C.skin}   roughness={tuneRough(0.80)} metalness={0.00} />,
-    silver: (r=0.25, m=0.70) => <meshStandardMaterial color={C.silver} roughness={tuneRough(r)} metalness={tuneMetal(m)} />,
-    panel:  ()               => <meshStandardMaterial color={C.panel}  roughness={tuneRough(0.50)} metalness={tuneMetal(0.20)} />,
-    visor:  ()               => <meshStandardMaterial color={C.cyan}   emissive={C.cyan} emissiveIntensity={dnaGlowIntensity} roughness={tuneRough(0.05)} metalness={tuneMetal(0.90)} />,
+    white:  (r=0.30, m=0.25) => <meshPhysicalMaterial color={C.white} {...withMaps('white')} roughness={tuneRough(r)} metalness={tuneMetal(m)} emissive={C.whiteB} emissiveIntensity={0.05} clearcoat={0.45} clearcoatRoughness={0.25} />,
+    whiteB: (r=0.40, m=0.20) => <meshPhysicalMaterial color={C.whiteB} {...withMaps('white')} roughness={tuneRough(r)} metalness={tuneMetal(m)} emissive={C.whiteB} emissiveIntensity={0.04} clearcoat={0.28} clearcoatRoughness={0.33} />,
+    blue:   (r=0.35, m=0.55) => <meshPhysicalMaterial color={C.blue} {...withMaps('blue')} roughness={tuneRough(r)} metalness={tuneMetal(m)} emissive={C.blueL} emissiveIntensity={0.06} clearcoat={0.2} clearcoatRoughness={0.35} />,
+    blueL:  (r=0.40, m=0.45) => <meshPhysicalMaterial color={C.blueL} {...withMaps('blue')} roughness={tuneRough(r)} metalness={tuneMetal(m)} emissive={C.blueL} emissiveIntensity={0.05} clearcoat={0.18} clearcoatRoughness={0.4} />,
+    red:    (r=0.35, m=0.40) => <meshPhysicalMaterial color={C.red} {...withMaps('blue')} roughness={tuneRough(r)} metalness={tuneMetal(m)} emissive={C.red} emissiveIntensity={0.05} clearcoat={0.18} clearcoatRoughness={0.42} />,
+    redD:   (r=0.45, m=0.35) => <meshPhysicalMaterial color={C.redD} {...withMaps('dark')} roughness={tuneRough(r)} metalness={tuneMetal(m)} emissive={C.redD} emissiveIntensity={0.04} clearcoat={0.12} clearcoatRoughness={0.5} />,
+    yellow: (r=0.30, m=0.30) => <meshPhysicalMaterial color={C.yellow} {...withMaps('white')} roughness={tuneRough(r)} metalness={tuneMetal(m)} emissive={C.yellow} emissiveIntensity={0.04} clearcoat={0.22} clearcoatRoughness={0.28} />,
+    black:  (r=0.50, m=0.60) => <meshPhysicalMaterial color={C.black} {...withMaps('dark')} roughness={tuneRough(r)} metalness={tuneMetal(m)} emissive={C.blackM} emissiveIntensity={0.03} clearcoat={0.15} clearcoatRoughness={0.48} />,
+    blackM: (r=0.60, m=0.40) => <meshPhysicalMaterial color={C.blackM} {...withMaps('dark')} roughness={tuneRough(r)} metalness={tuneMetal(m)} emissive={C.blackM} emissiveIntensity={0.03} clearcoat={0.1} clearcoatRoughness={0.52} />,
+    skin:   ()               => <meshPhysicalMaterial color={C.silver} {...withMaps('white')} roughness={tuneRough(0.42)} metalness={0.72} emissive={C.whiteB} emissiveIntensity={0.02} clearcoat={0.26} clearcoatRoughness={0.36} />,
+    silver: (r=0.25, m=0.70) => <meshPhysicalMaterial color={C.silver} {...withMaps('white')} roughness={tuneRough(r)} metalness={tuneMetal(m)} emissive={C.whiteB} emissiveIntensity={0.05} clearcoat={0.55} clearcoatRoughness={0.22} />,
+    panel:  ()               => <meshPhysicalMaterial color={C.panel} {...withMaps('dark')} roughness={tuneRough(0.50)} metalness={tuneMetal(0.35)} emissive={C.panel} emissiveIntensity={0.03} clearcoat={0.16} clearcoatRoughness={0.5} />,
+    visor:  ()               => <meshPhysicalMaterial color={C.cyan} emissive={C.cyan} emissiveMap={surfaceMaps.blue?.emissive} emissiveIntensity={dnaGlowIntensity} roughness={tuneRough(0.06)} metalness={tuneMetal(0.9)} transmission={0.35} thickness={0.45} ior={1.25} clearcoat={0.75} clearcoatRoughness={0.08} />,
   } as const;
+
+  React.useEffect(() => {
+    if (!heroScene) return;
+    const roughBias = finishTuning.roughnessBias;
+    const metalBias = finishTuning.metalBias;
+    const applyRough = (value: number) => Math.max(0.02, Math.min(0.98, value + roughBias));
+    const applyMetal = (value: number) => Math.max(0.0, Math.min(1.0, value + metalBias));
+    const buildHeroMat = (params: THREE.MeshPhysicalMaterialParameters) => {
+      const material = new THREE.MeshPhysicalMaterial(params);
+      ((material as unknown) as { skinning?: boolean }).skinning = true;
+      return material;
+    };
+    const whiteMaps = withMaps('white');
+    const blueMaps = withMaps('blue');
+    const darkMaps = withMaps('dark');
+    const mats = [
+      buildHeroMat({
+        color: C.white,
+        ...whiteMaps,
+        roughness: applyRough(0.28),
+        metalness: applyMetal(0.45),
+        emissive: new THREE.Color(C.whiteB),
+        emissiveIntensity: 0.04,
+        clearcoat: 0.5,
+        clearcoatRoughness: 0.2,
+      }),
+      buildHeroMat({
+        color: C.blue,
+        ...blueMaps,
+        roughness: applyRough(0.38),
+        metalness: applyMetal(0.55),
+        emissive: new THREE.Color(C.blueL),
+        emissiveIntensity: 0.05,
+        clearcoat: 0.18,
+        clearcoatRoughness: 0.38,
+      }),
+      buildHeroMat({
+        color: C.black,
+        ...darkMaps,
+        roughness: applyRough(0.56),
+        metalness: applyMetal(0.62),
+        emissive: new THREE.Color(C.blackM),
+        emissiveIntensity: 0.03,
+        clearcoat: 0.12,
+        clearcoatRoughness: 0.5,
+      }),
+      buildHeroMat({
+        color: C.cyan,
+        emissive: new THREE.Color(C.cyan),
+        emissiveMap: surfaceMaps.blue?.emissive,
+        emissiveIntensity: Math.max(0.9, dnaGlowIntensity),
+        roughness: applyRough(0.08),
+        metalness: applyMetal(0.82),
+        transmission: 0.4,
+        thickness: 0.5,
+        ior: 1.23,
+        clearcoat: 0.82,
+        clearcoatRoughness: 0.06,
+      }),
+    ];
+    let idx = 0;
+    heroScene.traverse((node) => {
+      const mesh = node as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      mesh.frustumCulled = false;
+      mesh.material = mats[idx % mats.length];
+      idx += 1;
+    });
+    return () => {
+      mats.forEach((m) => m.dispose());
+    };
+  }, [heroScene, C.white, C.whiteB, C.blue, C.blueL, C.black, C.blackM, C.cyan, dnaGlowIntensity, surfaceMaps, withMaps, finishTuning.roughnessBias, finishTuning.metalBias]);
 
   // ── Derive visual scales from stats ──────────────────────────────────────
   const armScale = (1.0 + (robotStats.power / 99) * 0.55) * silhouette.arm;
   const legScaleY  = (1.0 + (robotStats.speed / 99) * 0.28) * silhouette.legY;
   const legScaleXZ = (1.0 - (robotStats.speed / 99) * 0.18) * silhouette.legXZ;
+  const heroScale = 0.62 + ((robotStats.vit / 99) * 0.08);
 
   return (
-    <group ref={groupRef} position={[0, 0, -1]} scale={[silhouette.body, silhouette.body, silhouette.body]} castShadow>
+    <group ref={groupRef} position={[0, 0, -1]} scale={[silhouette.body, silhouette.body, silhouette.body]}>
+      {heroScene && (
+        <group position={[0, -0.145, 0]} scale={[heroScale, heroScale, heroScale]} rotation={[0, Math.PI, 0]}>
+          <primitive object={heroScene} />
+        </group>
+      )}
 
-      {/* ════════════════════════════════════════════════════════════════════
-          HEAD — helmet dome + face + visor + forehead marker
-          Total head center: y = 0.85
-      ════════════════════════════════════════════════════════════════════ */}
-      <group position={[0, 0.85, 0]}>
-        {/* Helmet – main dome (slightly flattened sphere) */}
-        <mesh castShadow scale={[1.0, 1.05, 0.92]}>
-          <sphereGeometry args={[0.118, 16, 14]} />
-          {M.white()}
+      <group visible={!heroScene}>
+      {/* Head */}
+      <group position={[0, 0.86, 0.01]}>
+        <mesh castShadow scale={[1.0, 1.05, 0.9]}>
+          <sphereGeometry args={[0.13, 24, 18]} />
+          {M.white(0.24, 0.32)}
         </mesh>
-
-        {/* Helmet rear extension */}
-        <mesh position={[0, 0.01, -0.04]} castShadow>
-          <boxGeometry args={[0.20, 0.16, 0.08]} />
-          {M.white()}
+        <mesh position={[0, -0.01, 0.08]} castShadow scale={[0.92, 0.66, 0.4]}>
+          <sphereGeometry args={[0.13, 20, 14]} />
+          {M.blackM(0.42, 0.52)}
         </mesh>
-
-        {/* Face plate – skin tone oval */}
-        <mesh position={[0, -0.01, 0.08]} castShadow scale={[0.92, 1.0, 1.0]}>
-          <sphereGeometry args={[0.082, 12, 10, 0, Math.PI * 2, 0, Math.PI * 0.6]} />
-          {M.skin()}
+        <mesh position={[0, 0.01, 0.105]} castShadow scale={[0.56, 0.2, 0.3]}>
+          <sphereGeometry args={[0.12, 20, 12]} />
+          {M.visor()}
         </mesh>
-
-        {/* Forehead D-marker */}
-        <mesh position={[0, 0.075, 0.105]} castShadow>
-          <cylinderGeometry args={[0.022, 0.022, 0.008, 8]} />
+        <mesh position={[-0.048, 0.01, 0.118]} castShadow>
+          <boxGeometry args={[0.042, 0.016, 0.01]} />
+          {M.visor()}
+        </mesh>
+        <mesh position={[0.048, 0.01, 0.118]} castShadow>
+          <boxGeometry args={[0.042, 0.016, 0.01]} />
+          {M.visor()}
+        </mesh>
+        <mesh position={[0, 0.145, -0.01]} castShadow rotation={[0, 0, Math.PI / 2]}>
+          <cylinderGeometry args={[0.01, 0.016, 0.12, 10]} />
           {M.red()}
         </mesh>
-
-        {/* Left eye */}
-        <mesh position={[-0.035, 0.010, 0.108]} castShadow>
-          <boxGeometry args={[0.038, 0.018, 0.008]} />
-          {M.visor()}
+        <mesh position={[-0.12, 0.028, -0.008]} castShadow rotation={[0, 0, -0.48]}>
+          <boxGeometry args={[0.026, 0.11, 0.06]} />
+          {M.blueL()}
         </mesh>
-        {/* Right eye */}
-        <mesh position={[0.035, 0.010, 0.108]} castShadow>
-          <boxGeometry args={[0.038, 0.018, 0.008]} />
-          {M.visor()}
+        <mesh position={[0.12, 0.028, -0.008]} castShadow rotation={[0, 0, 0.48]}>
+          <boxGeometry args={[0.026, 0.11, 0.06]} />
+          {M.blueL()}
         </mesh>
-
-        {/* Chin guard */}
-        <mesh position={[0, -0.072, 0.065]} castShadow>
-          <boxGeometry args={[0.11, 0.032, 0.06]} />
-          {M.white()}
-        </mesh>
-
-        {/* Cheek pads left */}
-        <mesh position={[-0.095, -0.01, 0.035]} castShadow>
-          <boxGeometry args={[0.028, 0.09, 0.07]} />
-          {M.white()}
-        </mesh>
-        {/* Cheek pads right */}
-        <mesh position={[0.095, -0.01, 0.035]} castShadow>
-          <boxGeometry args={[0.028, 0.09, 0.07]} />
-          {M.white()}
-        </mesh>
-
-        {/* Neck */}
-        <mesh position={[0, -0.120, 0]} castShadow>
-          <cylinderGeometry args={[0.045, 0.050, 0.06, 10]} />
+        <mesh position={[0, -0.118, -0.005]} castShadow>
+          <cylinderGeometry args={[0.045, 0.052, 0.055, 14]} />
           {M.skin()}
         </mesh>
       </group>
 
-      {/* ════════════════════════════════════════════════════════════════════
-          TORSO — wide white chest + panel lines + upper abs
-          y center = 0.53
-      ════════════════════════════════════════════════════════════════════ */}
-      <group position={[0, 0.53, 0]}>
-        {/* Main chest block – wide, subtly tapered */}
-        <mesh castShadow scale={[1.0, 1.0, 0.75]}>
-          <boxGeometry args={[0.320, 0.240, 0.200]} />
-          {M.white()}
+      {/* Torso + backpack */}
+      <group position={[0, 0.54, 0]}>
+        <mesh castShadow scale={[1.08, 1.02, 0.78]}>
+          <boxGeometry args={[0.3, 0.24, 0.22]} />
+          {M.white(0.26, 0.32)}
         </mesh>
-
-        {/* Upper chest bevel (rounded top edge) */}
-        <mesh position={[0, 0.105, 0.018]} castShadow>
-          <boxGeometry args={[0.300, 0.025, 0.155]} />
-          {M.whiteB()}
+        <mesh position={[0, 0.09, 0.03]} castShadow scale={[1.0, 0.62, 0.62]}>
+          <sphereGeometry args={[0.13, 20, 16]} />
+          {M.blue(0.32, 0.58)}
         </mesh>
-
-        {/* Chest panel – left recess */}
-        <mesh position={[-0.078, 0.010, 0.078]} castShadow>
-          <boxGeometry args={[0.080, 0.120, 0.008]} />
+        <mesh position={[0, 0.02, 0.112]} castShadow rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[0.05, 0.05, 0.028, 20]} />
+          <meshPhysicalMaterial
+            ref={materialRef}
+            color={C.cyan}
+            emissive={C.cyan}
+            emissiveIntensity={Math.max(0.7, dnaGlowIntensity)}
+            roughness={tuneRough(0.18)}
+            metalness={tuneMetal(0.82)}
+            transmission={0.22}
+            thickness={0.3}
+            clearcoat={0.6}
+            clearcoatRoughness={0.08}
+          />
+        </mesh>
+        <mesh position={[0, 0.02, 0.095]} castShadow rotation={[Math.PI / 2, 0, 0]}>
+          <torusGeometry args={[0.062, 0.008, 10, 24]} />
+          {M.silver(0.2, 0.72)}
+        </mesh>
+        <mesh position={[-0.096, -0.01, 0.108]} castShadow>
+          <boxGeometry args={[0.068, 0.128, 0.014]} />
           {M.panel()}
         </mesh>
-        {/* Chest panel – right recess */}
-        <mesh position={[0.078, 0.010, 0.078]} castShadow>
-          <boxGeometry args={[0.080, 0.120, 0.008]} />
+        <mesh position={[0.096, -0.01, 0.108]} castShadow>
+          <boxGeometry args={[0.068, 0.128, 0.014]} />
           {M.panel()}
         </mesh>
-
-        {/* Sternum detail strip */}
-        <mesh position={[0, 0.025, 0.080]} castShadow>
-          <boxGeometry args={[0.030, 0.130, 0.006]} />
-          {M.silver()}
-        </mesh>
-
-        {/* Status indicators (tri-colour badges) */}
-        <mesh position={[-0.020, 0.072, 0.081]} castShadow>
-          <boxGeometry args={[0.014, 0.012, 0.005]} />
-          <meshStandardMaterial color="#4488FF" emissive="#4488FF" emissiveIntensity={1.0} />
-        </mesh>
-        <mesh position={[0.001, 0.072, 0.081]} castShadow>
-          <boxGeometry args={[0.014, 0.012, 0.005]} />
-          <meshStandardMaterial color="#FFCC00" emissive="#FFCC00" emissiveIntensity={1.0} />
-        </mesh>
-        <mesh position={[0.022, 0.072, 0.081]} castShadow>
-          <boxGeometry args={[0.014, 0.012, 0.005]} />
-          <meshStandardMaterial color="#FF3333" emissive="#FF3333" emissiveIntensity={1.0} />
-        </mesh>
-
-        {/* Upper abs – skin-coloured transition strip */}
-        <mesh position={[0, -0.115, 0.060]} castShadow>
-          <boxGeometry args={[0.220, 0.025, 0.120]} />
+        <mesh position={[0, -0.104, 0.08]} castShadow>
+          <boxGeometry args={[0.22, 0.028, 0.08]} />
           {M.skin()}
         </mesh>
-
-        {/* Spine back detail */}
-        <mesh position={[0, 0, -0.082]} castShadow>
-          <boxGeometry args={[0.050, 0.200, 0.012]} />
-          {M.silver()}
+        <mesh position={[-0.12, 0.03, -0.09]} castShadow rotation={[0.28, 0.1, -0.05]}>
+          <cylinderGeometry args={[0.026, 0.035, 0.13, 12]} />
+          {M.black(0.54, 0.6)}
+        </mesh>
+        <mesh position={[0.12, 0.03, -0.09]} castShadow rotation={[0.28, -0.1, 0.05]}>
+          <cylinderGeometry args={[0.026, 0.035, 0.13, 12]} />
+          {M.black(0.54, 0.6)}
+        </mesh>
+        <mesh position={[-0.12, -0.038, -0.13]} castShadow rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[0.012, 0.016, 0.02, 10]} />
+          {M.visor()}
+        </mesh>
+        <mesh position={[0.12, -0.038, -0.13]} castShadow rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[0.012, 0.016, 0.02, 10]} />
+          {M.visor()}
         </mesh>
       </group>
 
-      {/* ════════════════════════════════════════════════════════════════════
-          WAIST + CORE — red core unit, black band, hip joint
-          y center = 0.35
-      ════════════════════════════════════════════════════════════════════ */}
-      <group position={[0, 0.355, 0]}>
-        {/* Black waist band */}
+      {/* Waist */}
+      <group position={[0, 0.35, 0]}>
         <mesh castShadow>
-          <boxGeometry args={[0.280, 0.060, 0.175]} />
-          {M.black()}
+          <boxGeometry args={[0.29, 0.07, 0.18]} />
+          {M.black(0.55, 0.64)}
         </mesh>
-
-        {/* Red core unit front */}
-        <mesh position={[0, 0, 0.082]} castShadow>
-          <boxGeometry args={[0.120, 0.060, 0.020]} />
-          {M.red()}
-        </mesh>
-
-        {/* Core detail inside red unit */}
         <mesh position={[0, 0, 0.094]} castShadow>
-          <cylinderGeometry args={[0.022, 0.022, 0.015, 10]} />
-          {M.blackM()}
+          <boxGeometry args={[0.13, 0.056, 0.02]} />
+          {M.red()}
         </mesh>
-
-        {/* Hip flap left */}
-        <mesh position={[-0.155, -0.010, 0]} castShadow rotation={[0, 0, 0.08]}>
-          <boxGeometry args={[0.040, 0.072, 0.150]} />
+        <mesh position={[0, 0, 0.105]} castShadow rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[0.02, 0.02, 0.01, 10]} />
+          {M.yellow(0.2, 0.28)}
+        </mesh>
+        <mesh position={[-0.158, -0.01, 0]} castShadow rotation={[0, 0, 0.1]}>
+          <boxGeometry args={[0.038, 0.08, 0.15]} />
           {M.blue()}
         </mesh>
-        {/* Hip flap right */}
-        <mesh position={[0.155, -0.010, 0]} castShadow rotation={[0, 0, -0.08]}>
-          <boxGeometry args={[0.040, 0.072, 0.150]} />
+        <mesh position={[0.158, -0.01, 0]} castShadow rotation={[0, 0, -0.1]}>
+          <boxGeometry args={[0.038, 0.08, 0.15]} />
           {M.blue()}
         </mesh>
       </group>
 
-      {/* ════════════════════════════════════════════════════════════════════
-          LEFT ARM  (ref for power scaling)
-          Shoulder  x=-0.230  Pauldron disc at y=0.655
-          Upper-arm x=-0.270  y=0.530
-          Elbow     x=-0.270  y=0.430
-          Forearm   x=-0.270  y=0.330
-          Wrist     x=-0.270  y=0.235
-          Hand      x=-0.270  y=0.188
-      ════════════════════════════════════════════════════════════════════ */}
+      {/* Left arm */}
       <group ref={leftArmRef} scale={[armScale, 1.0, armScale]}>
-        {/* Shoulder ball joint */}
-        <mesh position={[-0.190, 0.640, 0]} castShadow>
-          <sphereGeometry args={[0.055, 10, 8]} />
+        <mesh position={[-0.195, 0.644, 0]} castShadow>
+          <sphereGeometry args={[0.052, 14, 10]} />
           {M.white()}
         </mesh>
-
-        {/* Pauldron – large round shoulder guard (main disc) */}
-        <mesh position={[-0.240, 0.655, 0]} castShadow rotation={[0, 0, -0.12]}>
-          <cylinderGeometry args={[0.092, 0.082, 0.055, 14, 1, false]} />
-          {M.white()}
-        </mesh>
-        {/* Pauldron rim detail */}
-        <mesh position={[-0.240, 0.630, 0]} castShadow rotation={[0, 0, -0.12]}>
-          <cylinderGeometry args={[0.086, 0.092, 0.012, 14]} />
+        <mesh position={[-0.245, 0.658, 0]} castShadow rotation={[0, 0, -0.16]}>
+          <sphereGeometry args={[0.08, 18, 12]} />
           {M.whiteB()}
         </mesh>
-        {/* Pauldron bolt screw left */}
-        <mesh position={[-0.255, 0.660, 0.060]} castShadow rotation={[Math.PI / 2, 0, 0]}>
-          <cylinderGeometry args={[0.010, 0.010, 0.012, 6]} />
-          {M.silver()}
+        <mesh position={[-0.268, 0.525, 0]} castShadow>
+          <cylinderGeometry args={[0.04, 0.045, 0.17, 16]} />
+          {M.white(0.3, 0.34)}
         </mesh>
-        {/* Pauldron bolt screw right */}
-        <mesh position={[-0.255, 0.660, -0.060]} castShadow rotation={[Math.PI / 2, 0, 0]}>
-          <cylinderGeometry args={[0.010, 0.010, 0.012, 6]} />
-          {M.silver()}
-        </mesh>
-
-        {/* Upper arm – white */}
-        <mesh position={[-0.265, 0.530, 0]} castShadow>
-          <boxGeometry args={[0.078, 0.180, 0.078]} />
-          {M.white()}
-        </mesh>
-
-        {/* Yellow wrist band */}
-        <mesh position={[-0.265, 0.410, 0]} castShadow>
-          <boxGeometry args={[0.085, 0.028, 0.085]} />
+        <mesh position={[-0.268, 0.418, 0]} castShadow>
+          <sphereGeometry args={[0.033, 12, 10]} />
           {M.yellow()}
         </mesh>
-
-        {/* Forearm – black */}
-        <mesh position={[-0.265, 0.325, 0]} castShadow>
-          <boxGeometry args={[0.072, 0.165, 0.072]} />
+        <mesh position={[-0.268, 0.318, 0]} castShadow>
+          <boxGeometry args={[0.082, 0.16, 0.085]} />
           {M.black()}
         </mesh>
-        {/* Forearm highlight stripe */}
-        <mesh position={[-0.228, 0.325, 0.028]} castShadow>
-          <boxGeometry args={[0.008, 0.150, 0.008]} />
+        <mesh position={[-0.232, 0.318, 0.028]} castShadow>
+          <boxGeometry args={[0.008, 0.15, 0.008]} />
           {M.silver()}
         </mesh>
-
-        {/* Wrist/hand skin */}
-        <mesh position={[-0.265, 0.228, 0]} castShadow>
-          <boxGeometry args={[0.060, 0.055, 0.060]} />
+        <mesh position={[-0.29, 0.318, 0.055]} castShadow rotation={[0, 0, -0.35]}>
+          <boxGeometry args={[0.016, 0.132, 0.014]} />
+          {M.red()}
+        </mesh>
+        <mesh position={[-0.268, 0.22, 0]} castShadow>
+          <sphereGeometry args={[0.038, 12, 10]} />
           {M.skin()}
         </mesh>
       </group>
 
-      {/* ════════════════════════════════════════════════════════════════════
-          RIGHT ARM (mirror of left)
-      ════════════════════════════════════════════════════════════════════ */}
+      {/* Right arm */}
       <group ref={rightArmRef} scale={[armScale, 1.0, armScale]}>
-        {/* Shoulder ball */}
-        <mesh position={[0.190, 0.640, 0]} castShadow>
-          <sphereGeometry args={[0.055, 10, 8]} />
+        <mesh position={[0.195, 0.644, 0]} castShadow>
+          <sphereGeometry args={[0.052, 14, 10]} />
           {M.white()}
         </mesh>
-
-        {/* Pauldron */}
-        <mesh position={[0.240, 0.655, 0]} castShadow rotation={[0, 0, 0.12]}>
-          <cylinderGeometry args={[0.092, 0.082, 0.055, 14, 1, false]} />
-          {M.white()}
-        </mesh>
-        <mesh position={[0.240, 0.630, 0]} castShadow rotation={[0, 0, 0.12]}>
-          <cylinderGeometry args={[0.086, 0.092, 0.012, 14]} />
+        <mesh position={[0.245, 0.658, 0]} castShadow rotation={[0, 0, 0.16]}>
+          <sphereGeometry args={[0.08, 18, 12]} />
           {M.whiteB()}
         </mesh>
-        <mesh position={[0.255, 0.660, 0.060]} castShadow rotation={[Math.PI / 2, 0, 0]}>
-          <cylinderGeometry args={[0.010, 0.010, 0.012, 6]} />
-          {M.silver()}
+        <mesh position={[0.268, 0.525, 0]} castShadow>
+          <cylinderGeometry args={[0.04, 0.045, 0.17, 16]} />
+          {M.white(0.3, 0.34)}
         </mesh>
-        <mesh position={[0.255, 0.660, -0.060]} castShadow rotation={[Math.PI / 2, 0, 0]}>
-          <cylinderGeometry args={[0.010, 0.010, 0.012, 6]} />
-          {M.silver()}
-        </mesh>
-
-        {/* Upper arm */}
-        <mesh position={[0.265, 0.530, 0]} castShadow>
-          <boxGeometry args={[0.078, 0.180, 0.078]} />
-          {M.white()}
-        </mesh>
-
-        {/* Yellow wrist band */}
-        <mesh position={[0.265, 0.410, 0]} castShadow>
-          <boxGeometry args={[0.085, 0.028, 0.085]} />
+        <mesh position={[0.268, 0.418, 0]} castShadow>
+          <sphereGeometry args={[0.033, 12, 10]} />
           {M.yellow()}
         </mesh>
-
-        {/* Black forearm */}
-        <mesh position={[0.265, 0.325, 0]} castShadow>
-          <boxGeometry args={[0.072, 0.165, 0.072]} />
+        <mesh position={[0.268, 0.318, 0]} castShadow>
+          <boxGeometry args={[0.082, 0.16, 0.085]} />
           {M.black()}
         </mesh>
-        <mesh position={[0.228, 0.325, 0.028]} castShadow>
-          <boxGeometry args={[0.008, 0.150, 0.008]} />
+        <mesh position={[0.232, 0.318, 0.028]} castShadow>
+          <boxGeometry args={[0.008, 0.15, 0.008]} />
           {M.silver()}
         </mesh>
-
-        {/* Hand skin */}
-        <mesh position={[0.265, 0.228, 0]} castShadow>
-          <boxGeometry args={[0.060, 0.055, 0.060]} />
+        <mesh position={[0.29, 0.318, 0.055]} castShadow rotation={[0, 0, 0.35]}>
+          <boxGeometry args={[0.016, 0.132, 0.014]} />
+          {M.red()}
+        </mesh>
+        <mesh position={[0.268, 0.22, 0]} castShadow>
+          <sphereGeometry args={[0.038, 12, 10]} />
           {M.skin()}
         </mesh>
       </group>
 
-      {/* ════════════════════════════════════════════════════════════════════
-          LEFT LEG (ref for speed scaling)
-          Hip sphere y=0.295  x=-0.100
-          Thigh      y=0.215  x=-0.100   Blue
-          Knee guard y=0.105  x=-0.100   Red
-          Knee joint y=0.095  x=-0.100   Yellow sphere
-          Shin       y=0.010  x=-0.100   White
-          Ankle      y=-0.105 x=-0.100   Blue
-          Boot       y=-0.155 x=-0.100   Blue+sole
-      ════════════════════════════════════════════════════════════════════ */}
+      {/* Left leg */}
       <group ref={leftLegRef} scale={[legScaleXZ, legScaleY, legScaleXZ]}>
-        {/* Hip ball joint */}
-        <mesh position={[-0.095, 0.300, 0]} castShadow>
-          <sphereGeometry args={[0.048, 10, 8]} />
+        <mesh position={[-0.098, 0.3, 0]} castShadow>
+          <sphereGeometry args={[0.046, 12, 10]} />
           {M.blue()}
         </mesh>
-
-        {/* Thigh – deep blue, wide */}
-        <mesh position={[-0.095, 0.215, 0]} castShadow>
-          <boxGeometry args={[0.105, 0.165, 0.108]} />
+        <mesh position={[-0.098, 0.214, 0]} castShadow>
+          <cylinderGeometry args={[0.05, 0.056, 0.16, 14]} />
           {M.blue()}
         </mesh>
-        {/* Thigh back panel */}
-        <mesh position={[-0.095, 0.215, -0.050]} castShadow>
-          <boxGeometry args={[0.090, 0.130, 0.010]} />
+        <mesh position={[-0.098, 0.205, -0.05]} castShadow>
+          <boxGeometry args={[0.08, 0.12, 0.012]} />
           {M.blueL()}
         </mesh>
-
-        {/* Knee guard – red block on front */}
-        <mesh position={[-0.095, 0.112, 0.042]} castShadow>
-          <boxGeometry args={[0.095, 0.055, 0.045]} />
+        <mesh position={[-0.098, 0.112, 0.044]} castShadow>
+          <boxGeometry args={[0.094, 0.05, 0.046]} />
           {M.red()}
         </mesh>
-        {/* Knee joint sphere – yellow */}
-        <mesh position={[-0.095, 0.108, 0]} castShadow>
-          <sphereGeometry args={[0.038, 10, 8]} />
+        <mesh position={[-0.098, 0.107, 0]} castShadow>
+          <sphereGeometry args={[0.034, 12, 10]} />
           {M.yellow()}
         </mesh>
-
-        {/* Shin front – white armor */}
-        <mesh position={[-0.095, 0.020, 0.032]} castShadow>
-          <boxGeometry args={[0.085, 0.160, 0.060]} />
+        <mesh position={[-0.098, 0.018, 0.028]} castShadow>
+          <cylinderGeometry args={[0.038, 0.042, 0.16, 14]} />
           {M.white()}
         </mesh>
-        {/* Shin core – blue back */}
-        <mesh position={[-0.095, 0.020, -0.028]} castShadow>
-          <boxGeometry args={[0.078, 0.155, 0.052]} />
+        <mesh position={[-0.098, 0.012, -0.03]} castShadow>
+          <cylinderGeometry args={[0.035, 0.039, 0.14, 14]} />
           {M.blue()}
         </mesh>
-        {/* Shin panel lines */}
-        <mesh position={[-0.118, 0.020, 0.050]} castShadow>
-          <boxGeometry args={[0.006, 0.090, 0.004]} />
-          {M.panel()}
-        </mesh>
-        <mesh position={[-0.072, 0.020, 0.050]} castShadow>
-          <boxGeometry args={[0.006, 0.090, 0.004]} />
-          {M.panel()}
-        </mesh>
-
-        {/* Ankle + foot – blue */}
-        <mesh position={[-0.095, -0.102, 0]} castShadow>
-          <boxGeometry args={[0.088, 0.055, 0.095]} />
+        <mesh position={[-0.098, -0.098, 0]} castShadow>
+          <boxGeometry args={[0.09, 0.052, 0.098]} />
           {M.blue()}
         </mesh>
-        {/* Boot sole toe */}
-        <mesh position={[-0.095, -0.140, 0.028]} castShadow>
-          <boxGeometry args={[0.082, 0.022, 0.110]} />
-          {M.blue()}
-        </mesh>
-        {/* Boot heel */}
-        <mesh position={[-0.095, -0.140, -0.040]} castShadow>
-          <boxGeometry args={[0.082, 0.022, 0.038]} />
+        <mesh position={[-0.098, -0.136, 0.03]} castShadow>
+          <boxGeometry args={[0.086, 0.022, 0.112]} />
           {M.blue()}
         </mesh>
       </group>
 
-      {/* ════════════════════════════════════════════════════════════════════
-          RIGHT LEG (mirror)
-      ════════════════════════════════════════════════════════════════════ */}
+      {/* Right leg */}
       <group ref={rightLegRef} scale={[legScaleXZ, legScaleY, legScaleXZ]}>
-        {/* Hip ball */}
-        <mesh position={[0.095, 0.300, 0]} castShadow>
-          <sphereGeometry args={[0.048, 10, 8]} />
+        <mesh position={[0.098, 0.3, 0]} castShadow>
+          <sphereGeometry args={[0.046, 12, 10]} />
           {M.blue()}
         </mesh>
-
-        {/* Thigh */}
-        <mesh position={[0.095, 0.215, 0]} castShadow>
-          <boxGeometry args={[0.105, 0.165, 0.108]} />
+        <mesh position={[0.098, 0.214, 0]} castShadow>
+          <cylinderGeometry args={[0.05, 0.056, 0.16, 14]} />
           {M.blue()}
         </mesh>
-        <mesh position={[0.095, 0.215, -0.050]} castShadow>
-          <boxGeometry args={[0.090, 0.130, 0.010]} />
+        <mesh position={[0.098, 0.205, -0.05]} castShadow>
+          <boxGeometry args={[0.08, 0.12, 0.012]} />
           {M.blueL()}
         </mesh>
-
-        {/* Knee guard red */}
-        <mesh position={[0.095, 0.112, 0.042]} castShadow>
-          <boxGeometry args={[0.095, 0.055, 0.045]} />
+        <mesh position={[0.098, 0.112, 0.044]} castShadow>
+          <boxGeometry args={[0.094, 0.05, 0.046]} />
           {M.red()}
         </mesh>
-        {/* Knee sphere yellow */}
-        <mesh position={[0.095, 0.108, 0]} castShadow>
-          <sphereGeometry args={[0.038, 10, 8]} />
+        <mesh position={[0.098, 0.107, 0]} castShadow>
+          <sphereGeometry args={[0.034, 12, 10]} />
           {M.yellow()}
         </mesh>
-
-        {/* Shin front white */}
-        <mesh position={[0.095, 0.020, 0.032]} castShadow>
-          <boxGeometry args={[0.085, 0.160, 0.060]} />
+        <mesh position={[0.098, 0.018, 0.028]} castShadow>
+          <cylinderGeometry args={[0.038, 0.042, 0.16, 14]} />
           {M.white()}
         </mesh>
-        <mesh position={[0.095, 0.020, -0.028]} castShadow>
-          <boxGeometry args={[0.078, 0.155, 0.052]} />
+        <mesh position={[0.098, 0.012, -0.03]} castShadow>
+          <cylinderGeometry args={[0.035, 0.039, 0.14, 14]} />
           {M.blue()}
         </mesh>
-        <mesh position={[0.118, 0.020, 0.050]} castShadow>
-          <boxGeometry args={[0.006, 0.090, 0.004]} />
-          {M.panel()}
-        </mesh>
-        <mesh position={[0.072, 0.020, 0.050]} castShadow>
-          <boxGeometry args={[0.006, 0.090, 0.004]} />
-          {M.panel()}
-        </mesh>
-
-        {/* Boot */}
-        <mesh position={[0.095, -0.102, 0]} castShadow>
-          <boxGeometry args={[0.088, 0.055, 0.095]} />
+        <mesh position={[0.098, -0.098, 0]} castShadow>
+          <boxGeometry args={[0.09, 0.052, 0.098]} />
           {M.blue()}
         </mesh>
-        <mesh position={[0.095, -0.140, 0.028]} castShadow>
-          <boxGeometry args={[0.082, 0.022, 0.110]} />
-          {M.blue()}
-        </mesh>
-        <mesh position={[0.095, -0.140, -0.040]} castShadow>
-          <boxGeometry args={[0.082, 0.022, 0.038]} />
+        <mesh position={[0.098, -0.136, 0.03]} castShadow>
+          <boxGeometry args={[0.086, 0.022, 0.112]} />
           {M.blue()}
         </mesh>
       </group>
-
+      </group>
     </group>
   );
 };

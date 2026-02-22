@@ -28,6 +28,8 @@ export const ServerDrivenPanel: React.FC = () => {
   const [tactics, setTactics] = useState<TacticItem[]>([]);
   const setAICommand = useFSMStore(s => s.setAICommand);
   const lang = (PLAYER_LANG || 'en-US').toLowerCase();
+  const [isOpen, setIsOpen] = useState(true);
+
   const title = lang.startsWith('ja')
     ? '戦術オプション'
     : lang.startsWith('es')
@@ -56,9 +58,17 @@ export const ServerDrivenPanel: React.FC = () => {
   if (tactics.length === 0) return null;
 
   return (
-    <div className="tactics-panel hud-animate">
-      <h3 className="tactics-title">{title}</h3>
-      {tactics.map(t => (
+    <div className={`tactics-panel hud-animate ${!isOpen ? 'is-collapsed' : ''}`}>
+      <h3
+        className="tactics-title"
+        onClick={() => setIsOpen(!isOpen)}
+        style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between' }}
+      >
+        {title}
+        <span>{isOpen ? '▼' : '▲'}</span>
+      </h3>
+      
+      {isOpen && tactics.map(t => (
         <button
           key={t.id}
           onClick={() => onSelect(t)}

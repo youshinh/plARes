@@ -1,0 +1,16 @@
+.git
+.gitignore
+.env
+.secrets/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+venv/
+.venv/
+*.egg-info/
+runtime/match_logs/
+runtime/users/
+tests/
+verify_*.py

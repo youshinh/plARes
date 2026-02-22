@@ -1,0 +1,130 @@
+/* =============================================================================
+   PlaresAR — Design Tokens (ui-polisher baseline)
+   skills/agent1/ui-polisher/resources/design-tokens.css
+   ============================================================================= */
+
+:root {
+  /* ── Color Palette ─────────────────────────────────────────────────────── */
+  --color-primary:       hsl(260 80% 65%);   /* Electric Purple */
+  --color-primary-dim:   hsl(260 80% 65% / 0.15);
+  --color-accent:        hsl(30 100% 60%);   /* Energy Orange */
+  --color-danger:        hsl(0 80% 60%);
+  --color-success:       hsl(145 65% 50%);
+
+  --color-surface-0:     hsl(220 20% 6%);    /* Background */
+  --color-surface-1:     hsl(220 18% 10%);   /* Card */
+  --color-surface-2:     hsl(220 15% 14%);   /* Elevated Card */
+  --color-surface-glass: hsl(0 0% 100% / 0.07);
+
+  --color-text-primary:  hsl(0 0% 98%);
+  --color-text-secondary:hsl(0 0% 65%);
+  --color-text-disabled: hsl(0 0% 40%);
+
+  /* ── Typography ────────────────────────────────────────────────────────── */
+  --font-sans: "Inter", "Noto Sans JP", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", monospace;
+
+  --text-display: clamp(2rem,   5vw, 3.5rem);
+  --text-title:   clamp(1.25rem, 3vw, 1.75rem);
+  --text-body:    1rem;
+  --text-caption: 0.75rem;
+
+  --weight-black:  900;
+  --weight-bold:   700;
+  --weight-medium: 500;
+  --weight-normal: 400;
+
+  --tracking-tight:   -0.02em;
+  --tracking-normal:   0em;
+  --tracking-wide:     0.08em;
+  --tracking-widest:   0.15em;
+
+  /* ── Spacing (8pt grid) ─────────────────────────────────────────────────── */
+  --space-1:  0.25rem;  /*  4px */
+  --space-2:  0.5rem;   /*  8px */
+  --space-3:  0.75rem;  /* 12px */
+  --space-4:  1rem;     /* 16px */
+  --space-6:  1.5rem;   /* 24px */
+  --space-8:  2rem;     /* 32px */
+  --space-12: 3rem;     /* 48px */
+  --space-16: 4rem;     /* 64px */
+
+  /* ── Elevation / Shadow ─────────────────────────────────────────────────── */
+  --shadow-sm:
+    0 1px 2px hsl(0 0% 0% / 0.07),
+    0 2px 4px hsl(0 0% 0% / 0.07);
+
+  --shadow-md:
+    0 1px 3px  hsl(0 0% 0% / 0.12),
+    0 4px 8px  hsl(0 0% 0% / 0.10),
+    0 8px 24px hsl(0 0% 0% / 0.08);
+
+  --shadow-lg:
+    0 2px 4px   hsl(0 0% 0% / 0.10),
+    0 8px 16px  hsl(0 0% 0% / 0.12),
+    0 16px 48px hsl(0 0% 0% / 0.10),
+    0 32px 80px hsl(0 0% 0% / 0.08);
+
+  --shadow-glow-primary: 0 0 24px hsl(260 80% 65% / 0.35);
+  --shadow-glow-accent:  0 0 24px hsl(30 100% 60% / 0.35);
+
+  /* ── Glassmorphism ──────────────────────────────────────────────────────── */
+  --glass-bg:     hsl(0 0% 100% / 0.07);
+  --glass-border: hsl(0 0% 100% / 0.12);
+  --glass-blur:   blur(20px) saturate(180%);
+
+  /* ── Border Radius ──────────────────────────────────────────────────────── */
+  --radius-sm:  0.375rem;  /*  6px */
+  --radius-md:  0.75rem;   /* 12px */
+  --radius-lg:  1.25rem;   /* 20px */
+  --radius-xl:  2rem;      /* 32px */
+  --radius-full: 9999px;
+
+  /* ── Motion ─────────────────────────────────────────────────────────────── */
+  --ease-spring:  cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-smooth:  cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  --ease-in-out:  cubic-bezier(0.4, 0, 0.2, 1);
+
+  --duration-fast:   80ms;
+  --duration-normal: 200ms;
+  --duration-slow:   350ms;
+}
+
+/* ── Utility Classes ────────────────────────────────────────────────────────── */
+
+.glass-panel {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md), inset 0 1px 0 hsl(0 0% 100% / 0.08);
+}
+
+.elevated-button {
+  background: var(--color-surface-2);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  transition:
+    transform      var(--duration-normal) var(--ease-spring),
+    box-shadow     var(--duration-normal) var(--ease-smooth),
+    background     var(--duration-fast)   ease;
+}
+
+.elevated-button:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.elevated-button:active {
+  transform: translateY(0) scale(0.97);
+  box-shadow: var(--shadow-sm);
+  transition-duration: var(--duration-fast);
+}
+
+/* Optical vertical centering correction */
+.optical-center {
+  display: flex;
+  align-items: center;
+  padding-bottom: 0.1em;
+}

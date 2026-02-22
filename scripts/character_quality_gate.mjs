@@ -68,7 +68,11 @@ const getImageDimensions = (filePath) => {
 const checkRobotBudget = () => {
   const code = readText(ROBOT_COMPONENT);
   const drawCallEstimate = (code.match(/<mesh\b/g) ?? []).length;
-  const materialEstimate = (code.match(/<meshStandardMaterial\b/g) ?? []).length;
+  const materialEstimate =
+    (code.match(/<meshStandardMaterial\b/g) ?? []).length +
+    (code.match(/<meshPhysicalMaterial\b/g) ?? []).length +
+    (code.match(/<meshBasicMaterial\b/g) ?? []).length +
+    (code.match(/<meshToonMaterial\b/g) ?? []).length;
   return { drawCallEstimate, materialEstimate };
 };
 

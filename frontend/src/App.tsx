@@ -9,6 +9,7 @@ import { ServerDrivenPanel } from './components/ui/ServerDrivenPanel';
 import { DynamicSubtitle } from './components/ui/DynamicSubtitle';
 import { RemoteStreamView } from './components/ui/RemoteStreamView';
 import { CharacterLabPanel } from './components/ui/CharacterLabPanel';
+import { ShareArenaModal } from './components/ui/ShareArenaModal';
 import { useVoiceController } from './hooks/useVoiceController';
 import { useWebXRScanner } from './hooks/useWebXRScanner';
 import { useAICommandListener } from './hooks/useAICommandListener';
@@ -90,6 +91,8 @@ const UI_TEXT: Record<UiLang, Record<string, string>> = {
     alignNeedSurface: 'AR平面が未検出です。床を映して再実行してください。',
     alignShared: '位置合わせ基準を共有しました',
     alignPeerSynced: '相手の位置合わせ情報を受信',
+    menu: 'メニュー',
+    share: '共有 (QR)',
   },
   en: {
     brandSub: 'Next-Gen AI Agent Arena',
@@ -130,6 +133,8 @@ const UI_TEXT: Record<UiLang, Record<string, string>> = {
     alignNeedSurface: 'No AR surface detected yet. Point the camera at the floor and retry.',
     alignShared: 'Shared arena alignment marker.',
     alignPeerSynced: 'Opponent alignment data received.',
+    menu: 'Menu',
+    share: 'Share (QR)',
   },
   es: {
     brandSub: 'Arena de Agentes IA',
@@ -170,6 +175,8 @@ const UI_TEXT: Record<UiLang, Record<string, string>> = {
     alignNeedSurface: 'Aun no se detecta una superficie AR. Enfoca el suelo y reintenta.',
     alignShared: 'Marcador de alineacion compartido.',
     alignPeerSynced: 'Datos de alineacion del rival recibidos.',
+    menu: 'Menu',
+    share: 'Compartir (QR)',
   },
 };
 
@@ -203,9 +210,18 @@ const MainScene: React.FC = () => {
 
   return (
     <>
-      <ambientLight intensity={0.6} />
-      <directionalLight position={[5, 10, 5]} intensity={1.2} castShadow />
-      <Environment preset="city" />
+      <ambientLight intensity={0.28} />
+      <hemisphereLight args={['#CFE8FF', '#1B2634', 0.8]} />
+      <directionalLight
+        position={[4, 8, 6]}
+        intensity={1.4}
+        castShadow
+        shadow-mapSize-width={2048}
+        shadow-mapSize-height={2048}
+      />
+      <pointLight position={[-2.5, 1.8, 2.2]} intensity={0.9} color="#7BC8FF" />
+      <pointLight position={[2.2, 1.1, -1.5]} intensity={0.55} color="#FFB26B" />
+      <Environment preset="sunset" />
       <RobotCharacter />
 
       {/* Hit-test placement ring */}
@@ -219,7 +235,7 @@ const MainScene: React.FC = () => {
       {/* Ground for non-AR debug view */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
         <planeGeometry args={[10, 10]} />
-        <meshStandardMaterial color="#e0e0e0" />
+        <meshStandardMaterial color="#2C313A" roughness={0.86} metalness={0.08} />
       </mesh>
     </>
   );
@@ -273,6 +289,8 @@ function App() {
   const [isLiveConnected, setIsLiveConnected] = useState(false);
   const [isLiveMicActive, setIsLiveMicActive] = useState(false);
   const [isMatchPaused, setIsMatchPaused] = useState(false);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isShareOpen, setIsShareOpen] = useState(false);
   const [isLabOpen, setIsLabOpen] = useState(false);
   const [recentABFeedbackCount, setRecentABFeedbackCount] = useState(0);
   const [bgmUrl, setBgmUrl] = useState('');
@@ -1083,7 +1101,7 @@ function App() {
         <div className="hud-inline-actions">
           <button
             id="btn-enter-ar"
-            className="hud-btn hud-btn-steel"
+            className="hud-btn hud-btn-steel hud-btn-mini"
             onClick={() => store.enterAR()}
           >
             {t.enterAr}
@@ -1091,7 +1109,7 @@ function App() {
           {DEBUG_UI && (
             <button
               id="btn-match-end"
-              className="hud-btn hud-btn-danger"
+              className="hud-btn hud-btn-danger hud-btn-mini"
               onClick={requestMatchEnd}
             >
               {t.endMatch}
@@ -1104,40 +1122,58 @@ function App() {
           >
             {t.alignArena}
           </button>
+          <button
+            id="btn-menu-toggle"
+            className="hud-btn hud-btn-carbon hud-btn-mini"
+            onClick={() => setIsProfileOpen(!isProfileOpen)}
+          >
+            {t.menu}
+          </button>
+          <button
+            id="btn-arena-share"
+            className="hud-btn hud-btn-teal hud-btn-mini"
+            onClick={() => setIsShareOpen(true)}
+          >
+            {t.share}
+          </button>
           {CHARACTER_LAB_UI && (
             <button
               id="btn-open-lab"
               className="hud-btn hud-btn-carbon hud-btn-mini"
               onClick={() => setIsLabOpen(true)}
             >
-              Character Lab
+              Lab
             </button>
           )}
-          <div className={`hud-align-pill ${alignmentReady ? 'is-ready' : ''}`}>
-            {alignmentReady ? t.alignReady : t.alignPending}
-          </div>
-          <label className="hud-lang-wrap">
-            <span>{t.language}</span>
-            <select
-              className="hud-lang-select"
-              value={selectedLanguage}
-              onChange={(e) => {
-                const next = e.target.value;
-                setSelectedLanguage(next);
-                applyLanguage(next, true);
-              }}
-            >
-              <option value="ja-JP">日本語</option>
-              <option value="en-US">English</option>
-              <option value="es-ES">Espanol</option>
-            </select>
-          </label>
         </div>
       </header>
 
       {profileInfo && (
-        <aside className="hud-profile hud-animate">
-          <div className="hud-profile-title">{t.pilotTelemetry}</div>
+        <aside className={`hud-profile hud-animate ${isProfileOpen ? 'is-open' : ''}`}>
+          <div className="hud-profile-title" onClick={() => setIsProfileOpen(!isProfileOpen)}>
+            {t.pilotTelemetry}
+          </div>
+          <div className="hud-profile-actions">
+            <div className={`hud-align-pill ${alignmentReady ? 'is-ready' : ''}`}>
+              {alignmentReady ? t.alignReady : t.alignPending}
+            </div>
+            <label className="hud-lang-wrap">
+              <span>{t.language}</span>
+              <select
+                className="hud-lang-select"
+                value={selectedLanguage}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setSelectedLanguage(next);
+                  applyLanguage(next, true);
+                }}
+              >
+                <option value="ja-JP">日本語</option>
+                <option value="en-US">English</option>
+                <option value="es-ES">Espanol</option>
+              </select>
+            </label>
+          </div>
           <div className="hud-profile-grid">
             <span>{t.matches}</span><strong>{profileInfo.totalMatches}</strong>
             <span>{t.training}</span><strong>{profileInfo.totalTrainingSessions}</strong>
@@ -1254,6 +1290,12 @@ function App() {
       <ServerDrivenPanel />
       <DynamicSubtitle />
       <RemoteStreamView />
+      <ShareArenaModal
+        roomId={ROOM_ID}
+        uiLang={uiLang}
+        open={isShareOpen}
+        onClose={() => setIsShareOpen(false)}
+      />
     </div>
   );
 }

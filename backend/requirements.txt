@@ -1,7 +1,7 @@
-google-genai
-asyncio
-websockets
-pydantic
+# Backend (Cloud Run WebSocket server)
+google-genai>=1.0.0
+websockets>=13.0
+pydantic>=2.0
 python-dotenv
 pytest
-firebase-admin
+firebase-admin>=6.0
