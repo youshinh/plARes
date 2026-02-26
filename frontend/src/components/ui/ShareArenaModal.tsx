@@ -16,6 +16,7 @@ export const ShareArenaModal: React.FC<ShareArenaModalProps> = ({
 }) => {
   const [copied, setCopied] = useState(false);
 
+  console.log('ShareArenaModal render, open=', open, 'roomId=', roomId);
   if (!open) return null;
 
   const getTexts = () => {
@@ -69,8 +70,8 @@ export const ShareArenaModal: React.FC<ShareArenaModalProps> = ({
   };
 
   return (
-    <div className="hud-modal-overlay">
-      <div className="hud-modal-content" style={{ textAlign: 'center' }}>
+    <div className="hud-modal-overlay" onClick={onClose}>
+      <div className="hud-modal-content" style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
         <h2>{t.title}</h2>
         <p className="hud-dim">{t.desc}</p>
         

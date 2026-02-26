@@ -10,6 +10,7 @@
  */
 
 import React, { useRef, useEffect, useState, useCallback } from 'react';
+import { useFSMStore } from '../store/useFSMStore';
 
 const PRESETS = [
   { label: '⚡ スピード重視の忍者型', text: '俊敏でスピード重視、シャープな目つきのニンジャロボット' },
@@ -31,6 +32,9 @@ export const FaceScanner: React.FC<FaceScannerProps> = ({ onGenerate, isGenerati
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [captured, setCaptured]   = useState<string | null>(null); // Base64 JPEG
   const [presetText, setPresetText] = useState('');
+
+  const modelType = useFSMStore(s => s.modelType);
+  const setModelType = useFSMStore(s => s.setModelType);
 
   // カメラ起動
   useEffect(() => {
@@ -168,6 +172,16 @@ export const FaceScanner: React.FC<FaceScannerProps> = ({ onGenerate, isGenerati
             />
           </div>
         )}
+
+        {/* ── モデル選択（テスト用） ── */}
+        <div style={{ display: 'flex', gap: 16, alignSelf: 'center', marginBottom: 10 }}>
+          <label style={{ color: '#fff', fontSize: 13, cursor: 'pointer' }}>
+            <input type="radio" checked={modelType === 'A'} onChange={() => setModelType('A')} /> Model A
+          </label>
+          <label style={{ color: '#fff', fontSize: 13, cursor: 'pointer' }}>
+            <input type="radio" checked={modelType === 'B'} onChange={() => setModelType('B')} /> Model B
+          </label>
+        </div>
 
         {/* ── アクションボタン ── */}
         <div style={styles.actionRow}>

@@ -17,6 +17,8 @@ export interface CharacterDNA {
   glowIntensity: number;
   evolutionStage: number;
   battlePatina: 'clean' | 'worn' | 'scarred' | 'legend';
+  materialType?: string;
+  emblemUrl?: string;
 }
 
 export interface CharacterDNAInput {
@@ -180,6 +182,8 @@ export const DEFAULT_CHARACTER_DNA: CharacterDNA = {
   glowIntensity: 1.0,
   evolutionStage: 0,
   battlePatina: 'clean',
+  materialType: 'plastic',
+  emblemUrl: '',
 };
 
 export const normalizeCharacterDNA = (value: unknown): CharacterDNA | null => {
@@ -195,6 +199,8 @@ export const normalizeCharacterDNA = (value: unknown): CharacterDNA | null => {
   const glowIntensity = v.glowIntensity;
   const evolutionStage = v.evolutionStage;
   const battlePatina = v.battlePatina;
+  const materialType = v.materialType;
+  const emblemUrl = v.emblemUrl;
   if (
     version !== 'v1' ||
     !isFiniteNumber(seed) ||
@@ -219,6 +225,8 @@ export const normalizeCharacterDNA = (value: unknown): CharacterDNA | null => {
       battlePatina === 'worn' || battlePatina === 'scarred' || battlePatina === 'legend'
         ? battlePatina
         : 'clean',
+    materialType: typeof materialType === 'string' ? materialType : 'plastic',
+    emblemUrl: typeof emblemUrl === 'string' ? emblemUrl : '',
   };
 };
 
@@ -291,6 +299,8 @@ export const buildCharacterDNA = (input: CharacterDNAInput): CharacterDNA => {
     glowIntensity: 1.0,
     evolutionStage: 0,
     battlePatina: 'clean',
+    materialType: 'plastic',
+    emblemUrl: '',
   };
 };
 

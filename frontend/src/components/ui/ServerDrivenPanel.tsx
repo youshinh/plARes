@@ -48,14 +48,32 @@ export const ServerDrivenPanel: React.FC = () => {
     return () => { unsubscribe(); };
   }, []);
 
+  const fallbackTactics: TacticItem[] = lang.startsWith('ja')
+    ? [
+        { id: 'fallback-flank-right', title: '右に回れ', detail: '側面を取る', action: 'flank_right' },
+        { id: 'fallback-take-cover', title: '回避', detail: '遮蔽物へ退避', action: 'take_cover' },
+        { id: 'fallback-basic-attack', title: '攻撃', detail: '基本攻撃を実行', action: 'basic_attack' },
+      ]
+    : lang.startsWith('es')
+      ? [
+          { id: 'fallback-flank-right', title: 'Flanco Derecho', detail: 'Mover al costado', action: 'flank_right' },
+          { id: 'fallback-take-cover', title: 'Esquivar', detail: 'Tomar cobertura', action: 'take_cover' },
+          { id: 'fallback-basic-attack', title: 'Atacar', detail: 'Ataque basico', action: 'basic_attack' },
+        ]
+      : [
+          { id: 'fallback-flank-right', title: 'Flank Right', detail: 'Take side position', action: 'flank_right' },
+          { id: 'fallback-take-cover', title: 'Evade', detail: 'Move to cover', action: 'take_cover' },
+          { id: 'fallback-basic-attack', title: 'Attack', detail: 'Execute basic attack', action: 'basic_attack' },
+        ];
+
+  const activeTactics = tactics.length > 0 ? tactics : fallbackTactics;
+
   const onSelect = (t: TacticItem) => {
     const target = t.target ? new THREE.Vector3(t.target.x, t.target.y, t.target.z) : undefined;
     setAICommand({ action: t.action, target });
     // Echo selection back to backend so it can update battle log / other clients
     wsService.sendEvent({ event: 'buff_applied', user: PLAYER_ID, payload: { action: t.action } });
   };
-
-  if (tactics.length === 0) return null;
 
   return (
     <div className={`tactics-panel hud-animate ${!isOpen ? 'is-collapsed' : ''}`}>
@@ -68,7 +86,7 @@ export const ServerDrivenPanel: React.FC = () => {
         <span>{isOpen ? '▼' : '▲'}</span>
       </h3>
       
-      {isOpen && tactics.map(t => (
+      {isOpen && activeTactics.map(t => (
         <button
           key={t.id}
           onClick={() => onSelect(t)}

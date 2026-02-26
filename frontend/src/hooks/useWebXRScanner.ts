@@ -35,6 +35,8 @@ export const useWebXRScanner = () => {
   const localSpaceRef    = useRef<XRReferenceSpace | null>(null); // for depth sensing
   const viewerSpaceRef   = useRef<XRReferenceSpace | null>(null); // for hit-test (spec requires viewer)
   const depthTextureRef = useRef<THREE.DataTexture | null>(null);
+  const depthRawToMetersRef = useRef<number>(0.001);
+  const depthTextureTypeRef = useRef<number>(THREE.UnsignedByteType);
   const lastPublishedSampleRef = useRef<{
     x: number;
     y: number;
@@ -170,23 +172,64 @@ export const useWebXRScanner = () => {
           const depthInfo: XRDepthInformation | null = (frame as any).getDepthInformation(view);
           if (depthInfo && (depthInfo as any).data) {
             const d = depthInfo as any;
-            if (!depthTextureRef.current) {
+            const rawData = d.data as ArrayBufferView;
+            const copiedData =
+              rawData instanceof Uint16Array
+                ? new Uint16Array(rawData)
+                : rawData instanceof Float32Array
+                  ? new Float32Array(rawData)
+                  : rawData instanceof Uint8Array
+                    ? new Uint8Array(rawData)
+                    : new Uint8Array(rawData.buffer.slice(0));
+            const textureType =
+              rawData instanceof Uint16Array
+                ? THREE.UnsignedShortType
+                : rawData instanceof Float32Array
+                  ? THREE.FloatType
+                  : THREE.UnsignedByteType;
+            if (
+              !depthTextureRef.current ||
+              depthTextureRef.current.image.width !== d.width ||
+              depthTextureRef.current.image.height !== d.height ||
+              depthTextureTypeRef.current !== textureType
+            ) {
               depthTextureRef.current = new THREE.DataTexture(
-                new Uint8Array(d.data.buffer),
+                copiedData,
                 d.width,
                 d.height,
-                THREE.RedFormat
+                THREE.RedFormat,
+                textureType,
               );
+              depthTextureRef.current.flipY = true;
+              depthTextureRef.current.minFilter = THREE.NearestFilter;
+              depthTextureRef.current.magFilter = THREE.NearestFilter;
+              depthTextureRef.current.needsUpdate = true;
+              depthTextureTypeRef.current = textureType;
             } else {
               // Reuse texture, just update data
-              depthTextureRef.current.image.data = new Uint8Array(d.data.buffer);
+              depthTextureRef.current.image.data = copiedData;
               depthTextureRef.current.needsUpdate = true;
             }
+            const rawValueToMeters =
+              typeof d.rawValueToMeters === 'number' && Number.isFinite(d.rawValueToMeters)
+                ? d.rawValueToMeters
+                : 0.001;
+            const sampleToRawFactor =
+              rawData instanceof Uint16Array
+                ? 65535
+                : rawData instanceof Uint8Array
+                  ? 255
+                  : 1;
+            depthRawToMetersRef.current = rawValueToMeters * sampleToRawFactor;
           }
         }
       }
     }
   });
 
-  return { ...state, depthTexture: depthTextureRef.current };
+  return {
+    ...state,
+    depthTexture: depthTextureRef.current,
+    depthRawToMeters: depthRawToMetersRef.current,
+  };
 };

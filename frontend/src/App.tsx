@@ -51,6 +51,19 @@ const toUiLang = (raw: string): UiLang => {
   return 'en';
 };
 
+const toFiniteNumber = (value: unknown, fallback: number): number => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const toPositiveNumber = (value: unknown, fallback: number): number => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+const clampHp = (value: number, maxHp: number): number =>
+  Math.max(0, Math.min(value, maxHp));
+
 const UI_TEXT: Record<UiLang, Record<string, string>> = {
   ja: {
     brandSub: '次世代AIエージェントバトル',
@@ -223,6 +236,7 @@ const MainScene: React.FC = () => {
       <pointLight position={[2.2, 1.1, -1.5]} intensity={0.55} color="#FFB26B" />
       <Environment preset="sunset" />
       <RobotCharacter />
+      <RemoteRobotCharacter />
 
       {/* Hit-test placement ring */}
       {indicatorPos && (
@@ -253,10 +267,12 @@ function App() {
   const robotDna = useFSMStore(s => s.robotDna);
   const robotMaterial = useFSMStore(s => s.robotMeta.material);
   const setRobotDna = useFSMStore(s => s.setRobotDna);
-  const localCalibration = useArenaSyncStore(s => s.localCalibration);
-  const remoteCalibrationCount = useArenaSyncStore(
-    s => Object.keys(s.remoteCalibrations).length
-  );
+  const matchAlignmentReady = useArenaSyncStore(s => s.matchAlignmentReady);
+  const hasRemotePeer = useArenaSyncStore(s => s.hasRemotePeer);
+  const isSolo = !hasRemotePeer;
+  const localHp = useFSMStore(s => s.localHp);
+  const enemyHp = useFSMStore(s => s.enemyHp);
+
   const [isP2PMediaOn, setIsP2PMediaOn] = useState(false);
   const [specialPhrase, setSpecialPhrase] = useState('');
   const [profileInfo, setProfileInfo] = useState<{
@@ -307,10 +323,10 @@ function App() {
     return 'en-US';
   });
   const [battleState, setBattleState] = useState({
-    hp: 0,
-    maxHp: 0,
-    opponentHp: 0,
-    opponentMaxHp: 0,
+    hp: 100,
+    maxHp: 100,
+    opponentHp: 100,
+    opponentMaxHp: 100,
     exGauge: 0,
     specialReady: false,
     heatActive: false,
@@ -319,7 +335,23 @@ function App() {
   const castEndsAtRef = useRef<number>(0);
   const specialRetryRef = useRef(0);
   const judgeTimeoutRef = useRef<number | null>(null);
-  const alignmentReady = !!localCalibration && remoteCalibrationCount > 0;
+  const alignmentReady = matchAlignmentReady;
+  const profileView = profileInfo ?? {
+    totalMatches: 0,
+    totalTrainingSessions: 0,
+    totalWalkSessions: 0,
+    tone: 'balanced',
+    syncRate: SYNC_RATE,
+    storageBackend: 'local',
+    memorySummary: '',
+    recentLogs: [] as Array<{
+      timestamp: string;
+      roomId: string;
+      result: string;
+      criticalHits: number;
+      misses: number;
+    }>,
+  };
 
   const applyLanguage = (langCode: string, markAsChosen: boolean) => {
     try {
@@ -458,25 +490,46 @@ function App() {
         return;
       }
       if (payload.kind === 'battle_status' && (!target || target === PLAYER_ID)) {
-        setBattleState(prev => ({
-          ...prev,
-          hp: Number(payload.hp ?? prev.hp),
-          maxHp: Number(payload.max_hp ?? prev.maxHp),
-          exGauge: Number(payload.ex_gauge ?? prev.exGauge),
-          specialReady: Boolean(payload.special_ready ?? prev.specialReady),
-          heatActive: Boolean(payload.heat_active ?? prev.heatActive),
-        }));
+        setBattleState(prev => {
+          const maxHp = toPositiveNumber(payload.max_hp, prev.maxHp);
+          const opponentMaxHp = toPositiveNumber(payload.opponent_max_hp, prev.opponentMaxHp);
+          const hpAfter = clampHp(toFiniteNumber(payload.hp, prev.hp), maxHp);
+          const opponentHpAfter = clampHp(toFiniteNumber(payload.opponent_hp, prev.opponentHp), opponentMaxHp);
+          useFSMStore.getState().syncHp('local', hpAfter);
+          useFSMStore.getState().syncHp('enemy', opponentHpAfter);
+          return {
+            ...prev,
+            hp: hpAfter,
+            maxHp,
+            opponentHp: opponentHpAfter,
+            opponentMaxHp,
+            exGauge: toFiniteNumber(payload.ex_gauge, prev.exGauge),
+            specialReady: Boolean(payload.special_ready ?? prev.specialReady),
+            heatActive: Boolean(payload.heat_active ?? prev.heatActive),
+          };
+        });
         return;
       }
       if (payload.kind === 'ex_gauge_update' && (!target || target === PLAYER_ID)) {
-        setBattleState(prev => ({
-          ...prev,
-          exGauge: Number(payload.value ?? prev.exGauge),
-          specialReady: Boolean(payload.special_ready ?? prev.specialReady),
-          hp: Number(payload.hp ?? prev.hp),
-          maxHp: Number(payload.max_hp ?? prev.maxHp),
-          heatActive: Boolean(payload.heat_active ?? prev.heatActive),
-        }));
+        setBattleState(prev => {
+          const maxHp = toPositiveNumber(payload.max_hp, prev.maxHp);
+          const opponentMaxHp = toPositiveNumber(payload.opponent_max_hp, prev.opponentMaxHp);
+          const hpAfter = clampHp(toFiniteNumber(payload.hp, prev.hp), maxHp);
+          const opponentHpAfter = clampHp(toFiniteNumber(payload.opponent_hp, prev.opponentHp), opponentMaxHp);
+          // Sync local FSM so it can react to HP chunks (e.g. from special move damage over time)
+          useFSMStore.getState().syncHp('local', hpAfter);
+          useFSMStore.getState().syncHp('enemy', opponentHpAfter);
+          return {
+            ...prev,
+            exGauge: toFiniteNumber(payload.value, prev.exGauge),
+            specialReady: Boolean(payload.special_ready ?? prev.specialReady),
+            hp: hpAfter,
+            opponentHp: opponentHpAfter,
+            maxHp,
+            opponentMaxHp,
+            heatActive: Boolean(payload.heat_active ?? prev.heatActive),
+          };
+        });
         return;
       }
       if (payload.kind === 'special_ready' && (!target || target === PLAYER_ID)) {
@@ -500,22 +553,34 @@ function App() {
       }
       if (payload.kind === 'damage_applied') {
         const victim = String(payload.target ?? '');
-        const hpAfter = Number(payload.hp_after ?? 0);
-        const maxHp = Number(payload.max_hp ?? 0);
+        const hpAfter = toFiniteNumber(payload.hp_after, 0);
         if (victim === PLAYER_ID) {
-          setBattleState(prev => ({ ...prev, hp: hpAfter, maxHp }));
+          useFSMStore.getState().syncHp('local', hpAfter);
+          setBattleState(prev => {
+            const maxHp = toPositiveNumber(payload.max_hp, prev.maxHp);
+            return { ...prev, hp: clampHp(hpAfter, maxHp), maxHp };
+          });
         } else {
-          setBattleState(prev => ({ ...prev, opponentHp: hpAfter, opponentMaxHp: maxHp }));
+          useFSMStore.getState().syncHp('enemy', hpAfter);
+          setBattleState(prev => {
+            const opponentMaxHp = toPositiveNumber(payload.max_hp, prev.opponentMaxHp);
+            return { ...prev, opponentHp: clampHp(hpAfter, opponentMaxHp), opponentMaxHp };
+          });
         }
         return;
       }
       if (payload.kind === 'heat_state' && (!target || target === PLAYER_ID)) {
-        setBattleState(prev => ({
-          ...prev,
-          heatActive: Boolean(payload.active ?? prev.heatActive),
-          hp: Number(payload.hp ?? prev.hp),
-          maxHp: Number(payload.max_hp ?? prev.maxHp),
-        }));
+        setBattleState(prev => {
+          const maxHp = toPositiveNumber(payload.max_hp, prev.maxHp);
+          const hpAfter = clampHp(toFiniteNumber(payload.hp, prev.hp), maxHp);
+          useFSMStore.getState().syncHp('local', hpAfter);
+          return {
+            ...prev,
+            heatActive: Boolean(payload.active ?? prev.heatActive),
+            hp: hpAfter,
+            maxHp,
+          };
+        });
         return;
       }
       if (payload.kind === 'down_state') {
@@ -721,6 +786,21 @@ function App() {
     return () => {
       rtcService.stop();
       wsService.disconnect();
+    };
+  }, []);
+
+  useEffect(() => {
+    const syncPeer = () => {
+      useArenaSyncStore.getState().setPeerState(rtcService.getRemotePeerId());
+    };
+    const onPeerState = (event: Event) => {
+      const detail = (event as CustomEvent<{ remoteId: string | null }>).detail;
+      useArenaSyncStore.getState().setPeerState(detail?.remoteId ?? null);
+    };
+    syncPeer();
+    window.addEventListener('webrtc_peer_state', onPeerState as EventListener);
+    return () => {
+      window.removeEventListener('webrtc_peer_state', onPeerState as EventListener);
     };
   }, []);
 
@@ -965,6 +1045,12 @@ function App() {
   }, []);
 
   const handleCastSpecial = async () => {
+    if (!matchAlignmentReady) {
+      window.dispatchEvent(new CustomEvent('show_subtitle', {
+        detail: { text: t.alignPending }
+      }));
+      return;
+    }
     if (isMatchPaused) {
       window.dispatchEvent(new CustomEvent('show_subtitle', {
         detail: { text: '試合が一時停止中です' }
@@ -1148,66 +1234,110 @@ function App() {
         </div>
       </header>
 
-      {profileInfo && (
-        <aside className={`hud-profile hud-animate ${isProfileOpen ? 'is-open' : ''}`}>
-          <div className="hud-profile-title" onClick={() => setIsProfileOpen(!isProfileOpen)}>
-            {t.pilotTelemetry}
+      {/* HP Bars overlay */}
+      <div className="hud-health-bars">
+        <div className="hud-hp-side is-local">
+          <div className="hud-hp-label">{t.hp}</div>
+          <div className="hud-hp-track">
+            <div
+              className={`hud-hp-fill ${localHp < 30 ? 'critical' : ''}`}
+              style={{ width: `${isSolo ? localHp : (battleState.maxHp > 0 ? (battleState.hp / battleState.maxHp) * 100 : 0)}%` }}
+            />
           </div>
-          <div className="hud-profile-actions">
-            <div className={`hud-align-pill ${alignmentReady ? 'is-ready' : ''}`}>
-              {alignmentReady ? t.alignReady : t.alignPending}
-            </div>
-            <label className="hud-lang-wrap">
-              <span>{t.language}</span>
-              <select
-                className="hud-lang-select"
-                value={selectedLanguage}
-                onChange={(e) => {
-                  const next = e.target.value;
-                  setSelectedLanguage(next);
-                  applyLanguage(next, true);
-                }}
-              >
-                <option value="ja-JP">日本語</option>
-                <option value="en-US">English</option>
-                <option value="es-ES">Espanol</option>
-              </select>
-            </label>
+        </div>
+        <div className="hud-hp-vs">VS</div>
+        <div className="hud-hp-side is-remote">
+          <div className="hud-hp-label">{t.enemyHp}</div>
+          <div className="hud-hp-track">
+            <div
+              className={`hud-hp-fill ${enemyHp < 30 ? 'critical' : ''}`}
+              style={{ width: `${isSolo ? enemyHp : (battleState.opponentMaxHp > 0 ? (battleState.opponentHp / battleState.opponentMaxHp) * 100 : 0)}%` }}
+            />
           </div>
-          <div className="hud-profile-grid">
-            <span>{t.matches}</span><strong>{profileInfo.totalMatches}</strong>
-            <span>{t.training}</span><strong>{profileInfo.totalTrainingSessions}</strong>
-            <span>{t.walks}</span><strong>{profileInfo.totalWalkSessions}</strong>
-            <span>{t.tone}</span><strong>{profileInfo.tone}</strong>
-            <span>{t.sync}</span><strong>{profileInfo.syncRate.toFixed(2)}</strong>
-            <span>{t.store}</span><strong>{profileInfo.storageBackend}</strong>
-            <span>{t.hp}</span><strong>{`${battleState.hp}/${battleState.maxHp || '-'}`}</strong>
-            <span>{t.enemyHp}</span><strong>{`${battleState.opponentHp}/${battleState.opponentMaxHp || '-'}`}</strong>
-            <span>{t.heat}</span><strong>{battleState.heatActive ? 'ON' : 'OFF'}</strong>
+        </div>
+      </div>
+
+      <aside className={`hud-profile hud-animate ${isProfileOpen ? 'is-open' : ''}`}>
+        <div className="hud-profile-title" onClick={() => setIsProfileOpen(!isProfileOpen)}>
+          {t.pilotTelemetry}
+        </div>
+        <div className="hud-profile-actions">
+          <div className={`hud-align-pill ${alignmentReady ? 'is-ready' : ''}`}>
+            {alignmentReady ? t.alignReady : t.alignPending}
           </div>
-          <div className="hud-memory-line" title={profileInfo.memorySummary || ''}>
-            {profileInfo.memorySummary || t.noMemory}
+          <label className="hud-lang-wrap">
+            <span>{t.language}</span>
+            <select
+              className="hud-lang-select"
+              value={selectedLanguage}
+              onChange={(e) => {
+                const next = e.target.value;
+                setSelectedLanguage(next);
+                applyLanguage(next, true);
+              }}
+            >
+              <option value="ja-JP">日本語</option>
+              <option value="en-US">English</option>
+              <option value="es-ES">Espanol</option>
+            </select>
+          </label>
+        </div>
+        <div className="hud-main-commands">
+          <button className="hud-btn hud-btn-carbon hud-btn-mini" onClick={requestProfileSync}>
+            {t.refreshMemory}
+          </button>
+          <button
+            className={`hud-btn hud-btn-mini ${isLiveConnected ? 'hud-btn-green' : 'hud-btn-teal'}`}
+            onClick={isLiveConnected ? disconnectLiveDirect : connectLiveDirect}
+          >
+            {isLiveConnected ? t.disconnectLive : t.connectLive}
+          </button>
+          <button
+            className={`hud-btn hud-btn-mini ${isLiveMicActive ? 'hud-btn-warn' : 'hud-btn-blue'}`}
+            onClick={toggleLiveMic}
+          >
+            {isLiveMicActive ? t.stopLiveMic : t.startLiveMic}
+          </button>
+          <button className="hud-btn hud-btn-carbon hud-btn-mini" onClick={sendLiveTextPing}>
+            {t.sendLiveText}
+          </button>
+          <button className="hud-btn hud-btn-steel hud-btn-mini" onClick={requestInteractionTurn}>
+            {t.testInteraction}
+          </button>
+        </div>
+        <div className="hud-profile-grid">
+          <span>{t.matches}</span><strong>{profileView.totalMatches}</strong>
+          <span>{t.training}</span><strong>{profileView.totalTrainingSessions}</strong>
+          <span>{t.walks}</span><strong>{profileView.totalWalkSessions}</strong>
+          <span>{t.tone}</span><strong>{profileView.tone}</strong>
+          <span>{t.sync}</span><strong>{profileView.syncRate.toFixed(2)}</strong>
+          <span>{t.store}</span><strong>{profileView.storageBackend}</strong>
+          <span>{t.hp}</span><strong>{`${battleState.hp}/${battleState.maxHp || '-'}`}</strong>
+          <span>{t.enemyHp}</span><strong>{`${battleState.opponentHp}/${battleState.opponentMaxHp || '-'}`}</strong>
+          <span>{t.heat}</span><strong>{battleState.heatActive ? 'ON' : 'OFF'}</strong>
+        </div>
+        <div className="hud-memory-line" title={profileView.memorySummary || ''}>
+          {profileView.memorySummary || t.noMemory}
+        </div>
+        {profileView.recentLogs.length > 0 && (
+          <div className="hud-block">
+            {profileView.recentLogs.map((log, idx) => (
+              <div key={`${log.timestamp}-${idx}`} className="hud-log-line">
+                {`${log.result} C:${log.criticalHits} M:${log.misses}`}
+              </div>
+            ))}
           </div>
-          {profileInfo.recentLogs.length > 0 && (
-            <div className="hud-block">
-              {profileInfo.recentLogs.map((log, idx) => (
-                <div key={`${log.timestamp}-${idx}`} className="hud-log-line">
-                  {`${log.result} C:${log.criticalHits} M:${log.misses}`}
-                </div>
-              ))}
-            </div>
-          )}
-          {DEBUG_UI && (liveDebugInfo.tokenName || liveDebugInfo.interactionId || liveDebugInfo.interactionText || bgmUrl) && (
-            <div className="hud-block hud-dim">
-              {liveDebugInfo.tokenName && <div className="hud-truncate">{`Token: ${liveDebugInfo.tokenName}`}</div>}
-              {liveDebugInfo.resumeHandle && <div className="hud-truncate">{`Resume: ${liveDebugInfo.resumeHandle}`}</div>}
-              {liveDebugInfo.interactionId && <div className="hud-truncate">{`Interaction: ${liveDebugInfo.interactionId}`}</div>}
-              {liveDebugInfo.interactionText && <div className="hud-truncate">{liveDebugInfo.interactionText}</div>}
-              {bgmUrl && <div className="hud-truncate">{`BGM: ${bgmUrl}`}</div>}
-            </div>
-          )}
-        </aside>
-      )}
+        )}
+        {DEBUG_UI && (liveDebugInfo.tokenName || liveDebugInfo.interactionId || liveDebugInfo.interactionText || bgmUrl) && (
+          <div className="hud-block hud-dim">
+            {liveDebugInfo.tokenName && <div className="hud-truncate">{`Token: ${liveDebugInfo.tokenName}`}</div>}
+            {liveDebugInfo.resumeHandle && <div className="hud-truncate">{`Resume: ${liveDebugInfo.resumeHandle}`}</div>}
+            {liveDebugInfo.interactionId && <div className="hud-truncate">{`Interaction: ${liveDebugInfo.interactionId}`}</div>}
+            {liveDebugInfo.interactionText && <div className="hud-truncate">{liveDebugInfo.interactionText}</div>}
+            {bgmUrl && <div className="hud-truncate">{`BGM: ${bgmUrl}`}</div>}
+          </div>
+        )}
+      </aside>
 
       {DEBUG_UI && (
         <div className="hud-right-rail hud-animate">
@@ -1240,29 +1370,20 @@ function App() {
           <button id="btn-interaction-turn" className="hud-btn hud-btn-steel" onClick={requestInteractionTurn}>
             {t.testInteraction}
           </button>
-          <button
-            id="btn-test-texture"
-            className="hud-btn hud-btn-danger"
-            onClick={() => {
-              const testTex = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVQIW2NkYGD4z8DAwMgAI0AMDA4AF2H/h68AAAAASUVORK5CYII='
-              useFSMStore.getState().setTexture(testTex);
-              setTimeout(() => { useFSMStore.getState().setTexture(null); }, 5000);
-            }}
-          >
-            {t.testTexture}
-          </button>
         </div>
       )}
 
       <button
         id="btn-cast-special"
-        className={`hud-btn hud-cast-btn ${(isStreaming || isMatchPaused || !battleState.specialReady) ? 'is-disabled' : ''}`}
-        disabled={isStreaming || isMatchPaused || !battleState.specialReady}
+        className={`hud-btn hud-cast-btn ${(isStreaming || isMatchPaused || !battleState.specialReady || !matchAlignmentReady) ? 'is-disabled' : ''}`}
+        disabled={isStreaming || isMatchPaused || !battleState.specialReady || !matchAlignmentReady}
         onClick={handleCastSpecial}
       >
         {isMatchPaused
           ? t.matchPaused
-          : (isStreaming ? t.casting : (battleState.specialReady ? t.castSpecial : `EX ${battleState.exGauge}/${EX_GAUGE.MAX}`))}
+          : (!matchAlignmentReady
+            ? t.alignPending
+            : (isStreaming ? t.casting : (battleState.specialReady ? t.castSpecial : `EX ${battleState.exGauge}/${EX_GAUGE.MAX}`)))}
       </button>
 
       {DEBUG_UI && (
@@ -1275,14 +1396,11 @@ function App() {
         </button>
       )}
 
-      <div className={`hud-ex-pill ${battleState.specialReady ? 'is-ready' : ''}`}>
-        {`EX ${battleState.exGauge}/${EX_GAUGE.MAX}`}
-      </div>
+
 
       <Canvas className="arena-canvas" shadows>
         <XR store={store}>
           <MainScene />
-          <RemoteRobotCharacter />
           <OrbitControls makeDefault />
         </XR>
       </Canvas>

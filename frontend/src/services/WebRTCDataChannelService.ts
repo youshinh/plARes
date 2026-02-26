@@ -17,6 +17,12 @@ class WebRTCDataChannelService {
   private started = false;
   private offerInFlight = false;
 
+  private emitPeerState() {
+    window.dispatchEvent(new CustomEvent('webrtc_peer_state', {
+      detail: { hasPeer: !!this.remoteId, remoteId: this.remoteId },
+    }));
+  }
+
   start(localId: string) {
     if (this.started) return;
     this.localId = localId;
@@ -30,6 +36,7 @@ class WebRTCDataChannelService {
     });
 
     this.sendPresence();
+    this.emitPeerState();
     this.presenceTimer = setInterval(() => {
       if (!this.isOpen()) this.sendPresence();
     }, 4000);
@@ -54,6 +61,7 @@ class WebRTCDataChannelService {
     this.pc = null;
     this.remoteId = null;
     this.offerInFlight = false;
+    this.emitPeerState();
   }
 
   isOpen(): boolean {
@@ -72,6 +80,10 @@ class WebRTCDataChannelService {
 
   getRemoteStream(): MediaStream | null {
     return this.remoteStream;
+  }
+
+  getRemotePeerId(): string | null {
+    return this.remoteId;
   }
 
   async enableMedia(options: { audio?: boolean; video?: boolean } = { audio: true, video: true }) {
@@ -119,7 +131,9 @@ class WebRTCDataChannelService {
     this.channel = null;
     this.pc?.close();
     this.pc = null;
+    this.remoteId = null;
     this.offerInFlight = false;
+    this.emitPeerState();
   }
 
   private pickRemotePeer(peers: string[]): string | null {
@@ -235,7 +249,6 @@ class WebRTCDataChannelService {
     if (signal.kind === 'roster' && Array.isArray(signal.peers)) {
       const nextRemote = this.pickRemotePeer(signal.peers);
       if (!nextRemote) {
-        this.remoteId = null;
         this.resetPeerConnection();
         return;
       }
@@ -244,6 +257,7 @@ class WebRTCDataChannelService {
         this.resetPeerConnection();
       }
       this.remoteId = nextRemote;
+      this.emitPeerState();
       if (!this.isOpen() && this.localId < this.remoteId) {
         await this.createAndSendOffer(this.remoteId);
       } else {
@@ -257,6 +271,7 @@ class WebRTCDataChannelService {
     }
     if (!this.remoteId) {
       this.remoteId = signal.from;
+      this.emitPeerState();
     }
     const pc = this.ensurePeerConnection();
 

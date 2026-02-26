@@ -16,10 +16,19 @@ import {
   resolveRobotPalette,
 } from '../utils/characterDNA';
 import { createSurfaceMaps, disposeSurfaceMaps } from '../utils/proceduralPBR';
+import { GAMEPLAY_RULES } from '../constants/gameplay';
+import {
+  HOLD_AFTER_FINISH_CLIPS,
+  ONE_SHOT_CLIPS,
+  collectCharacterClips,
+  createActionKey,
+  resolveLocalCharacterAction,
+  type CharacterActionSpec,
+  type CharacterClipName,
+} from '../utils/characterAnimation';
 
 const SPEED_NORMAL = 1.5;
 const SPEED_EVADE  = 5.0;
-const DEFAULT_HERO_ROBOT_GLB_URL = 'https://threejs.org/examples/models/gltf/RobotExpressive/RobotExpressive.glb';
 
 /**
  * RobotCharacter
@@ -31,58 +40,80 @@ const DEFAULT_HERO_ROBOT_GLB_URL = 'https://threejs.org/examples/models/gltf/Rob
  * - Debug colour changes per FSM state for verification in AR view.
  */
 export const RobotCharacter: React.FC = () => {
+  type PlayedAction = {
+    key: string;
+    name: CharacterClipName;
+    action: THREE.AnimationAction;
+  };
+
   const groupRef     = useRef<THREE.Group>(null);
   const waypointsRef = useRef<THREE.Vector3[]>([]);
   const lastTargetRef= useRef<THREE.Vector3 | null>(null);
   const lastSyncAtRef = useRef<number>(0);
   const prevPosRef = useRef<THREE.Vector3>(new THREE.Vector3(0, 0, -1));
   const hoverTimerRef = useRef<number>(0);
-  const materialRef = useRef<THREE.MeshPhysicalMaterial>(null);
+  const mixerRef = useRef<THREE.AnimationMixer | null>(null);
+  const actionRef = useRef<PlayedAction | null>(null);
+  const lastAnimStateRef = useRef<State | null>(null);
   const [heroScene, setHeroScene] = React.useState<THREE.Group | null>(null);
+  const [heroAnimations, setHeroAnimations] = React.useState<THREE.AnimationClip[]>([]);
+  const [heroBaseMinY, setHeroBaseMinY] = React.useState<number | null>(null);
 
-  const { currentState, targetPosition, updateBasicMovement, activeTextureUrl,
-          robotStats, robotMeta, robotDna } = useFSMStore();
-  const heroModelUrl = import.meta.env.VITE_HERO_ROBOT_GLB_URL || DEFAULT_HERO_ROBOT_GLB_URL;
+  const { currentState, targetPosition, updateBasicMovement,
+          robotStats, robotMeta, robotDna, modelType } = useFSMStore();
+  const heroModelUrl = `/models/${modelType}/Character_output.glb`;
+  const fallbackModelUrl = `/models/${modelType === 'A' ? 'B' : 'A'}/Character_output.glb`;
   const silhouette = getSilhouetteScales(robotDna);
   const finishTuning = getFinishMaterialTuning(robotDna.finish);
   const dnaGlowIntensity = Math.max(0.9, Math.min(1.8, robotDna.glowIntensity || 1.0));
   const scarRoughnessBoost = (robotDna.scarLevel || 0) * 0.035;
 
-  // Per-part refs for stat-driven dynamic scaling (Doc §7 bone.scale)
-  const leftArmRef  = useRef<THREE.Group>(null);
-  const rightArmRef = useRef<THREE.Group>(null);
-  const leftLegRef  = useRef<THREE.Group>(null);
-  const rightLegRef = useRef<THREE.Group>(null);
-
   React.useEffect(() => {
     let disposed = false;
     const loader = new GLTFLoader();
-    loader.load(
-      heroModelUrl,
-      (gltf) => {
-        if (disposed) return;
-        // SkinnedMeshは通常のclone(true)だと骨参照が壊れることがあるため、SkeletonUtilsで複製する。
-        const scene = cloneSkeleton(gltf.scene) as THREE.Group;
-        scene.traverse((node) => {
-          const mesh = node as THREE.Mesh;
-          if (!mesh.isMesh) return;
-          mesh.castShadow = true;
-          mesh.receiveShadow = true;
+    const sharedAnimationsUrl = '/animations/shared_animations.glb';
+    type LoadedGLTF = { scene: THREE.Group; animations: THREE.AnimationClip[] };
+    const loadAsync = (url: string) =>
+      new Promise<LoadedGLTF>((resolve, reject) => {
+        loader.load(url, (gltf) => resolve(gltf as LoadedGLTF), undefined, reject);
+      });
+    const tryLoad = (url: string, fallbackUrl?: string) => {
+      Promise.all([loadAsync(url), loadAsync(sharedAnimationsUrl)])
+        .then(([baseGltf, animGltf]) => {
+          if (disposed) return;
+          // SkinnedMeshは通常のclone(true)だと骨参照が壊れることがあるため、SkeletonUtilsで複製する。
+          const scene = cloneSkeleton(baseGltf.scene) as THREE.Group;
+          scene.traverse((node) => {
+            const mesh = node as THREE.Mesh;
+            if (!mesh.isMesh) return;
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+          });
+          const bounds = new THREE.Box3().setFromObject(scene);
+          const minY = Number.isFinite(bounds.min.y) ? bounds.min.y : null;
+          setHeroScene(scene);
+          setHeroAnimations(collectCharacterClips(animGltf.animations));
+          setHeroBaseMinY(minY);
+          console.info('[RobotCharacter] hero GLB loaded:', url);
+        })
+        .catch(() => {
+          if (disposed) return;
+          if (fallbackUrl) {
+            console.warn('[RobotCharacter] hero GLB load failed, trying fallback:', url);
+            tryLoad(fallbackUrl);
+            return;
+          }
+          setHeroScene(null);
+          setHeroAnimations([]);
+          setHeroBaseMinY(null);
+          console.warn('[RobotCharacter] hero GLB load failed:', url);
         });
-        setHeroScene(scene);
-        console.info('[RobotCharacter] hero GLB loaded:', heroModelUrl);
-      },
-      undefined,
-      () => {
-        if (disposed) return;
-        setHeroScene(null);
-        console.warn('[RobotCharacter] hero GLB load failed, fallback mesh active:', heroModelUrl);
-      },
-    );
+    };
+    tryLoad(heroModelUrl, fallbackModelUrl);
     return () => {
       disposed = true;
     };
-  }, [heroModelUrl]);
+  }, [heroModelUrl, fallbackModelUrl]);
 
   React.useEffect(() => {
     return () => {
@@ -96,31 +127,56 @@ export const RobotCharacter: React.FC = () => {
   }, [heroScene]);
 
   React.useEffect(() => {
-    if (activeTextureUrl && materialRef.current) {
-      const loader = new THREE.TextureLoader();
-      loader.crossOrigin = 'anonymous';
-      loader.load(activeTextureUrl, (texture) => {
-        texture.flipY = false;
-        texture.wrapS = THREE.RepeatWrapping;
-        texture.wrapT = THREE.RepeatWrapping;
-        texture.repeat.set(1.2, 1.2);
-        texture.colorSpace = THREE.SRGBColorSpace;
-        materialRef.current!.map = texture;
-        if (materialRef.current) {
-           materialRef.current.needsUpdate = true;
-        }
-      });
-    } else {
-      if (materialRef.current) {
-        materialRef.current.map = null;
-        materialRef.current.needsUpdate = true;
+    if (!heroScene || heroAnimations.length === 0) return;
+    mixerRef.current = new THREE.AnimationMixer(heroScene);
+    actionRef.current = null;
+    lastAnimStateRef.current = null;
+    return () => {
+      mixerRef.current?.stopAllAction();
+      mixerRef.current = null;
+      actionRef.current = null;
+    };
+  }, [heroScene, heroAnimations]);
+
+  const playAction = React.useCallback(
+    (spec: CharacterActionSpec, fadeDuration = 0.2, forceReplay = false) => {
+      if (!mixerRef.current || heroAnimations.length === 0) return;
+
+      let clip = THREE.AnimationClip.findByName(heroAnimations, spec.clip);
+      if (!clip) clip = THREE.AnimationClip.findByName(heroAnimations, 'Idle');
+      if (!clip) return;
+
+      const key = createActionKey(spec);
+      const prev = actionRef.current;
+      if (prev?.key === key) {
+        if (!forceReplay) return;
+        if (!spec.loopOnce) return;
       }
-    }
-  }, [activeTextureUrl]);
+
+      const nextAction = mixerRef.current.clipAction(clip);
+      nextAction.reset();
+      nextAction.setEffectiveTimeScale(spec.speed ?? 1);
+      if (spec.loopOnce || ONE_SHOT_CLIPS.has(spec.clip)) {
+        nextAction.setLoop(THREE.LoopOnce, 1);
+        nextAction.clampWhenFinished = HOLD_AFTER_FINISH_CLIPS.has(spec.clip);
+      } else {
+        nextAction.setLoop(THREE.LoopRepeat, Infinity);
+        nextAction.clampWhenFinished = false;
+      }
+
+      nextAction.play();
+      if (prev) {
+        nextAction.crossFadeFrom(prev.action, fadeDuration, true);
+      }
+      actionRef.current = { key, name: spec.clip, action: nextAction };
+    },
+    [heroAnimations],
+  );
 
   useFrame((_, delta) => {
     if (!groupRef.current) return;
     const pos = groupRef.current.position;
+    const beforePos = pos.clone();
 
     // ── Recompute path when target changes ────────────────────────────────
     if (
@@ -159,23 +215,27 @@ export const RobotCharacter: React.FC = () => {
         updateBasicMovement(randomTarget);
       }
     }
+    const localAnchor = useArenaSyncStore.getState().localCalibration?.point ?? { x: 0, y: 0, z: 0 };
+    const arenaCenter = new THREE.Vector3(localAnchor.x, localAnchor.y, localAnchor.z);
+    if (pos.distanceTo(arenaCenter) > GAMEPLAY_RULES.arenaRadiusMeters) {
+      pos
+        .sub(arenaCenter)
+        .normalize()
+        .multiplyScalar(GAMEPLAY_RULES.arenaRadiusMeters)
+        .add(arenaCenter);
+    }
 
-    // ── Stat-driven dynamic scaling (Doc §7) ──────────────────────────────
-    // power (1-99) → arm X/Z scale: 1.0 – 1.6
-    const armScale = (1.0 + (robotStats.power / 99) * 0.6) * silhouette.arm;
-    // speed (1-99) → leg Y scale: 1.0 – 1.3 (longer legs = faster movement feel)
-    const legScaleY = (1.0 + (robotStats.speed / 99) * 0.3) * silhouette.legY;
-    // speed → leg X/Z scale: 0.75 – 1.0 (faster = slimmer legs)
-    const legScaleXZ = (1.0 - (robotStats.speed / 99) * 0.25) * silhouette.legXZ;
-
-    if (leftArmRef.current)  leftArmRef.current.scale.set(armScale, 1.0, armScale);
-    if (rightArmRef.current) rightArmRef.current.scale.set(armScale, 1.0, armScale);
-    if (leftLegRef.current)  leftLegRef.current.scale.set(legScaleXZ, legScaleY, legScaleXZ);
-    if (rightLegRef.current) rightLegRef.current.scale.set(legScaleXZ, legScaleY, legScaleXZ);
     groupRef.current.scale.setScalar(silhouette.body);
+    mixerRef.current?.update(delta);
+    const movedDistance = beforePos.distanceTo(pos);
+    const isMoving = movedDistance > 0.0004;
+    const resolvedAction = resolveLocalCharacterAction(currentState, isMoving);
+    const stateChanged = lastAnimStateRef.current !== currentState;
+    playAction(resolvedAction, 0.15, stateChanged && resolvedAction.loopOnce === true);
+    lastAnimStateRef.current = currentState;
 
     // Apply battle-state glow via emissive only – preserves each part's unique colour
-    const emissiveMap: Record<State, string> = {
+    const emissiveMap: Partial<Record<State, string>> = {
       [State.HOVERING]:        '#000000',  // no glow during idle
       [State.BASIC_ATTACK]:    '#661100',  // subtle red pulse
       [State.EVADE_TO_COVER]:  '#002244',  // blue cold flash
@@ -203,6 +263,8 @@ export const RobotCharacter: React.FC = () => {
         }
       }
     });
+
+    useFSMStore.getState().setLocalRobotPosition(pos.clone());
 
     const now = performance.now();
     if (now - lastSyncAtRef.current >= 100) {
@@ -234,8 +296,6 @@ export const RobotCharacter: React.FC = () => {
 
   // ─── Colour palette (Plaresto style) ────────────────────────────────────
   const C = resolveRobotPalette(robotMeta.material, robotDna);
-  const tuneRough = (value: number) => Math.max(0.02, Math.min(0.98, value + finishTuning.roughnessBias));
-  const tuneMetal = (value: number) => Math.max(0.0, Math.min(1.0, value + finishTuning.metalBias));
   const surfaceMaps = React.useMemo(() => {
     if (typeof document === 'undefined') {
       return { white: null, blue: null, dark: null };
@@ -282,23 +342,6 @@ export const RobotCharacter: React.FC = () => {
       : {};
   }, [surfaceMaps]);
 
-  // ─── Material factory helpers ────────────────────────────────────────────
-  const M = {
-    white:  (r=0.30, m=0.25) => <meshPhysicalMaterial color={C.white} {...withMaps('white')} roughness={tuneRough(r)} metalness={tuneMetal(m)} emissive={C.whiteB} emissiveIntensity={0.05} clearcoat={0.45} clearcoatRoughness={0.25} />,
-    whiteB: (r=0.40, m=0.20) => <meshPhysicalMaterial color={C.whiteB} {...withMaps('white')} roughness={tuneRough(r)} metalness={tuneMetal(m)} emissive={C.whiteB} emissiveIntensity={0.04} clearcoat={0.28} clearcoatRoughness={0.33} />,
-    blue:   (r=0.35, m=0.55) => <meshPhysicalMaterial color={C.blue} {...withMaps('blue')} roughness={tuneRough(r)} metalness={tuneMetal(m)} emissive={C.blueL} emissiveIntensity={0.06} clearcoat={0.2} clearcoatRoughness={0.35} />,
-    blueL:  (r=0.40, m=0.45) => <meshPhysicalMaterial color={C.blueL} {...withMaps('blue')} roughness={tuneRough(r)} metalness={tuneMetal(m)} emissive={C.blueL} emissiveIntensity={0.05} clearcoat={0.18} clearcoatRoughness={0.4} />,
-    red:    (r=0.35, m=0.40) => <meshPhysicalMaterial color={C.red} {...withMaps('blue')} roughness={tuneRough(r)} metalness={tuneMetal(m)} emissive={C.red} emissiveIntensity={0.05} clearcoat={0.18} clearcoatRoughness={0.42} />,
-    redD:   (r=0.45, m=0.35) => <meshPhysicalMaterial color={C.redD} {...withMaps('dark')} roughness={tuneRough(r)} metalness={tuneMetal(m)} emissive={C.redD} emissiveIntensity={0.04} clearcoat={0.12} clearcoatRoughness={0.5} />,
-    yellow: (r=0.30, m=0.30) => <meshPhysicalMaterial color={C.yellow} {...withMaps('white')} roughness={tuneRough(r)} metalness={tuneMetal(m)} emissive={C.yellow} emissiveIntensity={0.04} clearcoat={0.22} clearcoatRoughness={0.28} />,
-    black:  (r=0.50, m=0.60) => <meshPhysicalMaterial color={C.black} {...withMaps('dark')} roughness={tuneRough(r)} metalness={tuneMetal(m)} emissive={C.blackM} emissiveIntensity={0.03} clearcoat={0.15} clearcoatRoughness={0.48} />,
-    blackM: (r=0.60, m=0.40) => <meshPhysicalMaterial color={C.blackM} {...withMaps('dark')} roughness={tuneRough(r)} metalness={tuneMetal(m)} emissive={C.blackM} emissiveIntensity={0.03} clearcoat={0.1} clearcoatRoughness={0.52} />,
-    skin:   ()               => <meshPhysicalMaterial color={C.silver} {...withMaps('white')} roughness={tuneRough(0.42)} metalness={0.72} emissive={C.whiteB} emissiveIntensity={0.02} clearcoat={0.26} clearcoatRoughness={0.36} />,
-    silver: (r=0.25, m=0.70) => <meshPhysicalMaterial color={C.silver} {...withMaps('white')} roughness={tuneRough(r)} metalness={tuneMetal(m)} emissive={C.whiteB} emissiveIntensity={0.05} clearcoat={0.55} clearcoatRoughness={0.22} />,
-    panel:  ()               => <meshPhysicalMaterial color={C.panel} {...withMaps('dark')} roughness={tuneRough(0.50)} metalness={tuneMetal(0.35)} emissive={C.panel} emissiveIntensity={0.03} clearcoat={0.16} clearcoatRoughness={0.5} />,
-    visor:  ()               => <meshPhysicalMaterial color={C.cyan} emissive={C.cyan} emissiveMap={surfaceMaps.blue?.emissive} emissiveIntensity={dnaGlowIntensity} roughness={tuneRough(0.06)} metalness={tuneMetal(0.9)} transmission={0.35} thickness={0.45} ior={1.25} clearcoat={0.75} clearcoatRoughness={0.08} />,
-  } as const;
-
   React.useEffect(() => {
     if (!heroScene) return;
     const roughBias = finishTuning.roughnessBias;
@@ -315,6 +358,16 @@ export const RobotCharacter: React.FC = () => {
     const darkMaps = withMaps('dark');
     const mats = [
       buildHeroMat({
+        color: C.blue,
+        ...blueMaps,
+        roughness: applyRough(0.34),
+        metalness: applyMetal(0.58),
+        emissive: new THREE.Color(C.blueL),
+        emissiveIntensity: 0.06,
+        clearcoat: 0.22,
+        clearcoatRoughness: 0.34,
+      }),
+      buildHeroMat({
         color: C.white,
         ...whiteMaps,
         roughness: applyRough(0.28),
@@ -323,16 +376,6 @@ export const RobotCharacter: React.FC = () => {
         emissiveIntensity: 0.04,
         clearcoat: 0.5,
         clearcoatRoughness: 0.2,
-      }),
-      buildHeroMat({
-        color: C.blue,
-        ...blueMaps,
-        roughness: applyRough(0.38),
-        metalness: applyMetal(0.55),
-        emissive: new THREE.Color(C.blueL),
-        emissiveIntensity: 0.05,
-        clearcoat: 0.18,
-        clearcoatRoughness: 0.38,
       }),
       buildHeroMat({
         color: C.black,
@@ -372,295 +415,18 @@ export const RobotCharacter: React.FC = () => {
   }, [heroScene, C.white, C.whiteB, C.blue, C.blueL, C.black, C.blackM, C.cyan, dnaGlowIntensity, surfaceMaps, withMaps, finishTuning.roughnessBias, finishTuning.metalBias]);
 
   // ── Derive visual scales from stats ──────────────────────────────────────
-  const armScale = (1.0 + (robotStats.power / 99) * 0.55) * silhouette.arm;
-  const legScaleY  = (1.0 + (robotStats.speed / 99) * 0.28) * silhouette.legY;
-  const legScaleXZ = (1.0 - (robotStats.speed / 99) * 0.18) * silhouette.legXZ;
   const heroScale = 0.62 + ((robotStats.vit / 99) * 0.08);
+  const heroOffsetY = heroBaseMinY !== null
+    ? Math.max(-0.32, Math.min(0.18, -heroBaseMinY * heroScale))
+    : -0.145;
 
   return (
     <group ref={groupRef} position={[0, 0, -1]} scale={[silhouette.body, silhouette.body, silhouette.body]}>
       {heroScene && (
-        <group position={[0, -0.145, 0]} scale={[heroScale, heroScale, heroScale]} rotation={[0, Math.PI, 0]}>
+        <group position={[0, heroOffsetY, 0]} scale={[heroScale, heroScale, heroScale]} rotation={[0, Math.PI, 0]}>
           <primitive object={heroScene} />
         </group>
       )}
-
-      <group visible={!heroScene}>
-      {/* Head */}
-      <group position={[0, 0.86, 0.01]}>
-        <mesh castShadow scale={[1.0, 1.05, 0.9]}>
-          <sphereGeometry args={[0.13, 24, 18]} />
-          {M.white(0.24, 0.32)}
-        </mesh>
-        <mesh position={[0, -0.01, 0.08]} castShadow scale={[0.92, 0.66, 0.4]}>
-          <sphereGeometry args={[0.13, 20, 14]} />
-          {M.blackM(0.42, 0.52)}
-        </mesh>
-        <mesh position={[0, 0.01, 0.105]} castShadow scale={[0.56, 0.2, 0.3]}>
-          <sphereGeometry args={[0.12, 20, 12]} />
-          {M.visor()}
-        </mesh>
-        <mesh position={[-0.048, 0.01, 0.118]} castShadow>
-          <boxGeometry args={[0.042, 0.016, 0.01]} />
-          {M.visor()}
-        </mesh>
-        <mesh position={[0.048, 0.01, 0.118]} castShadow>
-          <boxGeometry args={[0.042, 0.016, 0.01]} />
-          {M.visor()}
-        </mesh>
-        <mesh position={[0, 0.145, -0.01]} castShadow rotation={[0, 0, Math.PI / 2]}>
-          <cylinderGeometry args={[0.01, 0.016, 0.12, 10]} />
-          {M.red()}
-        </mesh>
-        <mesh position={[-0.12, 0.028, -0.008]} castShadow rotation={[0, 0, -0.48]}>
-          <boxGeometry args={[0.026, 0.11, 0.06]} />
-          {M.blueL()}
-        </mesh>
-        <mesh position={[0.12, 0.028, -0.008]} castShadow rotation={[0, 0, 0.48]}>
-          <boxGeometry args={[0.026, 0.11, 0.06]} />
-          {M.blueL()}
-        </mesh>
-        <mesh position={[0, -0.118, -0.005]} castShadow>
-          <cylinderGeometry args={[0.045, 0.052, 0.055, 14]} />
-          {M.skin()}
-        </mesh>
-      </group>
-
-      {/* Torso + backpack */}
-      <group position={[0, 0.54, 0]}>
-        <mesh castShadow scale={[1.08, 1.02, 0.78]}>
-          <boxGeometry args={[0.3, 0.24, 0.22]} />
-          {M.white(0.26, 0.32)}
-        </mesh>
-        <mesh position={[0, 0.09, 0.03]} castShadow scale={[1.0, 0.62, 0.62]}>
-          <sphereGeometry args={[0.13, 20, 16]} />
-          {M.blue(0.32, 0.58)}
-        </mesh>
-        <mesh position={[0, 0.02, 0.112]} castShadow rotation={[Math.PI / 2, 0, 0]}>
-          <cylinderGeometry args={[0.05, 0.05, 0.028, 20]} />
-          <meshPhysicalMaterial
-            ref={materialRef}
-            color={C.cyan}
-            emissive={C.cyan}
-            emissiveIntensity={Math.max(0.7, dnaGlowIntensity)}
-            roughness={tuneRough(0.18)}
-            metalness={tuneMetal(0.82)}
-            transmission={0.22}
-            thickness={0.3}
-            clearcoat={0.6}
-            clearcoatRoughness={0.08}
-          />
-        </mesh>
-        <mesh position={[0, 0.02, 0.095]} castShadow rotation={[Math.PI / 2, 0, 0]}>
-          <torusGeometry args={[0.062, 0.008, 10, 24]} />
-          {M.silver(0.2, 0.72)}
-        </mesh>
-        <mesh position={[-0.096, -0.01, 0.108]} castShadow>
-          <boxGeometry args={[0.068, 0.128, 0.014]} />
-          {M.panel()}
-        </mesh>
-        <mesh position={[0.096, -0.01, 0.108]} castShadow>
-          <boxGeometry args={[0.068, 0.128, 0.014]} />
-          {M.panel()}
-        </mesh>
-        <mesh position={[0, -0.104, 0.08]} castShadow>
-          <boxGeometry args={[0.22, 0.028, 0.08]} />
-          {M.skin()}
-        </mesh>
-        <mesh position={[-0.12, 0.03, -0.09]} castShadow rotation={[0.28, 0.1, -0.05]}>
-          <cylinderGeometry args={[0.026, 0.035, 0.13, 12]} />
-          {M.black(0.54, 0.6)}
-        </mesh>
-        <mesh position={[0.12, 0.03, -0.09]} castShadow rotation={[0.28, -0.1, 0.05]}>
-          <cylinderGeometry args={[0.026, 0.035, 0.13, 12]} />
-          {M.black(0.54, 0.6)}
-        </mesh>
-        <mesh position={[-0.12, -0.038, -0.13]} castShadow rotation={[Math.PI / 2, 0, 0]}>
-          <cylinderGeometry args={[0.012, 0.016, 0.02, 10]} />
-          {M.visor()}
-        </mesh>
-        <mesh position={[0.12, -0.038, -0.13]} castShadow rotation={[Math.PI / 2, 0, 0]}>
-          <cylinderGeometry args={[0.012, 0.016, 0.02, 10]} />
-          {M.visor()}
-        </mesh>
-      </group>
-
-      {/* Waist */}
-      <group position={[0, 0.35, 0]}>
-        <mesh castShadow>
-          <boxGeometry args={[0.29, 0.07, 0.18]} />
-          {M.black(0.55, 0.64)}
-        </mesh>
-        <mesh position={[0, 0, 0.094]} castShadow>
-          <boxGeometry args={[0.13, 0.056, 0.02]} />
-          {M.red()}
-        </mesh>
-        <mesh position={[0, 0, 0.105]} castShadow rotation={[Math.PI / 2, 0, 0]}>
-          <cylinderGeometry args={[0.02, 0.02, 0.01, 10]} />
-          {M.yellow(0.2, 0.28)}
-        </mesh>
-        <mesh position={[-0.158, -0.01, 0]} castShadow rotation={[0, 0, 0.1]}>
-          <boxGeometry args={[0.038, 0.08, 0.15]} />
-          {M.blue()}
-        </mesh>
-        <mesh position={[0.158, -0.01, 0]} castShadow rotation={[0, 0, -0.1]}>
-          <boxGeometry args={[0.038, 0.08, 0.15]} />
-          {M.blue()}
-        </mesh>
-      </group>
-
-      {/* Left arm */}
-      <group ref={leftArmRef} scale={[armScale, 1.0, armScale]}>
-        <mesh position={[-0.195, 0.644, 0]} castShadow>
-          <sphereGeometry args={[0.052, 14, 10]} />
-          {M.white()}
-        </mesh>
-        <mesh position={[-0.245, 0.658, 0]} castShadow rotation={[0, 0, -0.16]}>
-          <sphereGeometry args={[0.08, 18, 12]} />
-          {M.whiteB()}
-        </mesh>
-        <mesh position={[-0.268, 0.525, 0]} castShadow>
-          <cylinderGeometry args={[0.04, 0.045, 0.17, 16]} />
-          {M.white(0.3, 0.34)}
-        </mesh>
-        <mesh position={[-0.268, 0.418, 0]} castShadow>
-          <sphereGeometry args={[0.033, 12, 10]} />
-          {M.yellow()}
-        </mesh>
-        <mesh position={[-0.268, 0.318, 0]} castShadow>
-          <boxGeometry args={[0.082, 0.16, 0.085]} />
-          {M.black()}
-        </mesh>
-        <mesh position={[-0.232, 0.318, 0.028]} castShadow>
-          <boxGeometry args={[0.008, 0.15, 0.008]} />
-          {M.silver()}
-        </mesh>
-        <mesh position={[-0.29, 0.318, 0.055]} castShadow rotation={[0, 0, -0.35]}>
-          <boxGeometry args={[0.016, 0.132, 0.014]} />
-          {M.red()}
-        </mesh>
-        <mesh position={[-0.268, 0.22, 0]} castShadow>
-          <sphereGeometry args={[0.038, 12, 10]} />
-          {M.skin()}
-        </mesh>
-      </group>
-
-      {/* Right arm */}
-      <group ref={rightArmRef} scale={[armScale, 1.0, armScale]}>
-        <mesh position={[0.195, 0.644, 0]} castShadow>
-          <sphereGeometry args={[0.052, 14, 10]} />
-          {M.white()}
-        </mesh>
-        <mesh position={[0.245, 0.658, 0]} castShadow rotation={[0, 0, 0.16]}>
-          <sphereGeometry args={[0.08, 18, 12]} />
-          {M.whiteB()}
-        </mesh>
-        <mesh position={[0.268, 0.525, 0]} castShadow>
-          <cylinderGeometry args={[0.04, 0.045, 0.17, 16]} />
-          {M.white(0.3, 0.34)}
-        </mesh>
-        <mesh position={[0.268, 0.418, 0]} castShadow>
-          <sphereGeometry args={[0.033, 12, 10]} />
-          {M.yellow()}
-        </mesh>
-        <mesh position={[0.268, 0.318, 0]} castShadow>
-          <boxGeometry args={[0.082, 0.16, 0.085]} />
-          {M.black()}
-        </mesh>
-        <mesh position={[0.232, 0.318, 0.028]} castShadow>
-          <boxGeometry args={[0.008, 0.15, 0.008]} />
-          {M.silver()}
-        </mesh>
-        <mesh position={[0.29, 0.318, 0.055]} castShadow rotation={[0, 0, 0.35]}>
-          <boxGeometry args={[0.016, 0.132, 0.014]} />
-          {M.red()}
-        </mesh>
-        <mesh position={[0.268, 0.22, 0]} castShadow>
-          <sphereGeometry args={[0.038, 12, 10]} />
-          {M.skin()}
-        </mesh>
-      </group>
-
-      {/* Left leg */}
-      <group ref={leftLegRef} scale={[legScaleXZ, legScaleY, legScaleXZ]}>
-        <mesh position={[-0.098, 0.3, 0]} castShadow>
-          <sphereGeometry args={[0.046, 12, 10]} />
-          {M.blue()}
-        </mesh>
-        <mesh position={[-0.098, 0.214, 0]} castShadow>
-          <cylinderGeometry args={[0.05, 0.056, 0.16, 14]} />
-          {M.blue()}
-        </mesh>
-        <mesh position={[-0.098, 0.205, -0.05]} castShadow>
-          <boxGeometry args={[0.08, 0.12, 0.012]} />
-          {M.blueL()}
-        </mesh>
-        <mesh position={[-0.098, 0.112, 0.044]} castShadow>
-          <boxGeometry args={[0.094, 0.05, 0.046]} />
-          {M.red()}
-        </mesh>
-        <mesh position={[-0.098, 0.107, 0]} castShadow>
-          <sphereGeometry args={[0.034, 12, 10]} />
-          {M.yellow()}
-        </mesh>
-        <mesh position={[-0.098, 0.018, 0.028]} castShadow>
-          <cylinderGeometry args={[0.038, 0.042, 0.16, 14]} />
-          {M.white()}
-        </mesh>
-        <mesh position={[-0.098, 0.012, -0.03]} castShadow>
-          <cylinderGeometry args={[0.035, 0.039, 0.14, 14]} />
-          {M.blue()}
-        </mesh>
-        <mesh position={[-0.098, -0.098, 0]} castShadow>
-          <boxGeometry args={[0.09, 0.052, 0.098]} />
-          {M.blue()}
-        </mesh>
-        <mesh position={[-0.098, -0.136, 0.03]} castShadow>
-          <boxGeometry args={[0.086, 0.022, 0.112]} />
-          {M.blue()}
-        </mesh>
-      </group>
-
-      {/* Right leg */}
-      <group ref={rightLegRef} scale={[legScaleXZ, legScaleY, legScaleXZ]}>
-        <mesh position={[0.098, 0.3, 0]} castShadow>
-          <sphereGeometry args={[0.046, 12, 10]} />
-          {M.blue()}
-        </mesh>
-        <mesh position={[0.098, 0.214, 0]} castShadow>
-          <cylinderGeometry args={[0.05, 0.056, 0.16, 14]} />
-          {M.blue()}
-        </mesh>
-        <mesh position={[0.098, 0.205, -0.05]} castShadow>
-          <boxGeometry args={[0.08, 0.12, 0.012]} />
-          {M.blueL()}
-        </mesh>
-        <mesh position={[0.098, 0.112, 0.044]} castShadow>
-          <boxGeometry args={[0.094, 0.05, 0.046]} />
-          {M.red()}
-        </mesh>
-        <mesh position={[0.098, 0.107, 0]} castShadow>
-          <sphereGeometry args={[0.034, 12, 10]} />
-          {M.yellow()}
-        </mesh>
-        <mesh position={[0.098, 0.018, 0.028]} castShadow>
-          <cylinderGeometry args={[0.038, 0.042, 0.16, 14]} />
-          {M.white()}
-        </mesh>
-        <mesh position={[0.098, 0.012, -0.03]} castShadow>
-          <cylinderGeometry args={[0.035, 0.039, 0.14, 14]} />
-          {M.blue()}
-        </mesh>
-        <mesh position={[0.098, -0.098, 0]} castShadow>
-          <boxGeometry args={[0.09, 0.052, 0.098]} />
-          {M.blue()}
-        </mesh>
-        <mesh position={[0.098, -0.136, 0.03]} castShadow>
-          <boxGeometry args={[0.086, 0.022, 0.112]} />
-          {M.blue()}
-        </mesh>
-      </group>
-      </group>
     </group>
   );
 };

@@ -10,6 +10,19 @@ export enum State {
   FLANKING_RIGHT = 'FLANKING_RIGHT',
   EMERGENCY_EVADE = 'EMERGENCY_EVADE',
   CASTING_SPECIAL = 'CASTING_SPECIAL',
+  SUPER_SAIYAN = 'SUPER_SAIYAN',
+  
+  // New Combat States
+  PUNCH = 'PUNCH',
+  KICK = 'KICK',
+  COMBO_PUNCH = 'COMBO_PUNCH',
+  DODGE_LEFT = 'DODGE_LEFT',
+  DODGE_RIGHT = 'DODGE_RIGHT',
+  EVADE_BACK = 'EVADE_BACK',
+  DAMAGE = 'DAMAGE',
+  FAINT = 'FAINT',
+  CELEBRATE = 'CELEBRATE',
+  TAUNT = 'TAUNT',
 }
 
 interface RobotStats {
@@ -28,20 +41,34 @@ interface FSMState {
   currentState: State;
   targetPosition: THREE.Vector3 | null;
   evadeTimeout: ReturnType<typeof setTimeout> | null;
-  setEmergencyEvade: (direction: THREE.Vector3) => void;
+  setEmergencyEvade: (localDir: THREE.Vector3, distanceMeters?: number) => void;
   setAICommand: (command: { action: string; target?: THREE.Vector3 }) => void;
   setCastingSpecial: () => void;
   resolveSpecialResult: (result: { verdict: 'critical' | 'miss' }) => void;
   updateBasicMovement: (position: THREE.Vector3) => void;
   clearEvadeTimeout: () => void;
-  activeTextureUrl: string | null;
-  setTexture: (url: string | null) => void;
+  clearTargetState: () => void;
   // ── Robot stats from character generation pipeline ──
   robotStats: RobotStats;
   robotMeta: RobotMeta;
   robotDna: CharacterDNA;
   setRobotStats: (stats: RobotStats, meta: RobotMeta) => void;
   setRobotDna: (dna: CharacterDNA | null | undefined) => void;
+  remoteRobotPosition: THREE.Vector3 | null;
+  setRemoteRobotPosition: (pos: THREE.Vector3) => void;
+  localRobotPosition: THREE.Vector3 | null;
+  setLocalRobotPosition: (pos: THREE.Vector3) => void;
+
+  // ── Local Solo Play Combat State ──
+  localHp: number;
+  enemyHp: number;
+  takeDamage: (target: 'local' | 'enemy', amount: number) => void;
+  syncHp: (target: 'local' | 'enemy', newHp: number) => void;
+  resetMatch: () => void;
+
+  // ── Character Model Selection ──
+  modelType: 'A' | 'B';
+  setModelType: (type: 'A' | 'B') => void;
 }
 
 
@@ -49,16 +76,84 @@ export const useFSMStore = create<FSMState>((set, get) => ({
   currentState: State.HOVERING,
   targetPosition: null,
   evadeTimeout: null,
-  activeTextureUrl: null,
   robotStats: { power: 40, speed: 40, vit: 40 },
   robotMeta: { name: 'レスラーMk1', material: 'Wood', tone: 'balanced' },
   robotDna: DEFAULT_CHARACTER_DNA,
+  remoteRobotPosition: null,
+  localRobotPosition: null,
 
+  localHp: 100,
+  enemyHp: 100,
+
+  modelType: 'A',
+  setModelType: (type) => set({ modelType: type }),
+
+  takeDamage: (target, amount) =>
+    set((state) => {
+      const isLocal = target === 'local';
+      if (isLocal && state.localHp <= 0) return {};
+      if (!isLocal && state.enemyHp <= 0) return {};
+      
+      const newHp = Math.max(0, (isLocal ? state.localHp : state.enemyHp) - amount);
+      get().syncHp(target, newHp);
+      return {};
+    }),
+
+  syncHp: (target, newHp) =>
+    set((state) => {
+      const isLocal = target === 'local';
+      
+      // If no change or already fainted, ignore
+      if (isLocal && (state.localHp === newHp || state.localHp <= 0)) return {};
+      if (!isLocal && (state.enemyHp === newHp || state.enemyHp <= 0)) return {};
+
+      // Only animate damage if HP decreased (skip for healing)
+      const didTakeDamage = isLocal ? newHp < state.localHp : newHp < state.enemyHp;
+      const update: Partial<FSMState> = isLocal ? { localHp: newHp } : { enemyHp: newHp };
+      
+      // If local robot dies, force FSM to FAINT and clear any pending evades.
+      if (isLocal && newHp <= 0) {
+         update.currentState = State.FAINT;
+         update.localHp = 0;
+         get().clearEvadeTimeout();
+      }
+      // Trigger celebrate for winner (if opponent dies) with a slight delay so opponent falls first.
+      else if (!isLocal && newHp <= 0) {
+         update.enemyHp = 0;
+         setTimeout(() => {
+           // Verify we haven't reset the match in the meantime
+           if (useFSMStore.getState().enemyHp <= 0) {
+             set({ currentState: State.CELEBRATE });
+           }
+         }, 2000);
+      }
+      // If we just took damage but didn't die, show the hit reaction
+      else if (isLocal && didTakeDamage) {
+         // Don't interrupt casting special or emergency evades unless it's a huge hit? 
+         // For now, let's interrupt to show feedback, unless casting.
+         if (state.currentState !== State.CASTING_SPECIAL) {
+           update.currentState = State.DAMAGE;
+           
+           // Clear it back to HOVERING after the hit animation plays (~500ms)
+           get().clearEvadeTimeout();
+           const hitTimer = setTimeout(() => {
+              set((s) => s.currentState === State.DAMAGE ? { currentState: State.HOVERING } : {});
+           }, 500);
+           update.evadeTimeout = hitTimer;
+         }
+      }
+
+      return update;
+    }),
+
+  resetMatch: () => set({ localHp: 100, enemyHp: 100, currentState: State.HOVERING }),
+
+  setRemoteRobotPosition: (pos) => set({ remoteRobotPosition: pos }),
+  setLocalRobotPosition: (pos) => set({ localRobotPosition: pos }),
   setRobotStats: (stats, meta) => set({ robotStats: stats, robotMeta: meta }),
   setRobotDna: (dna) => set({ robotDna: normalizeCharacterDNA(dna) ?? DEFAULT_CHARACTER_DNA }),
 
-  setTexture: (url) => set({ activeTextureUrl: url }),
-
+  clearTargetState: () => set({ currentState: State.HOVERING, targetPosition: null }),
 
   clearEvadeTimeout: () => {
     const { evadeTimeout } = get();
@@ -67,8 +162,18 @@ export const useFSMStore = create<FSMState>((set, get) => ({
   },
 
   // Priority 1: Emergency Evade from Voice Control
-  setEmergencyEvade: (direction) => {
+  setEmergencyEvade: (localDir, distanceMeters = 1.1) => {
     get().clearEvadeTimeout();
+
+    const origin = get().localRobotPosition?.clone() ?? new THREE.Vector3(0, 0, -1);
+    const dir = localDir.clone();
+    dir.y = 0;
+    if (dir.lengthSq() < 1e-6) {
+      dir.set(1, 0, 0);
+    } else {
+      dir.normalize();
+    }
+    const target = origin.addScaledVector(dir, Math.max(0.2, distanceMeters));
     
     const timeoutMsg = setTimeout(() => {
       set((state) => {
@@ -81,7 +186,7 @@ export const useFSMStore = create<FSMState>((set, get) => ({
 
     set({
       currentState: State.EMERGENCY_EVADE,
-      targetPosition: direction,
+      targetPosition: target,
       evadeTimeout: timeoutMsg,
     });
   },
@@ -91,6 +196,8 @@ export const useFSMStore = create<FSMState>((set, get) => ({
     set((state) => {
       // Don't override Priority 1 or casting special
       if (
+        state.currentState === State.FAINT ||
+        state.currentState === State.CELEBRATE ||
         state.currentState === State.EMERGENCY_EVADE ||
         state.currentState === State.CASTING_SPECIAL
       ) {
@@ -101,6 +208,7 @@ export const useFSMStore = create<FSMState>((set, get) => ({
       if (command.action === 'take_cover') nextState = State.EVADE_TO_COVER;
       if (command.action === 'flank_right') nextState = State.FLANKING_RIGHT;
       if (command.action === 'casting_special') nextState = State.CASTING_SPECIAL;
+      if (command.action === 'basic_attack') nextState = State.BASIC_ATTACK;
 
       return {
         currentState: nextState,
@@ -109,6 +217,10 @@ export const useFSMStore = create<FSMState>((set, get) => ({
     }),
 
   setCastingSpecial: () => {
+    const state = get();
+    if (state.currentState === State.FAINT || state.currentState === State.CELEBRATE) {
+      return;
+    }
     get().clearEvadeTimeout();
     set({
       currentState: State.CASTING_SPECIAL,
@@ -130,6 +242,8 @@ export const useFSMStore = create<FSMState>((set, get) => ({
   updateBasicMovement: (position) =>
     set((state) => {
       if (
+        state.currentState === State.FAINT ||
+        state.currentState === State.CELEBRATE ||
         state.currentState === State.EMERGENCY_EVADE ||
         state.currentState === State.EVADE_TO_COVER ||
         state.currentState === State.FLANKING_RIGHT ||

@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useFSMStore } from '../store/useFSMStore';
+import { useArenaSyncStore } from '../store/useArenaSyncStore';
 import * as THREE from 'three';
 import { wsService } from '../services/WebSocketService';
 import type { WebRTCDataChannelPayload, GameEvent } from '../../../shared/types/events';
@@ -20,6 +21,7 @@ export const useAICommandListener = () => {
 
   useEffect(() => {
     const applyPayload = (payload: WebRTCDataChannelPayload) => {
+      if (!useArenaSyncStore.getState().matchAlignmentReady) return;
       if (payload?.type !== 'event') return;
       const evt = payload.data as GameEvent;
 

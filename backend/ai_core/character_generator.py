@@ -62,12 +62,13 @@ _SYSTEM_PROMPT = """\
 
 【制約】
 - material は "Wood"（打撃耐性）/ "Metal"（高防御・高火力）/ "Resin"（軽量・高機動）から1つ
+- materialType は対象物の質感を表す英単語 ("wood", "metal", "plastic", "energy", "fabric", "stone" 等)
 - 全パラメーター（power + speed + vit + talkSkill + adlibSkill）の合計は200以内
 - suggestedName は日本語のロボット名（15文字以内）
 - tone は実況・TTSに使う性格文字列（例: "関西弁の熱血漢"）
 
 【出力形式】JSONのみ。説明文不要。
-{"material":"Wood","power":0,"speed":0,"vit":0,"talkSkill":0,"adlibSkill":0,\
+{"material":"Wood","materialType":"plastic","power":0,"speed":0,"vit":0,"talkSkill":0,"adlibSkill":0,\
 "suggestedName":"名前","tone":"性格"}
 """
 
@@ -126,6 +127,7 @@ def _build_character_dna(
     vit: int,
     face_image_base64: Optional[str],
     preset_text: Optional[str],
+    material_type: str = "plastic",
 ) -> dict:
     face_hint = (face_image_base64 or "")[:512]
     seed_source = "|".join(
@@ -138,6 +140,7 @@ def _build_character_dna(
             str(vit),
             preset_text or "",
             face_hint,
+            material_type,
         ]
     )
     digest = hashlib.sha256(seed_source.encode("utf-8")).hexdigest()
@@ -183,6 +186,8 @@ def _build_character_dna(
         "glowIntensity": 1.0,
         "evolutionStage": 0,
         "battlePatina": "clean",
+        "materialType": material_type,
+        "emblemUrl": "",
     }
 
 
@@ -203,6 +208,8 @@ def _normalize_result(raw: dict, face_image_base64: Optional[str], preset_text: 
 
     name = str(raw.get("suggestedName", "レスラーMk1"))[:20]
     tone = str(raw.get("tone", "balanced"))[:50]
+    material_type = str(raw.get("materialType", "plastic"))[:20]
+
     character_dna = raw.get("characterDna")
     if not isinstance(character_dna, dict):
         character_dna = _build_character_dna(
@@ -214,6 +221,7 @@ def _normalize_result(raw: dict, face_image_base64: Optional[str], preset_text: 
             vit=stats["vit"],
             face_image_base64=face_image_base64,
             preset_text=preset_text,
+            material_type=material_type,
         )
 
     return {
@@ -255,6 +263,7 @@ def _fallback_result(preset_text: Optional[str]) -> dict:
         vit=result["vit"],
         face_image_base64=None,
         preset_text=preset_text,
+        material_type="plastic",
     )
     return result
 

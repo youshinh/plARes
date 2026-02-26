@@ -120,6 +120,10 @@ class WebSocketService {
     this._send({ type: 'signal', data: signal });
   }
 
+  isConnected() {
+    return this.ws?.readyState === WebSocket.OPEN;
+  }
+
   /** Ask backend to mint a Gemini Live ephemeral token for this user. */
   requestEphemeralToken(payload: Record<string, unknown>) {
     this.sendEvent({

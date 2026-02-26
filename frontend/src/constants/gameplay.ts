@@ -2,6 +2,7 @@ export const GAMEPLAY_RULES = {
   syncRateHz: 30,
   syncRateRange: { min: 30, max: 60 },
   targetP2PLatencyMs: { min: 10, max: 30 },
+  arenaRadiusMeters: 1.5,
   rollbackWindowMs: 50,
   specialChargeMs: 3000,
   specialChargeRangeMs: { min: 2500, max: 3500 },
@@ -13,4 +14,3 @@ export const GAMEPLAY_RULES = {
   spectatorMaxHpRatioPerDrop: 0.2,
   heartbeatIntervalMs: 1000,
 } as const;
-

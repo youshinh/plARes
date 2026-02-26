@@ -18,6 +18,9 @@ env/
 *.env.local
 backend/.secrets/
 .pytest_cache/
+backend/.pytest_cache/
+backend/tests/__pycache__/
+backend/**/__pycache__/
 .mypy_cache/
 .ruff_cache/
 htmlcov/

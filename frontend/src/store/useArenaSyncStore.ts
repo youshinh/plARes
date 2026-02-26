@@ -18,9 +18,13 @@ interface ArenaSyncState {
   latestSample: ArenaCalibration | null;
   localCalibration: ArenaCalibration | null;
   remoteCalibrations: Record<string, ArenaCalibration>;
+  hasRemotePeer: boolean;
+  activeRemotePeerId: string | null;
+  matchAlignmentReady: boolean;
   setLatestSample: (sample: ArenaCalibration) => void;
   setLocalCalibration: (sample: ArenaCalibration) => void;
   setRemoteCalibration: (userId: string, sample: ArenaCalibration) => void;
+  setPeerState: (remotePeerId: string | null) => void;
   clearCalibrations: () => void;
   hasAlignment: (remoteUserId: string) => boolean;
   mapRemotePosition: (remoteUserId: string, remotePoint: Point3) => Point3;
@@ -67,17 +71,41 @@ export const normalizeArenaCalibration = (value: unknown): ArenaCalibration | nu
   };
 };
 
+const computeMatchAlignmentReady = (
+  hasRemotePeer: boolean,
+  activeRemotePeerId: string | null,
+  localCalibration: ArenaCalibration | null,
+  remoteCalibrations: Record<string, ArenaCalibration>,
+): boolean => {
+  if (!hasRemotePeer) return true;
+  if (!activeRemotePeerId || !localCalibration) return false;
+  const remote = remoteCalibrations[activeRemotePeerId];
+  if (!remote) return false;
+  return localCalibration.frameId === remote.frameId;
+};
+
 export const useArenaSyncStore = create<ArenaSyncState>((set, get) => ({
   latestSample: null,
   localCalibration: null,
   remoteCalibrations: {},
+  hasRemotePeer: false,
+  activeRemotePeerId: null,
+  matchAlignmentReady: true,
 
   setLatestSample: (sample) => {
     set({ latestSample: sample });
   },
 
   setLocalCalibration: (sample) => {
-    set({ localCalibration: sample });
+    set((state) => ({
+      localCalibration: sample,
+      matchAlignmentReady: computeMatchAlignmentReady(
+        state.hasRemotePeer,
+        state.activeRemotePeerId,
+        sample,
+        state.remoteCalibrations,
+      ),
+    }));
   },
 
   setRemoteCalibration: (userId, sample) => {
@@ -87,15 +115,47 @@ export const useArenaSyncStore = create<ArenaSyncState>((set, get) => ({
         ...state.remoteCalibrations,
         [userId]: sample,
       },
+      matchAlignmentReady: computeMatchAlignmentReady(
+        state.hasRemotePeer,
+        state.activeRemotePeerId,
+        state.localCalibration,
+        {
+          ...state.remoteCalibrations,
+          [userId]: sample,
+        },
+      ),
     }));
   },
 
+  setPeerState: (remotePeerId) => {
+    set((state) => {
+      const hasRemotePeer = typeof remotePeerId === 'string' && remotePeerId.trim().length > 0;
+      const activeRemotePeerId = hasRemotePeer ? remotePeerId : null;
+      return {
+        hasRemotePeer,
+        activeRemotePeerId,
+        matchAlignmentReady: computeMatchAlignmentReady(
+          hasRemotePeer,
+          activeRemotePeerId,
+          state.localCalibration,
+          state.remoteCalibrations,
+        ),
+      };
+    });
+  },
+
   clearCalibrations: () => {
-    set({
+    set((state) => ({
       latestSample: null,
       localCalibration: null,
       remoteCalibrations: {},
-    });
+      matchAlignmentReady: computeMatchAlignmentReady(
+        state.hasRemotePeer,
+        state.activeRemotePeerId,
+        null,
+        {},
+      ),
+    }));
   },
 
   hasAlignment: (remoteUserId) => {
