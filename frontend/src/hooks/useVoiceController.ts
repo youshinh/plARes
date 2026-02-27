@@ -93,8 +93,8 @@ export const useVoiceController = () => {
           transcript.includes('戦え') ||
           transcript.includes('やれ')
         ) {
-          // Trigger attack (which requires a target, typically just moving forward and finding one)
-          const target = new THREE.Vector3(0, 0, -1);
+          const fsm = useFSMStore.getState();
+          const target = fsm.remoteRobotPosition?.clone();
           useFSMStore.getState().setAICommand({ action: 'basic_attack', target });
         } else if (
           transcript.includes('flank') ||

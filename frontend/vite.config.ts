@@ -5,6 +5,9 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   server: {
+    host: 'localhost',
+    port: 5173,
+    strictPort: true,
     // Development-only: inject required WebXR security headers
     headers: {
       'Cross-Origin-Opener-Policy': 'same-origin',

@@ -100,6 +100,7 @@ export const COMBAT_STATE_POLICY: Record<string, CombatStatePolicy> = {
     movingClip: 'Running',
     duration: 1.0,
     motion: { kind: 'approach_target', speed: 1.5 },
+    hitWindow: { start: 0.32, end: 0.62, range: 1.15, damage: 10 },
   },
   CASTING_SPECIAL: {
     animation: { clip: 'Jump', loopOnce: true, speed: 0.9 },
@@ -247,7 +248,8 @@ export function getCombatStatePolicy(
 }
 
 function resolvePolicyAnimation(policy: CombatStatePolicy, isMovingInHover: boolean): CharacterActionSpec {
-  if (isMovingInHover && policy.movingClip) {
+  // movingClip is only meant for path-follow idle locomotion.
+  if (isMovingInHover && policy.movingClip && policy.motion.kind === 'path') {
     return { clip: policy.movingClip };
   }
   return policy.animation;

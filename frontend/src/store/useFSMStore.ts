@@ -210,9 +210,17 @@ export const useFSMStore = create<FSMState>((set, get) => ({
       if (command.action === 'casting_special') nextState = State.CASTING_SPECIAL;
       if (command.action === 'basic_attack') nextState = State.BASIC_ATTACK;
 
+      let nextTarget = command.target ? command.target.clone() : null;
+      if (!nextTarget && command.action === 'basic_attack') {
+        nextTarget =
+          state.remoteRobotPosition?.clone() ??
+          state.localRobotPosition?.clone().add(new THREE.Vector3(0, 0, -1)) ??
+          null;
+      }
+
       return {
         currentState: nextState,
-        targetPosition: command.target || null,
+        targetPosition: nextTarget,
       };
     }),
 

@@ -22,6 +22,7 @@ import {
   ONE_SHOT_CLIPS,
   collectCharacterClips,
   createActionKey,
+  getCombatStatePolicy,
   resolveLocalCharacterAction,
   type CharacterActionSpec,
   type CharacterClipName,
@@ -29,6 +30,14 @@ import {
 
 const SPEED_NORMAL = 1.5;
 const SPEED_EVADE  = 5.0;
+const setFacingYaw = (group: THREE.Group, from: THREE.Vector3, to: THREE.Vector3) => {
+  const dirX = to.x - from.x;
+  const dirZ = to.z - from.z;
+  const lenSq = (dirX * dirX) + (dirZ * dirZ);
+  if (lenSq < 1e-8) return;
+  const yaw = Math.atan2(dirX, dirZ);
+  group.rotation.set(0, yaw, 0);
+};
 
 /**
  * RobotCharacter
@@ -45,6 +54,7 @@ export const RobotCharacter: React.FC = () => {
     name: CharacterClipName;
     action: THREE.AnimationAction;
   };
+  type HitAwareAction = THREE.AnimationAction & { _hasHit?: boolean };
 
   const groupRef     = useRef<THREE.Group>(null);
   const waypointsRef = useRef<THREE.Vector3[]>([]);
@@ -184,6 +194,7 @@ export const RobotCharacter: React.FC = () => {
         nextAction.crossFadeFrom(prev.action, fadeDuration, true);
       }
       actionRef.current = { key, name: spec.clip, action: nextAction };
+      (nextAction as HitAwareAction)._hasHit = false;
     },
     [heroAnimations],
   );
@@ -214,8 +225,8 @@ export const RobotCharacter: React.FC = () => {
       } else {
         const dir = new THREE.Vector3().subVectors(nextWp, pos).normalize();
         pos.addScaledVector(dir, Math.min(speed * delta, dist));
-        // Face movement direction
-        groupRef.current.lookAt(nextWp.x, pos.y, nextWp.z);
+        // Face movement direction (yaw-only to avoid camera-like drift)
+        setFacingYaw(groupRef.current, pos, nextWp);
       }
     } else if (currentState === State.HOVERING && navMesh.isReady()) {
       // ── Priority 3: Auto-roaming when hovering ──────────────────────────
@@ -248,6 +259,42 @@ export const RobotCharacter: React.FC = () => {
     const stateChanged = lastAnimStateRef.current !== currentState;
     playAction(resolvedAction, 0.15, stateChanged && resolvedAction.loopOnce === true);
     lastAnimStateRef.current = currentState;
+
+    const remotePos = useFSMStore.getState().remoteRobotPosition;
+    if (
+      remotePos &&
+      currentState !== State.EMERGENCY_EVADE &&
+      currentState !== State.EVADE_TO_COVER &&
+      currentState !== State.FLANKING_RIGHT
+    ) {
+      setFacingYaw(groupRef.current, pos, remotePos);
+    }
+
+    const statePolicy = getCombatStatePolicy(currentState, {
+      fallbackState: 'HOVERING',
+      source: 'local_hit_window',
+    });
+    if (statePolicy.hitWindow && actionRef.current && remotePos) {
+      const action = actionRef.current.action as HitAwareAction;
+      if (action.isRunning()) {
+        const clipDur = action.getClip().duration;
+        const progress = clipDur > 0 ? action.time / clipDur : 0;
+        if (progress < statePolicy.hitWindow.start) {
+          action._hasHit = false;
+        }
+        if (
+          progress >= statePolicy.hitWindow.start &&
+          progress <= statePolicy.hitWindow.end &&
+          !action._hasHit
+        ) {
+          const distToEnemy = pos.distanceTo(remotePos);
+          if (distToEnemy <= statePolicy.hitWindow.range) {
+            action._hasHit = true;
+            useFSMStore.getState().takeDamage('enemy', statePolicy.hitWindow.damage);
+          }
+        }
+      }
+    }
 
     // Apply battle-state glow via emissive only – preserves each part's unique colour
     const emissiveMap: Partial<Record<State, string>> = {
@@ -366,6 +413,12 @@ export const RobotCharacter: React.FC = () => {
     const buildHeroMat = (params: THREE.MeshPhysicalMaterialParameters) => {
       const material = new THREE.MeshPhysicalMaterial(params);
       ((material as unknown) as { skinning?: boolean }).skinning = true;
+      material.transparent = false;
+      material.opacity = 1;
+      material.depthWrite = true;
+      material.depthTest = true;
+      material.blending = THREE.NormalBlending;
+      material.transmission = 0;
       return material;
     };
     const whiteMaps = withMaps('white');
@@ -409,7 +462,7 @@ export const RobotCharacter: React.FC = () => {
         emissiveIntensity: Math.max(0.9, dnaGlowIntensity),
         roughness: applyRough(0.08),
         metalness: applyMetal(0.82),
-        transmission: 0.4,
+        transmission: 0,
         thickness: 0.5,
         ior: 1.23,
         clearcoat: 0.82,
@@ -436,7 +489,7 @@ export const RobotCharacter: React.FC = () => {
   return (
     <group ref={groupRef} position={[0, 0, -1]} scale={[silhouette.body, silhouette.body, silhouette.body]}>
       {heroScene && (
-        <group position={[0, heroOffsetY, 0]} scale={[heroScale, heroScale, heroScale]} rotation={[0, Math.PI, 0]}>
+        <group position={[0, heroOffsetY, 0]} scale={[heroScale, heroScale, heroScale]}>
           <primitive object={heroScene} />
         </group>
       )}

@@ -1398,10 +1398,19 @@ function App() {
 
 
 
-      <Canvas className="arena-canvas" shadows>
+      <Canvas
+        className="arena-canvas"
+        shadows
+        camera={{ position: [0, 1.55, 3.2], fov: 48, near: 0.01, far: 100 }}
+      >
         <XR store={store}>
           <MainScene />
-          <OrbitControls makeDefault />
+          <OrbitControls
+            makeDefault
+            enablePan={false}
+            enableDamping={false}
+            autoRotate={false}
+          />
         </XR>
       </Canvas>
 

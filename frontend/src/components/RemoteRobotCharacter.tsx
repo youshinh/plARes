@@ -22,15 +22,39 @@ import {
   type CharacterActionSpec,
   type CharacterClipName,
 } from '../utils/characterAnimation';
-import { patchDepthOcclusionMaterial, updateDepthOcclusionUniforms } from '../utils/depthOcclusion';
+import { updateDepthOcclusionUniforms } from '../utils/depthOcclusion';
 
 const HEIGHT_DEBUG = import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEBUG_UI === 'true';
-const MODEL_FORWARD_YAW_OFFSET = Math.PI;
 
 interface RemoteRobotCharacterProps {
   depthTexture?: THREE.DataTexture | null;
   depthRawToMeters?: number | null;
 }
+
+const ROOT_DRIVE_BONE_RE = /(armature|hips|mixamorighips|root)/i;
+const setFacingYaw = (group: THREE.Group, from: THREE.Vector3, to: THREE.Vector3) => {
+  const dirX = to.x - from.x;
+  const dirZ = to.z - from.z;
+  const lenSq = (dirX * dirX) + (dirZ * dirZ);
+  if (lenSq < 1e-8) return;
+  const yaw = Math.atan2(dirX, dirZ);
+  group.rotation.set(0, yaw, 0);
+};
+
+const stripRemoteRootRotation = (clips: THREE.AnimationClip[]): THREE.AnimationClip[] =>
+  clips.map((clip) => {
+    const sanitized = clip.clone();
+    // Enemy orientation/locomotion is driven by gameplay code; strip root-bone transforms
+    // that can override lookAt and make the model appear camera-facing.
+    sanitized.tracks = sanitized.tracks.filter((track) => {
+      const name = String(track.name || '').toLowerCase();
+      if (!(name.endsWith('.quaternion') || name.endsWith('.position'))) {
+        return true;
+      }
+      return !ROOT_DRIVE_BONE_RE.test(name);
+    });
+    return sanitized;
+  });
 
 export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
   depthTexture = null,
@@ -54,6 +78,9 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
   const mixerRef = useRef<THREE.AnimationMixer | null>(null);
   const actionRef = useRef<PlayedAction | null>(null);
   const occlusionMaterialsRef = useRef<Array<THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial>>([]);
+  const rootBoneRef = useRef<THREE.Bone | null>(null);
+  const rootBoneBasePosRef = useRef<THREE.Vector3 | null>(null);
+  const rootBoneEulerRef = useRef(new THREE.Euler(0, 0, 0, 'YXZ'));
   const heightBoundsRef = useRef(new THREE.Box3());
   const lastHeightEmitAtRef = useRef(0);
   const lastSyncAtRef = useRef(0);
@@ -66,6 +93,7 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
   
   const hasRemotePeer = useArenaSyncStore(s => s.hasRemotePeer);
   const matchAlignmentReady = useArenaSyncStore(s => s.matchAlignmentReady);
+  const localModelType = useFSMStore(s => s.modelType);
 
   // Sync effect (when connected to someone)
   useEffect(() => {
@@ -97,10 +125,8 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
     };
   }, []);
 
-  const [opponentModelType] = useState<'A' | 'B'>(() => {
-    const modelTypes = ['A', 'B'] as const;
-    return modelTypes[Math.floor(Math.random() * modelTypes.length)];
-  });
+  // Keep enemy rig identical to local rig to avoid model-specific facing mismatches.
+  const opponentModelType = localModelType;
 
   // Load Model
   useEffect(() => {
@@ -129,6 +155,8 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
     loadBaseWithFallback().then(async (baseGltf) => {
       if (disposed) return;
       const scene = cloneSkeleton(baseGltf.scene) as THREE.Group;
+      rootBoneRef.current = null;
+      rootBoneBasePosRef.current = null;
       
       scene.traverse((child) => {
         if ((child as THREE.Mesh).isMesh) {
@@ -140,6 +168,7 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
           // Force blue-biased finish so untextured white meshes do not remain plain.
           if (mesh.material) {
             const m = (mesh.material as THREE.Material).clone();
+            ((m as unknown) as { skinning?: boolean }).skinning = true;
             if ('color' in m) {
               const colorMaterial = m as THREE.Material & { color: THREE.Color };
               colorMaterial.color.set('#2f7dff');
@@ -168,11 +197,25 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
               const alphaMaterial = m as THREE.Material & { alphaTest: number };
               alphaMaterial.alphaTest = 0;
             }
+            if ('transmission' in m) {
+              const transmissionMaterial = m as THREE.Material & { transmission: number };
+              transmissionMaterial.transmission = 0;
+            }
+            if ('depthWrite' in m) {
+              const depthWriteMaterial = m as THREE.Material & { depthWrite: boolean };
+              depthWriteMaterial.depthWrite = true;
+            }
+            if ('depthTest' in m) {
+              const depthTestMaterial = m as THREE.Material & { depthTest: boolean };
+              depthTestMaterial.depthTest = true;
+            }
+            if ('blending' in m) {
+              const blendingMaterial = m as THREE.Material & { blending: THREE.Blending };
+              blendingMaterial.blending = THREE.NormalBlending;
+            }
+            m.needsUpdate = true;
             mesh.material = m;
             createdMaterials.push(m);
-            if (patchDepthOcclusionMaterial(m)) {
-              occlusionMaterialsRef.current.push(m);
-            }
           }
         }
       });
@@ -182,6 +225,28 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
       setModelScene(scene);
       setModelBaseMinY(minY);
 
+      const preferredRoot = (
+        scene.getObjectByName('Hips') ??
+        scene.getObjectByName('mixamorigHips') ??
+        scene.getObjectByName('Root') ??
+        scene.getObjectByName('root')
+      ) as THREE.Object3D | null;
+      const rootBoneCandidate =
+        (preferredRoot && (preferredRoot as THREE.Bone).isBone ? (preferredRoot as THREE.Bone) : null) ??
+        (() => {
+          let found: THREE.Bone | null = null;
+          scene.traverse((obj) => {
+            if (!found && (obj as THREE.Bone).isBone) {
+              found = obj as THREE.Bone;
+            }
+          });
+          return found;
+        })();
+      if (rootBoneCandidate) {
+        rootBoneRef.current = rootBoneCandidate;
+        rootBoneBasePosRef.current = rootBoneCandidate.position.clone();
+      }
+
       let animationSource = baseGltf.animations;
       try {
         const animGltf = await loadAsync(sharedAnimationsUrl);
@@ -190,7 +255,7 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
         console.warn('[RemoteRobotCharacter] shared animation GLB load failed; using base clips', animErr);
       }
       if (disposed) return;
-      const clips = collectCharacterClips(animationSource);
+      const clips = stripRemoteRootRotation(collectCharacterClips(animationSource));
 
       // Keep both model variants grounded to the same world baseline.
       scene.position.y = 0.0;
@@ -205,6 +270,8 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
     return () => {
       disposed = true;
       occlusionMaterialsRef.current = [];
+      rootBoneRef.current = null;
+      rootBoneBasePosRef.current = null;
       createdMaterials.forEach((material) => material.dispose());
       if (mixerRef.current) mixerRef.current.stopAllAction();
     };
@@ -341,10 +408,24 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
     }
 
     if (mixerRef.current) mixerRef.current.update(delta);
+    const rootBone = rootBoneRef.current;
+    if (rootBone) {
+      const basePos = rootBoneBasePosRef.current;
+      if (basePos) {
+        rootBone.position.x = basePos.x;
+        rootBone.position.z = basePos.z;
+      }
+      const euler = rootBoneEulerRef.current.setFromQuaternion(rootBone.quaternion);
+      if (Number.isFinite(euler.y) && Math.abs(euler.y) > 1e-6) {
+        euler.y = 0;
+        rootBone.quaternion.setFromEuler(euler);
+      }
+    }
     const group = groupRef.current;
     if (!group) return;
 
     const currentPos = group.position;
+    const localRobotPos = useFSMStore.getState().localRobotPosition;
     const hasRecentSync = (performance.now() - lastSyncAtRef.current) < 2400;
     const remoteDriven = hasRemotePeer && rtcService.isOpen() && hasRecentSync;
 
@@ -434,7 +515,7 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
         }
 
         currentPos.addScaledVector(moveDir, statePolicy.motion.speed * delta);
-        group.lookAt(motionTarget.x, currentPos.y, motionTarget.z);
+        setFacingYaw(group, currentPos, motionTarget);
         return true;
       };
 
@@ -444,7 +525,7 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
         if (dir.lengthSq() > 1e-6) {
           dir.normalize();
           currentPos.addScaledVector(dir, delta * statePolicy.motion.speed);
-          group.lookAt(anchorVec.x, currentPos.y, anchorVec.z);
+          setFacingYaw(group, currentPos, anchorVec);
         }
       }
 
@@ -495,6 +576,15 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
          }
       }
 
+      // Keep enemy facing local robot (not camera) for stable combat readability.
+      if (localRobotPos) {
+        const toLocal = new THREE.Vector3().subVectors(localRobotPos, currentPos);
+        toLocal.y = 0;
+        if (toLocal.lengthSq() > 1e-6) {
+          setFacingYaw(group, currentPos, localRobotPos);
+        }
+      }
+
       // Share position via FSM for local robot tracking
       useFSMStore.getState().setRemoteRobotPosition(currentPos.clone());
       prevEnemyHpRef.current = enemyHpNow;
@@ -508,7 +598,11 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
       }
       const before = currentPos.distanceTo(targetRef.current);
       currentPos.lerp(targetRef.current, Math.min(1, delta * 8));
-      group.lookAt(targetRef.current.x, currentPos.y, targetRef.current.z);
+      if (localRobotPos) {
+        setFacingYaw(group, currentPos, localRobotPos);
+      } else {
+        setFacingYaw(group, currentPos, targetRef.current);
+      }
 
       const moving = before > 0.07;
       const syncedAction = resolveSyncedCharacterAction(syncedStateRef.current, moving);
@@ -547,7 +641,6 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
              0,
             ]}
            scale={[0.62, 0.62, 0.62]}
-           rotation={[0, MODEL_FORWARD_YAW_OFFSET, 0]}
          >
            <primitive object={modelScene} />
          </group>
