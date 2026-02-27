@@ -270,6 +270,13 @@ export function collectCharacterClips(source: THREE.AnimationClip[]): THREE.Anim
     added.add(entry.target);
   }
 
+  // Fallback: if no mapped clips exist, keep at least one idle-compatible clip.
+  if (clips.length === 0 && source.length > 0) {
+    const fallback = source[0].clone();
+    fallback.name = 'Idle';
+    clips.push(fallback);
+  }
+
   return clips;
 }
 

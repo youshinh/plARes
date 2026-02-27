@@ -77,39 +77,54 @@ export const RobotCharacter: React.FC = () => {
       new Promise<LoadedGLTF>((resolve, reject) => {
         loader.load(url, (gltf) => resolve(gltf as LoadedGLTF), undefined, reject);
       });
-    const tryLoad = (url: string, fallbackUrl?: string) => {
-      Promise.all([loadAsync(url), loadAsync(sharedAnimationsUrl)])
-        .then(([baseGltf, animGltf]) => {
-          if (disposed) return;
-          // SkinnedMeshは通常のclone(true)だと骨参照が壊れることがあるため、SkeletonUtilsで複製する。
-          const scene = cloneSkeleton(baseGltf.scene) as THREE.Group;
-          scene.traverse((node) => {
-            const mesh = node as THREE.Mesh;
-            if (!mesh.isMesh) return;
-            mesh.castShadow = true;
-            mesh.receiveShadow = true;
-          });
-          const bounds = new THREE.Box3().setFromObject(scene);
-          const minY = Number.isFinite(bounds.min.y) ? bounds.min.y : null;
-          setHeroScene(scene);
-          setHeroAnimations(collectCharacterClips(animGltf.animations));
-          setHeroBaseMinY(minY);
-          console.info('[RobotCharacter] hero GLB loaded:', url);
-        })
-        .catch(() => {
-          if (disposed) return;
-          if (fallbackUrl) {
-            console.warn('[RobotCharacter] hero GLB load failed, trying fallback:', url);
-            tryLoad(fallbackUrl);
-            return;
-          }
-          setHeroScene(null);
-          setHeroAnimations([]);
-          setHeroBaseMinY(null);
-          console.warn('[RobotCharacter] hero GLB load failed:', url);
-        });
+    const loadBaseWithFallback = async (): Promise<LoadedGLTF> => {
+      try {
+        return await loadAsync(heroModelUrl);
+      } catch (primaryErr) {
+        console.warn('[RobotCharacter] hero GLB load failed, trying fallback:', heroModelUrl, primaryErr);
+        return await loadAsync(fallbackModelUrl);
+      }
     };
-    tryLoad(heroModelUrl, fallbackModelUrl);
+
+    const run = async () => {
+      try {
+        const baseGltf = await loadBaseWithFallback();
+        if (disposed) return;
+
+        // SkinnedMeshは通常のclone(true)だと骨参照が壊れることがあるため、SkeletonUtilsで複製する。
+        const scene = cloneSkeleton(baseGltf.scene) as THREE.Group;
+        scene.traverse((node) => {
+          const mesh = node as THREE.Mesh;
+          if (!mesh.isMesh) return;
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          mesh.frustumCulled = false;
+        });
+        const bounds = new THREE.Box3().setFromObject(scene);
+        const minY = Number.isFinite(bounds.min.y) ? bounds.min.y : null;
+        setHeroScene(scene);
+        setHeroBaseMinY(minY);
+
+        // Prefer shared animation pack; fall back to model-embedded clips.
+        let animationSource = baseGltf.animations;
+        try {
+          const animGltf = await loadAsync(sharedAnimationsUrl);
+          animationSource = animGltf.animations?.length ? animGltf.animations : animationSource;
+        } catch (animErr) {
+          console.warn('[RobotCharacter] shared animation GLB load failed; using base clips', animErr);
+        }
+        if (disposed) return;
+        setHeroAnimations(collectCharacterClips(animationSource));
+        console.info('[RobotCharacter] hero GLB loaded:', heroModelUrl);
+      } catch (err) {
+        if (disposed) return;
+        setHeroScene(null);
+        setHeroAnimations([]);
+        setHeroBaseMinY(null);
+        console.warn('[RobotCharacter] hero GLB load failed:', err);
+      }
+    };
+    run();
     return () => {
       disposed = true;
     };
@@ -416,9 +431,7 @@ export const RobotCharacter: React.FC = () => {
 
   // ── Derive visual scales from stats ──────────────────────────────────────
   const heroScale = 0.62 + ((robotStats.vit / 99) * 0.08);
-  const heroOffsetY = heroBaseMinY !== null
-    ? Math.max(-0.32, Math.min(0.18, -heroBaseMinY * heroScale))
-    : -0.145;
+  const heroOffsetY = heroBaseMinY !== null ? (-heroBaseMinY * heroScale) : -0.145;
 
   return (
     <group ref={groupRef} position={[0, 0, -1]} scale={[silhouette.body, silhouette.body, silhouette.body]}>

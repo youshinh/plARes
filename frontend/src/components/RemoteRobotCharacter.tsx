@@ -25,6 +25,7 @@ import {
 import { patchDepthOcclusionMaterial, updateDepthOcclusionUniforms } from '../utils/depthOcclusion';
 
 const HEIGHT_DEBUG = import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEBUG_UI === 'true';
+const MODEL_FORWARD_YAW_OFFSET = Math.PI;
 
 interface RemoteRobotCharacterProps {
   depthTexture?: THREE.DataTexture | null;
@@ -125,13 +126,8 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
       }
     };
 
-    Promise.all([
-      loadBaseWithFallback(),
-      loadAsync(sharedAnimationsUrl),
-    ]).then((results) => {
+    loadBaseWithFallback().then(async (baseGltf) => {
       if (disposed) return;
-      const baseGltf = results[0];
-      const animGltf = results[1];
       const scene = cloneSkeleton(baseGltf.scene) as THREE.Group;
       
       scene.traverse((child) => {
@@ -185,8 +181,16 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
       const minY = Number.isFinite(bounds.min.y) ? bounds.min.y : null;
       setModelScene(scene);
       setModelBaseMinY(minY);
-      
-      const clips = collectCharacterClips(animGltf.animations);
+
+      let animationSource = baseGltf.animations;
+      try {
+        const animGltf = await loadAsync(sharedAnimationsUrl);
+        animationSource = animGltf.animations?.length ? animGltf.animations : animationSource;
+      } catch (animErr) {
+        console.warn('[RemoteRobotCharacter] shared animation GLB load failed; using base clips', animErr);
+      }
+      if (disposed) return;
+      const clips = collectCharacterClips(animationSource);
 
       // Keep both model variants grounded to the same world baseline.
       scene.position.y = 0.0;
@@ -331,6 +335,8 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
         depthRawToMeters,
         viewportWidth: frameState.size.width,
         viewportHeight: frameState.size.height,
+        cameraNear: frameState.camera.near,
+        cameraFar: frameState.camera.far,
       });
     }
 
@@ -537,12 +543,11 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
          <group
            position={[
              0,
-             modelBaseMinY !== null
-               ? Math.max(-0.32, Math.min(0.18, -modelBaseMinY * 0.62))
-               : -0.145,
+             modelBaseMinY !== null ? (-modelBaseMinY * 0.62) : -0.145,
              0,
-           ]}
+            ]}
            scale={[0.62, 0.62, 0.62]}
+           rotation={[0, MODEL_FORWARD_YAW_OFFSET, 0]}
          >
            <primitive object={modelScene} />
          </group>
