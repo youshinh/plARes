@@ -68,6 +68,14 @@ except Exception:
             FirestoreMCPServer = None
             VertexContextCache = None
 
+try:
+    from .character_generator import generate_robot_stats
+except Exception:
+    try:
+        from ai_core.character_generator import generate_robot_stats
+    except Exception:
+        generate_robot_stats = None
+
 mcp_server_instance = None
 mcp_firestore_tools = None
 vertex_cache_instance = None
@@ -94,6 +102,7 @@ PORT = int(os.getenv("PLARES_PORT", "8000"))
 GAME_PATH = "/ws/game"
 AUDIO_PATH = "/ws/audio"
 LIVE_PATH = "/ws/live"
+CHARACTER_PATH = "/ws/character"
 MATCH_LOG_DIR = Path(
     os.getenv(
         "PLARES_MATCH_LOG_DIR",
@@ -2363,7 +2372,7 @@ def _build_audio_result(
             # Try parsing
             import json
             if txt.startswith("```json"): txt = txt[7:]
-            if txt.endswith("```"): txt = txt[:-3]
+            if txt.endswith("```"): txt[:-3]
             parsed = json.loads(txt.strip())
             accuracy = float(parsed.get("accuracy", 0.7))
             ai_passion = float(parsed.get("passion", 0.7))
@@ -3327,6 +3336,42 @@ async def handle_audio_connection(websocket: Any, request_path: str) -> None:
     await websocket.send(json.dumps(result, ensure_ascii=False))
 
 
+async def handle_character_connection(websocket: Any, request_path: str) -> None:
+    try:
+        # Wait for the first message which should be the JSON payload
+        message = await websocket.recv()
+        if isinstance(message, bytes):
+            message = message.decode("utf-8")
+        
+        request_data = _safe_json_loads(message)
+        if not request_data:
+            await websocket.send(json.dumps({"error": "Invalid JSON format"}))
+            return
+            
+        face_image_base64 = request_data.get("face_image_base64")
+        preset_text = request_data.get("preset_text")
+        
+        if generate_robot_stats is not None:
+            result = await generate_robot_stats(
+                face_image_base64=face_image_base64,
+                preset_text=preset_text
+            )
+            await websocket.send(json.dumps(result, ensure_ascii=False))
+        else:
+            await websocket.send(json.dumps({"error": "Character generator not available"}))
+            
+    except ConnectionClosed:
+        pass
+    except Exception as e:
+        print(f"[CHARACTER_API] Error: {e}")
+        try:
+            await websocket.send(json.dumps({"error": str(e)}))
+        except:
+            pass
+    finally:
+        await websocket.close()
+
+
 async def websocket_router(websocket: Any, path: Optional[str] = None) -> None:
     request_path = path or getattr(websocket, "path", None)
     if not request_path:
@@ -3334,6 +3379,10 @@ async def websocket_router(websocket: Any, path: Optional[str] = None) -> None:
         request_path = getattr(request_obj, "path", "/")
     if not isinstance(request_path, str) or not request_path:
         request_path = "/"
+
+    if request_path.startswith(CHARACTER_PATH):
+        await handle_character_connection(websocket, request_path)
+        return
 
     if request_path.startswith(GAME_PATH):
         await handle_game_connection(websocket, request_path)

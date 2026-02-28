@@ -30,9 +30,9 @@ const defaultBackendHost = (() => {
   return h === 'localhost' || h === '::1' ? '127.0.0.1' : h;
 })();
 const backendProtocol = window.location.protocol === 'https:' ? 'https' : 'http';
-const CHARACTER_API_URL =
-  import.meta.env.VITE_CHARACTER_API_URL ??
-  `${backendProtocol}://${defaultBackendHost}:8000/api/character/generate`;
+const CHARACTER_WS_URL =
+  import.meta.env.VITE_CHARACTER_WS_URL ??
+  `${backendProtocol === 'https' ? 'wss' : 'ws'}://${defaultBackendHost}:8000/ws/character`;
 
 export function useCharacterSetup() {
   const setRobotStats = useFSMStore(s => s.setRobotStats);
@@ -68,17 +68,29 @@ export function useCharacterSetup() {
         preset_text: presetText,
       };
 
-      const res = await fetch(CHARACTER_API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(req),
+      const data: RobotGenerationResult = await new Promise((resolve, reject) => {
+        const ws = new WebSocket(CHARACTER_WS_URL);
+        
+        ws.onopen = () => {
+          ws.send(JSON.stringify(req));
+        };
+        
+        ws.onmessage = (event) => {
+          try {
+            const result = JSON.parse(event.data);
+            if (result.error) reject(new Error(result.error));
+            else resolve(result);
+          } catch (e) {
+            reject(new Error('Failed to parse generation result'));
+          } finally {
+            ws.close();
+          }
+        };
+        
+        ws.onerror = () => {
+          reject(new Error('WebSocket connection failed during character generation'));
+        };
       });
-
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
-      }
-
-      const data: RobotGenerationResult = await res.json();
       const photoHints = await photoHintsPromise;
       const landmarkHints = await landmarkHintsPromise;
 
