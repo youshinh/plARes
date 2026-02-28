@@ -26,7 +26,6 @@ import { updateDepthOcclusionUniforms } from '../utils/depthOcclusion';
 
 const HEIGHT_DEBUG = import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEBUG_UI === 'true';
 const GROUND_CLEARANCE_EPSILON = 0.004;
-const MAX_GROUND_DROP_WORLD = 0.28;
 
 interface RemoteRobotCharacterProps {
   depthTexture?: THREE.DataTexture | null;
@@ -591,8 +590,7 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
         const groundY = group.position.y;
         const clearance = bounds.min.y - groundY;
         if (clearance > GROUND_CLEARANCE_EPSILON) {
-          const maxDropLocal = -MAX_GROUND_DROP_WORLD / parentScaleY;
-          clipOffset = Math.max(maxDropLocal, clipOffset - (clearance / parentScaleY));
+          clipOffset -= clearance / parentScaleY;
           clipGroundOffsetRef.current[activeClip] = clipOffset;
           modelGroup.position.y = remoteBaseOffsetY + clipOffset;
         } else if (clipGroundOffsetRef.current[activeClip] === undefined) {

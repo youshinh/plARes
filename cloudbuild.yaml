@@ -20,7 +20,9 @@ steps:
       - "asia-northeast1-docker.pkg.dev/$PROJECT_ID/plaresar/frontend:$COMMIT_SHA"
       - "-t"
       - "asia-northeast1-docker.pkg.dev/$PROJECT_ID/plaresar/frontend:latest"
-      - "./frontend"
+      - "-f"
+      - "frontend/Dockerfile"
+      - "."
     waitFor: ["-"]
 
   # ── Push Backend ───────────────────────────────────────────────────

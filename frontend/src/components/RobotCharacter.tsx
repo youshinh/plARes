@@ -31,7 +31,7 @@ import {
 const SPEED_NORMAL = 1.5;
 const SPEED_EVADE  = 5.0;
 const GROUND_CLEARANCE_EPSILON = 0.004;
-const MAX_GROUND_DROP_WORLD = 0.28;
+const ROOT_DRIVE_BONE_RE = /(armature|hips|mixamorighips|root)/i;
 const setFacingYaw = (group: THREE.Group, from: THREE.Vector3, to: THREE.Vector3) => {
   const dirX = to.x - from.x;
   const dirZ = to.z - from.z;
@@ -40,6 +40,19 @@ const setFacingYaw = (group: THREE.Group, from: THREE.Vector3, to: THREE.Vector3
   const yaw = Math.atan2(dirX, dirZ);
   group.rotation.y = yaw;
 };
+
+const stripRootPositionTracks = (clips: THREE.AnimationClip[]): THREE.AnimationClip[] =>
+  clips.map((clip) => {
+    const sanitized = clip.clone();
+    // Gameplay code owns locomotion; remove root-bone position tracks to
+    // prevent animation-side vertical drift that makes feet float.
+    sanitized.tracks = sanitized.tracks.filter((track) => {
+      const name = String(track.name || '').toLowerCase();
+      if (!name.endsWith('.position')) return true;
+      return !ROOT_DRIVE_BONE_RE.test(name);
+    });
+    return sanitized;
+  });
 
 /**
  * RobotCharacter
@@ -132,7 +145,7 @@ export const RobotCharacter: React.FC = () => {
           console.warn('[RobotCharacter] shared animation GLB load failed; using base clips', animErr);
         }
         if (disposed) return;
-        setHeroAnimations(collectCharacterClips(animationSource));
+        setHeroAnimations(stripRootPositionTracks(collectCharacterClips(animationSource)));
         console.info('[RobotCharacter] hero GLB loaded:', heroModelUrl);
       } catch (err) {
         if (disposed) return;
@@ -287,8 +300,7 @@ export const RobotCharacter: React.FC = () => {
         const groundY = groupRef.current.position.y;
         const clearance = bounds.min.y - groundY;
         if (clearance > GROUND_CLEARANCE_EPSILON) {
-          const maxDropLocal = -MAX_GROUND_DROP_WORLD / parentScaleY;
-          clipOffset = Math.max(maxDropLocal, clipOffset - (clearance / parentScaleY));
+          clipOffset -= clearance / parentScaleY;
           clipGroundOffsetRef.current[activeClip] = clipOffset;
           modelGroup.position.y = heroOffsetY + clipOffset;
         } else if (clipGroundOffsetRef.current[activeClip] === undefined) {
