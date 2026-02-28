@@ -6,6 +6,7 @@ import { RobotCharacter } from './components/RobotCharacter';
 import { RemoteRobotCharacter } from './components/RemoteRobotCharacter';
 import { FaceScanner } from './components/FaceScanner';
 import { ServerDrivenPanel } from './components/ui/ServerDrivenPanel';
+import { AnimationDebugPanel } from './components/ui/AnimationDebugPanel';
 import { DynamicSubtitle } from './components/ui/DynamicSubtitle';
 import { RemoteStreamView } from './components/ui/RemoteStreamView';
 import { CharacterLabPanel } from './components/ui/CharacterLabPanel';
@@ -1415,6 +1416,7 @@ function App() {
       </Canvas>
 
       <ServerDrivenPanel />
+      {DEBUG_UI && <AnimationDebugPanel />}
       <DynamicSubtitle />
       <RemoteStreamView />
       <ShareArenaModal

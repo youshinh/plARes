@@ -30,13 +30,15 @@ import {
 
 const SPEED_NORMAL = 1.5;
 const SPEED_EVADE  = 5.0;
+const GROUND_CLEARANCE_EPSILON = 0.004;
+const MAX_GROUND_DROP_WORLD = 0.28;
 const setFacingYaw = (group: THREE.Group, from: THREE.Vector3, to: THREE.Vector3) => {
   const dirX = to.x - from.x;
   const dirZ = to.z - from.z;
   const lenSq = (dirX * dirX) + (dirZ * dirZ);
   if (lenSq < 1e-8) return;
   const yaw = Math.atan2(dirX, dirZ);
-  group.rotation.set(0, yaw, 0);
+  group.rotation.y = yaw;
 };
 
 /**
@@ -57,11 +59,15 @@ export const RobotCharacter: React.FC = () => {
   type HitAwareAction = THREE.AnimationAction & { _hasHit?: boolean };
 
   const groupRef     = useRef<THREE.Group>(null);
+  const modelGroupRef = useRef<THREE.Group>(null);
   const waypointsRef = useRef<THREE.Vector3[]>([]);
   const lastTargetRef= useRef<THREE.Vector3 | null>(null);
   const lastSyncAtRef = useRef<number>(0);
   const prevPosRef = useRef<THREE.Vector3>(new THREE.Vector3(0, 0, -1));
   const hoverTimerRef = useRef<number>(0);
+  const clipGroundOffsetRef = useRef<Partial<Record<CharacterClipName, number>>>({});
+  const groundBoundsRef = useRef(new THREE.Box3());
+  const worldScaleRef = useRef(new THREE.Vector3(1, 1, 1));
   const mixerRef = useRef<THREE.AnimationMixer | null>(null);
   const actionRef = useRef<PlayedAction | null>(null);
   const lastAnimStateRef = useRef<State | null>(null);
@@ -77,6 +83,8 @@ export const RobotCharacter: React.FC = () => {
   const finishTuning = getFinishMaterialTuning(robotDna.finish);
   const dnaGlowIntensity = Math.max(0.9, Math.min(1.8, robotDna.glowIntensity || 1.0));
   const scarRoughnessBoost = (robotDna.scarLevel || 0) * 0.035;
+  const heroScale = 0.62 + ((robotStats.vit / 99) * 0.08);
+  const heroOffsetY = heroBaseMinY !== null ? (-heroBaseMinY * heroScale) : -0.145;
 
   React.useEffect(() => {
     let disposed = false;
@@ -156,6 +164,7 @@ export const RobotCharacter: React.FC = () => {
     mixerRef.current = new THREE.AnimationMixer(heroScene);
     actionRef.current = null;
     lastAnimStateRef.current = null;
+    clipGroundOffsetRef.current = {};
     return () => {
       mixerRef.current?.stopAllAction();
       mixerRef.current = null;
@@ -180,8 +189,15 @@ export const RobotCharacter: React.FC = () => {
 
       const nextAction = mixerRef.current.clipAction(clip);
       nextAction.reset();
+      nextAction.paused = false;
       nextAction.setEffectiveTimeScale(spec.speed ?? 1);
-      if (spec.loopOnce || ONE_SHOT_CLIPS.has(spec.clip)) {
+      if (spec.pingPong) {
+        nextAction.setLoop(THREE.LoopPingPong, spec.loopCount ?? 1);
+        nextAction.clampWhenFinished = true;
+      } else if ((spec.loopCount ?? 1) > 1) {
+        nextAction.setLoop(THREE.LoopRepeat, spec.loopCount ?? 1);
+        nextAction.clampWhenFinished = true;
+      } else if (spec.loopOnce || ONE_SHOT_CLIPS.has(spec.clip)) {
         nextAction.setLoop(THREE.LoopOnce, 1);
         nextAction.clampWhenFinished = HOLD_AFTER_FINISH_CLIPS.has(spec.clip);
       } else {
@@ -253,12 +269,35 @@ export const RobotCharacter: React.FC = () => {
 
     groupRef.current.scale.setScalar(silhouette.body);
     mixerRef.current?.update(delta);
+
     const movedDistance = beforePos.distanceTo(pos);
     const isMoving = movedDistance > 0.0004;
     const resolvedAction = resolveLocalCharacterAction(currentState, isMoving);
     const stateChanged = lastAnimStateRef.current !== currentState;
     playAction(resolvedAction, 0.15, stateChanged && resolvedAction.loopOnce === true);
     lastAnimStateRef.current = currentState;
+    const activeClip = actionRef.current?.name;
+    const modelGroup = modelGroupRef.current;
+    if (modelGroup && activeClip) {
+      const parentScaleY = Math.max(1e-4, groupRef.current.getWorldScale(worldScaleRef.current).y);
+      let clipOffset = clipGroundOffsetRef.current[activeClip] ?? 0;
+      modelGroup.position.y = heroOffsetY + clipOffset;
+      const bounds = groundBoundsRef.current.setFromObject(modelGroup);
+      if (Number.isFinite(bounds.min.y)) {
+        const groundY = groupRef.current.position.y;
+        const clearance = bounds.min.y - groundY;
+        if (clearance > GROUND_CLEARANCE_EPSILON) {
+          const maxDropLocal = -MAX_GROUND_DROP_WORLD / parentScaleY;
+          clipOffset = Math.max(maxDropLocal, clipOffset - (clearance / parentScaleY));
+          clipGroundOffsetRef.current[activeClip] = clipOffset;
+          modelGroup.position.y = heroOffsetY + clipOffset;
+        } else if (clipGroundOffsetRef.current[activeClip] === undefined) {
+          clipGroundOffsetRef.current[activeClip] = clipOffset;
+        }
+      }
+    } else if (modelGroup) {
+      modelGroup.position.y = heroOffsetY;
+    }
 
     const remotePos = useFSMStore.getState().remoteRobotPosition;
     if (
@@ -270,27 +309,27 @@ export const RobotCharacter: React.FC = () => {
       setFacingYaw(groupRef.current, pos, remotePos);
     }
 
-    const statePolicy = getCombatStatePolicy(currentState, {
+    const hitStatePolicy = getCombatStatePolicy(currentState, {
       fallbackState: 'HOVERING',
       source: 'local_hit_window',
     });
-    if (statePolicy.hitWindow && actionRef.current && remotePos) {
+    if (hitStatePolicy.hitWindow && actionRef.current && remotePos) {
       const action = actionRef.current.action as HitAwareAction;
       if (action.isRunning()) {
         const clipDur = action.getClip().duration;
         const progress = clipDur > 0 ? action.time / clipDur : 0;
-        if (progress < statePolicy.hitWindow.start) {
+        if (progress < hitStatePolicy.hitWindow.start) {
           action._hasHit = false;
         }
         if (
-          progress >= statePolicy.hitWindow.start &&
-          progress <= statePolicy.hitWindow.end &&
+          progress >= hitStatePolicy.hitWindow.start &&
+          progress <= hitStatePolicy.hitWindow.end &&
           !action._hasHit
         ) {
           const distToEnemy = pos.distanceTo(remotePos);
-          if (distToEnemy <= statePolicy.hitWindow.range) {
+          if (distToEnemy <= hitStatePolicy.hitWindow.range) {
             action._hasHit = true;
-            useFSMStore.getState().takeDamage('enemy', statePolicy.hitWindow.damage);
+            useFSMStore.getState().takeDamage('enemy', hitStatePolicy.hitWindow.damage);
           }
         }
       }
@@ -482,14 +521,10 @@ export const RobotCharacter: React.FC = () => {
     };
   }, [heroScene, C.white, C.whiteB, C.blue, C.blueL, C.black, C.blackM, C.cyan, dnaGlowIntensity, surfaceMaps, withMaps, finishTuning.roughnessBias, finishTuning.metalBias]);
 
-  // ── Derive visual scales from stats ──────────────────────────────────────
-  const heroScale = 0.62 + ((robotStats.vit / 99) * 0.08);
-  const heroOffsetY = heroBaseMinY !== null ? (-heroBaseMinY * heroScale) : -0.145;
-
   return (
     <group ref={groupRef} position={[0, 0, -1]} scale={[silhouette.body, silhouette.body, silhouette.body]}>
       {heroScene && (
-        <group position={[0, heroOffsetY, 0]} scale={[heroScale, heroScale, heroScale]}>
+        <group ref={modelGroupRef} position={[0, heroOffsetY, 0]} scale={[heroScale, heroScale, heroScale]}>
           <primitive object={heroScene} />
         </group>
       )}

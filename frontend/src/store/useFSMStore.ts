@@ -23,6 +23,15 @@ export enum State {
   FAINT = 'FAINT',
   CELEBRATE = 'CELEBRATE',
   TAUNT = 'TAUNT',
+  IDLE = 'IDLE',
+  WALK = 'WALK',
+  RUN = 'RUN',
+  SUPER_DASH = 'SUPER_DASH',
+  SHORYUKEN = 'SHORYUKEN',
+  TORNADO_PUNCH = 'TORNADO_PUNCH',
+  BEAM_CHARGE = 'BEAM_CHARGE',
+  HEAVY_WALK = 'HEAVY_WALK',
+  STAGGER_WALK = 'STAGGER_WALK',
 }
 
 interface RobotStats {
@@ -69,6 +78,8 @@ interface FSMState {
   // ── Character Model Selection ──
   modelType: 'A' | 'B';
   setModelType: (type: 'A' | 'B') => void;
+  debugSetState: (nextState: State) => void;
+  debugSetHp: (target: 'local' | 'enemy', value: number) => void;
 }
 
 
@@ -87,6 +98,27 @@ export const useFSMStore = create<FSMState>((set, get) => ({
 
   modelType: 'A',
   setModelType: (type) => set({ modelType: type }),
+  debugSetState: (nextState) => {
+    get().clearEvadeTimeout();
+    set({ currentState: nextState, targetPosition: null });
+  },
+  debugSetHp: (target, value) => {
+    const hp = Math.max(0, Math.min(100, Math.round(value)));
+    if (target === 'local') {
+      if (hp <= 0) {
+        get().clearEvadeTimeout();
+        set({ localHp: 0, currentState: State.FAINT, targetPosition: null });
+        return;
+      }
+      set({ localHp: hp });
+      return;
+    }
+    if (hp <= 0) {
+      set({ enemyHp: 0 });
+      return;
+    }
+    set({ enemyHp: hp });
+  },
 
   takeDamage: (target, amount) =>
     set((state) => {
@@ -242,7 +274,7 @@ export const useFSMStore = create<FSMState>((set, get) => ({
         return state;
       }
       return {
-        currentState: verdict === 'critical' ? State.BASIC_ATTACK : State.HOVERING,
+        currentState: verdict === 'critical' ? State.PUNCH : State.HOVERING,
       };
     }),
 

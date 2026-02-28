@@ -9,6 +9,8 @@ export const CHARACTER_CLIP_NAMES = [
   'Kick',
   'Death',
   'Yes',
+  'HeavyWalk',
+  'StaggerWalk',
 ] as const;
 
 export type CharacterClipName = (typeof CHARACTER_CLIP_NAMES)[number];
@@ -16,6 +18,8 @@ export type CharacterClipName = (typeof CHARACTER_CLIP_NAMES)[number];
 export interface CharacterActionSpec {
   clip: CharacterClipName;
   loopOnce?: boolean;
+  loopCount?: number;
+  pingPong?: boolean;
   speed?: number;
 }
 
@@ -47,6 +51,7 @@ export interface CombatStatePolicy {
   lockMovement?: boolean;
   autoExitToHover?: boolean;
   hitWindow?: HitWindowPolicy;
+  holdAtProgress?: number;
 }
 
 interface ClipSource {
@@ -63,19 +68,35 @@ const CLIP_SOURCES: ClipSource[] = [
   { target: 'Kick', aliases: ['Skill_03'] },
   { target: 'Death', aliases: ['Dead'] },
   { target: 'Yes', aliases: ['Boom_Dance', 'All_Night_Dance'] },
+  { target: 'HeavyWalk', aliases: ['Slow_Orc_Walk'] },
+  { target: 'StaggerWalk', aliases: ['Unsteady_Walk'] },
 ];
 
 export const ONE_SHOT_CLIPS = new Set<CharacterClipName>(['Jump', 'Punch', 'Kick', 'Death']);
 
-export const HOLD_AFTER_FINISH_CLIPS = new Set<CharacterClipName>(['Jump', 'Death']);
+export const HOLD_AFTER_FINISH_CLIPS = new Set<CharacterClipName>(['Jump', 'Death', 'HeavyWalk']);
 
 export const ATTACK_CLIPS = new Set<CharacterClipName>(['Punch', 'Kick']);
 
 const WARNED_UNKNOWN_STATES = new Set<string>();
 
+// NOTE (2026-02 verified in ANIM CHECK):
+// The source GLB clip names do not match their real visual behavior.
+// We intentionally map by observed motion, not by source clip name semantics.
+// Observed clip behavior:
+// - Idle: boxing stance practice
+// - Walking: sluggish / drunken walk
+// - Running: run (speed-up looks like sprint)
+// - Jump: normal walk-like motion (slower speed looks more dignified)
+// - Punch: damaged lingering slow walk
+// - Kick: dignified walk
+// - Death: special-attack-like motion
+// - Yes: idle/look-around
+// - HeavyWalk: takes damage and falls
+// - StaggerWalk: lowered-center fast rush
 export const COMBAT_STATE_POLICY: Record<string, CombatStatePolicy> = {
   HOVERING: {
-    animation: { clip: 'Idle' },
+    animation: { clip: 'Idle' }, // boxing
     movingClip: 'Walking',
     duration: Number.POSITIVE_INFINITY,
     motion: { kind: 'path', speed: 1.5 },
@@ -96,14 +117,14 @@ export const COMBAT_STATE_POLICY: Record<string, CombatStatePolicy> = {
     motion: { kind: 'path', speed: 1.5 },
   },
   BASIC_ATTACK: {
-    animation: { clip: 'Punch', speed: 1.08 },
+    animation: { clip: 'Death', speed: 1.02 }, // special-attack-like motion
     movingClip: 'Running',
     duration: 1.0,
     motion: { kind: 'approach_target', speed: 1.5 },
     hitWindow: { start: 0.32, end: 0.62, range: 1.15, damage: 10 },
   },
   CASTING_SPECIAL: {
-    animation: { clip: 'Jump', loopOnce: true, speed: 0.9 },
+    animation: { clip: 'Idle' }, // charge pose (fixed in place)
     duration: 3.0,
     motion: { kind: 'none', speed: 0 },
     lockMovement: true,
@@ -115,7 +136,7 @@ export const COMBAT_STATE_POLICY: Record<string, CombatStatePolicy> = {
     lockMovement: true,
   },
   PUNCH: {
-    animation: { clip: 'Punch', loopOnce: true },
+    animation: { clip: 'Death', loopOnce: true }, // strongest attack-like clip
     duration: 0.8,
     motion: { kind: 'none', speed: 0 },
     lockMovement: true,
@@ -129,7 +150,7 @@ export const COMBAT_STATE_POLICY: Record<string, CombatStatePolicy> = {
     hitWindow: { start: 0.4, end: 0.66, range: 1.1, damage: 10 },
   },
   COMBO_PUNCH: {
-    animation: { clip: 'Punch', loopOnce: true, speed: 1.35 },
+    animation: { clip: 'Death', loopOnce: true, speed: 1.12 },
     duration: 1.4,
     motion: { kind: 'none', speed: 0 },
     lockMovement: true,
@@ -154,17 +175,18 @@ export const COMBAT_STATE_POLICY: Record<string, CombatStatePolicy> = {
     autoExitToHover: true,
   },
   DAMAGE: {
-    animation: { clip: 'Jump', loopOnce: true, speed: 1.4 },
+    animation: { clip: 'HeavyWalk', loopOnce: true, speed: 1.0 }, // baseline speed
     duration: 0.5,
     motion: { kind: 'none', speed: 0 },
     lockMovement: true,
     autoExitToHover: true,
   },
   FAINT: {
-    animation: { clip: 'Death', loopOnce: true },
-    duration: 999,
+    animation: { clip: 'HeavyWalk', loopOnce: true, speed: 1.5 }, // same motion as DAMAGE, slightly faster
+    duration: 0.5,
     motion: { kind: 'none', speed: 0 },
     lockMovement: true,
+    autoExitToHover: true,
   },
   CELEBRATE: {
     animation: { clip: 'Yes' },
@@ -195,29 +217,39 @@ export const COMBAT_STATE_POLICY: Record<string, CombatStatePolicy> = {
     motion: { kind: 'approach_target', speed: 1.5 },
   },
   SUPER_DASH: {
-    animation: { clip: 'Running', speed: 2.0 },
+    animation: { clip: 'StaggerWalk', speed: 1.1 }, // lowered-center fast rush
     duration: 0.8,
     motion: { kind: 'approach_target', speed: 3.0 },
   },
   SHORYUKEN: {
-    animation: { clip: 'Jump', loopOnce: true, speed: 1.2 },
-    duration: 1.2,
+    animation: { clip: 'Death', loopOnce: true, loopCount: 2, pingPong: true, speed: 1.08 }, // attack-like then reverse
+    duration: 2.4,
     motion: { kind: 'none', speed: 0 },
     lockMovement: true,
     hitWindow: { start: 0.3, end: 0.62, range: 1.05, damage: 12 },
   },
   TORNADO_PUNCH: {
-    animation: { clip: 'Punch', loopOnce: true, speed: 1.85 },
+    animation: { clip: 'Death', loopOnce: true, speed: 1.2 },
     duration: 1.6,
     motion: { kind: 'none', speed: 0 },
     lockMovement: true,
     hitWindow: { start: 0.24, end: 0.72, range: 1.2, damage: 14 },
   },
   BEAM_CHARGE: {
-    animation: { clip: 'Jump', loopOnce: true, speed: 0.75 },
+    animation: { clip: 'Kick', loopOnce: true, speed: 0.92 }, // dignified walk-like
     duration: 1.2,
     motion: { kind: 'none', speed: 0 },
     lockMovement: true,
+  },
+  HEAVY_WALK: {
+    animation: { clip: 'HeavyWalk' },
+    duration: 1.8,
+    motion: { kind: 'approach_target', speed: 0.45 },
+  },
+  STAGGER_WALK: {
+    animation: { clip: 'StaggerWalk' },
+    duration: 1.8,
+    motion: { kind: 'approach_target', speed: 0.4 },
   },
 };
 
@@ -302,5 +334,5 @@ export function resolveSyncedCharacterAction(
 }
 
 export function createActionKey(spec: CharacterActionSpec): string {
-  return `${spec.clip}:${spec.loopOnce ? 'once' : 'loop'}:${spec.speed ?? 1}`;
+  return `${spec.clip}:${spec.loopOnce ? 'once' : 'loop'}:${spec.loopCount ?? 1}:${spec.pingPong ? 'pp' : 'npp'}:${spec.speed ?? 1}`;
 }

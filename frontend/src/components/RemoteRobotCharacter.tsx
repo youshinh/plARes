@@ -25,6 +25,8 @@ import {
 import { updateDepthOcclusionUniforms } from '../utils/depthOcclusion';
 
 const HEIGHT_DEBUG = import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEBUG_UI === 'true';
+const GROUND_CLEARANCE_EPSILON = 0.004;
+const MAX_GROUND_DROP_WORLD = 0.28;
 
 interface RemoteRobotCharacterProps {
   depthTexture?: THREE.DataTexture | null;
@@ -38,17 +40,17 @@ const setFacingYaw = (group: THREE.Group, from: THREE.Vector3, to: THREE.Vector3
   const lenSq = (dirX * dirX) + (dirZ * dirZ);
   if (lenSq < 1e-8) return;
   const yaw = Math.atan2(dirX, dirZ);
-  group.rotation.set(0, yaw, 0);
+  group.rotation.y = yaw;
 };
 
 const stripRemoteRootRotation = (clips: THREE.AnimationClip[]): THREE.AnimationClip[] =>
   clips.map((clip) => {
     const sanitized = clip.clone();
-    // Enemy orientation/locomotion is driven by gameplay code; strip root-bone transforms
-    // that can override lookAt and make the model appear camera-facing.
+    // Keep root rotation for natural torso/spine motion, but strip root position
+    // so movement still comes from gameplay sync instead of animation drift.
     sanitized.tracks = sanitized.tracks.filter((track) => {
       const name = String(track.name || '').toLowerCase();
-      if (!(name.endsWith('.quaternion') || name.endsWith('.position'))) {
+      if (!name.endsWith('.position')) {
         return true;
       }
       return !ROOT_DRIVE_BONE_RE.test(name);
@@ -75,12 +77,13 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
   const [modelScene, setModelScene] = useState<THREE.Group | null>(null);
   const [animations, setAnimations] = useState<THREE.AnimationClip[]>([]);
   const [modelBaseMinY, setModelBaseMinY] = useState<number | null>(null);
+  const modelGroupRef = useRef<THREE.Group>(null);
   const mixerRef = useRef<THREE.AnimationMixer | null>(null);
   const actionRef = useRef<PlayedAction | null>(null);
+  const clipGroundOffsetRef = useRef<Partial<Record<CharacterClipName, number>>>({});
+  const groundBoundsRef = useRef(new THREE.Box3());
+  const worldScaleRef = useRef(new THREE.Vector3(1, 1, 1));
   const occlusionMaterialsRef = useRef<Array<THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial>>([]);
-  const rootBoneRef = useRef<THREE.Bone | null>(null);
-  const rootBoneBasePosRef = useRef<THREE.Vector3 | null>(null);
-  const rootBoneEulerRef = useRef(new THREE.Euler(0, 0, 0, 'YXZ'));
   const heightBoundsRef = useRef(new THREE.Box3());
   const lastHeightEmitAtRef = useRef(0);
   const lastSyncAtRef = useRef(0);
@@ -94,6 +97,7 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
   const hasRemotePeer = useArenaSyncStore(s => s.hasRemotePeer);
   const matchAlignmentReady = useArenaSyncStore(s => s.matchAlignmentReady);
   const localModelType = useFSMStore(s => s.modelType);
+  const remoteBaseOffsetY = modelBaseMinY !== null ? (-modelBaseMinY * 0.62) : -0.145;
 
   // Sync effect (when connected to someone)
   useEffect(() => {
@@ -155,9 +159,6 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
     loadBaseWithFallback().then(async (baseGltf) => {
       if (disposed) return;
       const scene = cloneSkeleton(baseGltf.scene) as THREE.Group;
-      rootBoneRef.current = null;
-      rootBoneBasePosRef.current = null;
-      
       scene.traverse((child) => {
         if ((child as THREE.Mesh).isMesh) {
           const mesh = child as THREE.Mesh;
@@ -225,28 +226,6 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
       setModelScene(scene);
       setModelBaseMinY(minY);
 
-      const preferredRoot = (
-        scene.getObjectByName('Hips') ??
-        scene.getObjectByName('mixamorigHips') ??
-        scene.getObjectByName('Root') ??
-        scene.getObjectByName('root')
-      ) as THREE.Object3D | null;
-      const rootBoneCandidate =
-        (preferredRoot && (preferredRoot as THREE.Bone).isBone ? (preferredRoot as THREE.Bone) : null) ??
-        (() => {
-          let found: THREE.Bone | null = null;
-          scene.traverse((obj) => {
-            if (!found && (obj as THREE.Bone).isBone) {
-              found = obj as THREE.Bone;
-            }
-          });
-          return found;
-        })();
-      if (rootBoneCandidate) {
-        rootBoneRef.current = rootBoneCandidate;
-        rootBoneBasePosRef.current = rootBoneCandidate.position.clone();
-      }
-
       let animationSource = baseGltf.animations;
       try {
         const animGltf = await loadAsync(sharedAnimationsUrl);
@@ -270,8 +249,6 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
     return () => {
       disposed = true;
       occlusionMaterialsRef.current = [];
-      rootBoneRef.current = null;
-      rootBoneBasePosRef.current = null;
       createdMaterials.forEach((material) => material.dispose());
       if (mixerRef.current) mixerRef.current.stopAllAction();
     };
@@ -281,6 +258,7 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
   useEffect(() => {
     if (!modelScene || animations.length === 0) return;
     if (!mixerRef.current) mixerRef.current = new THREE.AnimationMixer(modelScene);
+    clipGroundOffsetRef.current = {};
   }, [modelScene, animations]);
 
   const playAction = React.useCallback(
@@ -302,6 +280,7 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
 
       const nextAction = mixerRef.current.clipAction(clip);
       nextAction.reset();
+      nextAction.paused = false;
 
       const speed = spec.speed ?? 1;
       nextAction.setEffectiveTimeScale(speed);
@@ -309,7 +288,13 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
         nextAction.time = clip.duration;
       }
 
-      if (spec.loopOnce || ONE_SHOT_CLIPS.has(spec.clip)) {
+      if (spec.pingPong) {
+        nextAction.setLoop(THREE.LoopPingPong, spec.loopCount ?? 1);
+        nextAction.clampWhenFinished = true;
+      } else if ((spec.loopCount ?? 1) > 1) {
+        nextAction.setLoop(THREE.LoopRepeat, spec.loopCount ?? 1);
+        nextAction.clampWhenFinished = true;
+      } else if (spec.loopOnce || ONE_SHOT_CLIPS.has(spec.clip)) {
         nextAction.setLoop(THREE.LoopOnce, 1);
         nextAction.clampWhenFinished = HOLD_AFTER_FINISH_CLIPS.has(spec.clip);
       } else {
@@ -408,19 +393,6 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
     }
 
     if (mixerRef.current) mixerRef.current.update(delta);
-    const rootBone = rootBoneRef.current;
-    if (rootBone) {
-      const basePos = rootBoneBasePosRef.current;
-      if (basePos) {
-        rootBone.position.x = basePos.x;
-        rootBone.position.z = basePos.z;
-      }
-      const euler = rootBoneEulerRef.current.setFromQuaternion(rootBone.quaternion);
-      if (Number.isFinite(euler.y) && Math.abs(euler.y) > 1e-6) {
-        euler.y = 0;
-        rootBone.quaternion.setFromEuler(euler);
-      }
-    }
     const group = groupRef.current;
     if (!group) return;
 
@@ -608,6 +580,28 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
       const syncedAction = resolveSyncedCharacterAction(syncedStateRef.current, moving);
       playAction(syncedAction, 0.15);
     }
+    const activeClip = actionRef.current?.name;
+    const modelGroup = modelGroupRef.current;
+    if (modelGroup && activeClip) {
+      const parentScaleY = Math.max(1e-4, group.getWorldScale(worldScaleRef.current).y);
+      let clipOffset = clipGroundOffsetRef.current[activeClip] ?? 0;
+      modelGroup.position.y = remoteBaseOffsetY + clipOffset;
+      const bounds = groundBoundsRef.current.setFromObject(modelGroup);
+      if (Number.isFinite(bounds.min.y)) {
+        const groundY = group.position.y;
+        const clearance = bounds.min.y - groundY;
+        if (clearance > GROUND_CLEARANCE_EPSILON) {
+          const maxDropLocal = -MAX_GROUND_DROP_WORLD / parentScaleY;
+          clipOffset = Math.max(maxDropLocal, clipOffset - (clearance / parentScaleY));
+          clipGroundOffsetRef.current[activeClip] = clipOffset;
+          modelGroup.position.y = remoteBaseOffsetY + clipOffset;
+        } else if (clipGroundOffsetRef.current[activeClip] === undefined) {
+          clipGroundOffsetRef.current[activeClip] = clipOffset;
+        }
+      }
+    } else if (modelGroup) {
+      modelGroup.position.y = remoteBaseOffsetY;
+    }
 
     if (HEIGHT_DEBUG && typeof window !== 'undefined') {
       const now = performance.now();
@@ -635,9 +629,10 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
     <group ref={groupRef} position={[1, 0, -1.5]}>
        {modelScene && (
          <group
+           ref={modelGroupRef}
            position={[
              0,
-             modelBaseMinY !== null ? (-modelBaseMinY * 0.62) : -0.145,
+             remoteBaseOffsetY,
              0,
             ]}
            scale={[0.62, 0.62, 0.62]}
