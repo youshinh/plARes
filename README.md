@@ -2,6 +2,9 @@
 
 **plARes** (pronounced "players") is a next-generation AR action game where your AI-driven robot character lives, evolves, and battles in the real world. Leveraging **Gemini Multimodal Live API**, it fuses high-speed WebXR action with deep emotional AI interactions.
 
+![plARes Display](img/display.png)
+![plARes Mobile](img/mobile.png)
+
 ---
 
 ## 🌟 Vision
