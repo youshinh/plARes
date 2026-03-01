@@ -143,6 +143,9 @@ const UI_TEXT: Record<UiLang, Record<string, string>> = {
     chooseLanguage: '表示言語を選択',
     chooseLanguageDesc: '最初に使う言語を選んでください。後で変更できます。',
     enterAr: 'AR開始',
+    arChecking: 'AR確認中',
+    arUnavailable: 'AR非対応',
+    arUnsupportedHint: 'この端末ではWebXR ARが使えません。通常表示モードでご利用ください。',
     endMatch: '試合終了',
     pilotTelemetry: 'パイロット情報',
     matches: '試合',
@@ -191,6 +194,9 @@ const UI_TEXT: Record<UiLang, Record<string, string>> = {
     chooseLanguage: 'Choose your language',
     chooseLanguageDesc: 'Pick your default UI language. You can change this later.',
     enterAr: 'Enter AR',
+    arChecking: 'Checking AR',
+    arUnavailable: 'AR Unsupported',
+    arUnsupportedHint: 'WebXR AR is not available on this device. Continue in standard view mode.',
     endMatch: 'End Match',
     pilotTelemetry: 'Pilot Telemetry',
     matches: 'Matches',
@@ -239,6 +245,9 @@ const UI_TEXT: Record<UiLang, Record<string, string>> = {
     chooseLanguage: 'Elige tu idioma',
     chooseLanguageDesc: 'Selecciona el idioma inicial de la interfaz. Puedes cambiarlo despues.',
     enterAr: 'Entrar AR',
+    arChecking: 'Verificando AR',
+    arUnavailable: 'AR no compatible',
+    arUnsupportedHint: 'WebXR AR no esta disponible en este dispositivo. Usa el modo de vista normal.',
     endMatch: 'Finalizar',
     pilotTelemetry: 'Telemetria',
     matches: 'Partidas',
@@ -371,6 +380,7 @@ function App() {
   const enemyHp = useFSMStore(s => s.enemyHp);
 
   const [isP2PMediaOn, setIsP2PMediaOn] = useState(false);
+  const [arSupportState, setArSupportState] = useState<'checking' | 'supported' | 'unsupported'>('checking');
   const [specialPhrase, setSpecialPhrase] = useState('');
   const [profileInfo, setProfileInfo] = useState<{
     totalMatches: number;
@@ -955,7 +965,38 @@ function App() {
     });
   };
 
+  useEffect(() => {
+    let cancelled = false;
+    const xr = (navigator as Navigator & { xr?: XRSystem }).xr;
+    if (!xr || typeof xr.isSessionSupported !== 'function') {
+      setArSupportState('unsupported');
+      return;
+    }
+
+    xr.isSessionSupported('immersive-ar')
+      .then((supported) => {
+        if (!cancelled) {
+          setArSupportState(supported ? 'supported' : 'unsupported');
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setArSupportState('unsupported');
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const handleEnterAr = async () => {
+    if (arSupportState !== 'supported') {
+      window.dispatchEvent(new CustomEvent('show_subtitle', {
+        detail: { text: t.arUnsupportedHint }
+      }));
+      return;
+    }
     try {
       await store.enterAR();
     } catch (error) {
@@ -1338,6 +1379,16 @@ function App() {
     };
   }, [handleCastSpecial]);
 
+  const isArButtonDisabled = arSupportState !== 'supported';
+  const arButtonLabel =
+    arSupportState === 'checking'
+      ? t.arChecking
+      : (isArButtonDisabled ? t.arUnavailable : t.enterAr);
+  const arButtonTitle =
+    arSupportState === 'checking'
+      ? 'Checking AR support...'
+      : (isArButtonDisabled ? t.arUnsupportedHint : t.enterAr);
+
   return (
     <div className="arena-shell">
       <div className="arena-atmosphere" aria-hidden />
@@ -1400,10 +1451,12 @@ function App() {
         <div className="hud-inline-actions">
           <button
             id="btn-enter-ar"
-            className="hud-btn hud-btn-steel hud-btn-mini"
+            className={`hud-btn hud-btn-steel hud-btn-mini ${isArButtonDisabled ? 'is-disabled' : ''}`}
             onClick={handleEnterAr}
+            disabled={isArButtonDisabled}
+            title={arButtonTitle}
           >
-            {t.enterAr}
+            {arButtonLabel}
           </button>
           {debugVisible && (
             <button

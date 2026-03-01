@@ -10,6 +10,7 @@
 
 | Date       | Owner    | TaskID | Directory                   | Status | NextAction                                              | Blocker |
 | ---------- | -------- | ------ | --------------------------- | ------ | ------------------------------------------------------- | ------- |
+| 2026-03-01 | Codex    | T1-14  | /frontend/src               | DONE   | AR対応判定(isSessionSupported)追加 + iPhone等非対応端末でARボタン無効化と代替案内 | なし    |
 | 2026-03-01 | Codex    | T1-13  | /frontend/src               | DONE   | AR時の床CG非表示(VR/非XRのみ表示) + 音声コマンド受理ミニ表示HUD追加 | なし    |
 | 2026-03-01 | Codex    | T1-12  | /frontend/src               | DONE   | AudioWorklet移行(2系統) + XR presenting中resizeガード + Android影描画抑制 | なし    |
 | 2026-03-01 | Codex    | T1-11  | /frontend/src               | DONE   | NavMesh API不整合時の無効化フォールバック + 音声必殺トリガー追加 + Voice再試行安定化 | なし    |
