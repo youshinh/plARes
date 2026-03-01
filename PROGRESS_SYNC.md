@@ -10,6 +10,7 @@
 
 | Date       | Owner    | TaskID | Directory                   | Status | NextAction                                              | Blocker |
 | ---------- | -------- | ------ | --------------------------- | ------ | ------------------------------------------------------- | ------- |
+| 2026-03-01 | Codex    | T1-5   | /frontend/src               | DONE   | WebXR平面検出フォールバック + ARセッション復帰時状態リセット実装 | なし    |
 | 2026-03-01 | Codex    | V-2    | /.claude/skills, /docs      | DONE   | skills origin明記 + performance_cost_report のモデル整合 | なし    |
 | 2026-03-01 | Codex    | V-1    | /backend/tests, /scripts    | DONE   | test_streaming安定化 + e2eクリック遮断フォールバック実装 | なし    |
 | 2026-03-01 | Agent3   | T0-4   | /.claude/skills             | DONE   | ECC由来6skillをplARes向けに改修・追加                 | なし    |

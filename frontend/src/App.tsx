@@ -63,6 +63,30 @@ const toPositiveNumber = (value: unknown, fallback: number): number => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 };
 
+const formatArEnterError = (error: unknown, lang: UiLang): string => {
+  const ja = lang === 'ja';
+  if (error instanceof DOMException) {
+    if (error.name === 'NotAllowedError') {
+      return ja
+        ? 'AR開始にはカメラ権限が必要です。Chromeのサイト権限を確認してください。'
+        : 'Camera permission is required to start AR. Please check Chrome site permissions.';
+    }
+    if (error.name === 'NotSupportedError') {
+      return ja
+        ? 'この端末またはブラウザではWebXR ARが利用できません。'
+        : 'WebXR AR is not supported on this device or browser.';
+    }
+    if (error.name === 'SecurityError') {
+      return ja
+        ? 'AR開始にはHTTPS接続が必要です。'
+        : 'HTTPS is required to start AR.';
+    }
+  }
+  return ja
+    ? 'ARセッションの開始に失敗しました。ページ再読み込み後に再実行してください。'
+    : 'Failed to start AR session. Reload the page and try again.';
+};
+
 const clampHp = (value: number, maxHp: number): number =>
   Math.max(0, Math.min(value, maxHp));
 
@@ -316,6 +340,7 @@ function App() {
   // T1-4: scan state for AR plane detection guide
   const [scanState, setScanState] = useState<'idle' | 'searching' | 'tracking' | 'ready' | 'unsupported'>('idle');
   const [scanPointCount, setScanPointCount] = useState(0);
+  const [isARSessionActive, setIsARSessionActive] = useState(false);
   // Debug panel toggle (visible to all, toggled by header button)
   const [debugVisible, setDebugVisible] = useState(DEBUG_UI);
   const [showLanguageChooser] = useState<boolean>(() => {
@@ -856,6 +881,17 @@ function App() {
     });
   };
 
+  const handleEnterAr = async () => {
+    try {
+      await store.enterAR();
+    } catch (error) {
+      console.error('[XR] enterAR failed:', error);
+      window.dispatchEvent(new CustomEvent('show_subtitle', {
+        detail: { text: formatArEnterError(error, uiLang) }
+      }));
+    }
+  };
+
   const requestLiveEphemeralToken = () => {
     wsService.requestEphemeralToken({
         request_id: `req_${Date.now()}`,
@@ -949,9 +985,15 @@ function App() {
   // T1-4: AR scan state listener for ScanGuideOverlay
   useEffect(() => {
     const handler = (e: Event) => {
-      const { scanState: newState, pointCount } = (e as CustomEvent).detail;
-      setScanState(newState);
-      setScanPointCount(pointCount);
+      const detail = (e as CustomEvent<{
+        scanState?: 'idle' | 'searching' | 'tracking' | 'ready' | 'unsupported';
+        pointCount?: number;
+        sessionActive?: boolean;
+      }>).detail;
+      if (!detail) return;
+      setScanState(detail.scanState ?? 'idle');
+      setScanPointCount(Number(detail.pointCount ?? 0));
+      setIsARSessionActive(Boolean(detail.sessionActive));
     };
     window.addEventListener('scan_state_change', handler);
     return () => window.removeEventListener('scan_state_change', handler);
@@ -1228,7 +1270,7 @@ function App() {
           <button
             id="btn-enter-ar"
             className="hud-btn hud-btn-steel hud-btn-mini"
-            onClick={() => store.enterAR()}
+            onClick={handleEnterAr}
           >
             {t.enterAr}
           </button>
@@ -1444,7 +1486,7 @@ function App() {
       <ServerDrivenPanel />
       {debugVisible && <AnimationDebugPanel />}
       <DynamicSubtitle />
-      <ScanGuideOverlay scanState={scanState} pointCount={scanPointCount} />
+      {isARSessionActive && <ScanGuideOverlay scanState={scanState} pointCount={scanPointCount} />}
       <RemoteStreamView />
       <ShareArenaModal
         roomId={ROOM_ID}
