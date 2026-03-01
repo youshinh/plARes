@@ -32,7 +32,7 @@ const dispatchError = (message: string) => {
 };
 
 const normalizeModel = (raw: string) => {
-  const model = (raw || 'gemini-live-2.5-flash-preview').trim();
+  const model = (raw || 'gemini-2.5-flash-native-audio-preview-12-2025').trim();
   return model.startsWith('models/') ? model.slice(7) : model;
 };
 
@@ -40,7 +40,7 @@ export class GeminiLiveService {
   private ai: GoogleGenAI | null = null;
   private session: Session | null = null;
   private tokenName = '';
-  private model = 'gemini-live-2.5-flash-preview';
+  private model = 'gemini-2.5-flash-native-audio-preview-12-2025';
   private resumeHandle = '';
   private captureStream: MediaStream | null = null;
   private captureContext: AudioContext | null = null;

@@ -35,7 +35,7 @@ except Exception:
 GENERATION_MODEL = (
     os.getenv("PLARES_CHARACTER_MODEL")
     or os.getenv("PLARES_LIGHT_MODEL")
-    or "gemini-2.0-flash"
+    or "gemini-3-flash-preview"
 )
 
 STAT_KEYS = ("power", "speed", "vit", "talkSkill", "adlibSkill")

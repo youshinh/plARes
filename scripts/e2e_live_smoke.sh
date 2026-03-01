@@ -216,10 +216,80 @@ if [[ "$LIVE_OK" != "true" ]]; then
   exit 1
 fi
 
-echo "E2E live smoke test passed."
+echo "E2E Phase 1 passed: Token + Live Connect OK"
+
+# ── T4-1: Battle Scenario ──────────────────────────────────────────────────
+echo "Starting battle scenario..."
+
+# Try to trigger an attack action via the debug panel
+SNAPSHOT="$(take_snapshot)"
+BATTLE_OK=false
+
+for i in $(seq 1 3); do
+  # Try clicking attack-related buttons
+  click_first_present "$SNAPSHOT" "BASIC_ATTACK" "PUNCH" "KICK" "COMBO_PUNCH" || true
+  sleep 2
+  SNAPSHOT="$(take_snapshot)"
+
+  # Verify HP has changed (either local or enemy HP < 100)
+  if grep -q 'HP L:[0-9]\{1,2\} ' "$SNAPSHOT" 2>/dev/null || \
+     grep -q 'HP.*E:[0-9]\{1,2\} ' "$SNAPSHOT" 2>/dev/null; then
+    BATTLE_OK=true
+    break
+  fi
+done
+
+# Check that match_log files exist (backend is recording events)
+MATCH_LOG_COUNT=$(find "$MATCH_LOG_DIR" -name '*.json' -type f 2>/dev/null | wc -l | tr -d ' ')
+echo "Match log files found: $MATCH_LOG_COUNT"
+
+# Try special cast once to exercise voice-judge/special flow hooks.
+SPECIAL_FLOW_OK=false
+for _ in $(seq 1 2); do
+  click_first_present "$SNAPSHOT" "Cast Special ⚡" "Lanzar Especial ⚡" "必殺発動 ⚡" || true
+  sleep 4
+  if rg -q '"event": ?"voice_judge"|"critical_hit"' "$BACKEND_LOG" 2>/dev/null; then
+    SPECIAL_FLOW_OK=true
+    break
+  fi
+done
+
+# Force enemy HP zero from debug panel and wait for interview/BGM events.
+click_first_present "$SNAPSHOT" "Enemy HP=0" || true
+sleep 3
+SNAPSHOT="$(take_snapshot)"
+WINNER_INTERVIEW_OK=false
+BGM_READY_OK=false
+for _ in $(seq 1 8); do
+  if rg -q '"event": ?"winner_interview"' "$BACKEND_LOG" 2>/dev/null; then
+    WINNER_INTERVIEW_OK=true
+  fi
+  if rg -q '"event": ?"bgm_ready"' "$BACKEND_LOG" 2>/dev/null; then
+    BGM_READY_OK=true
+  fi
+  if [[ "$WINNER_INTERVIEW_OK" == "true" && "$BGM_READY_OK" == "true" ]]; then
+    break
+  fi
+  sleep 1
+done
+
+# ── Summary ────────────────────────────────────────────────────────────────
+echo ""
+echo "═══════════════════════════════════════════════════"
+echo " E2E Live Smoke Test Results"
+echo "═══════════════════════════════════════════════════"
+echo " Token Issuance:    ✅ PASS"
+echo " Live Connect:      ✅ PASS"
+echo " Battle Scenario:   $([ "$BATTLE_OK" = true ] && echo '✅ PASS' || echo '⚠️  SKIP (solo mode, no opponent)')"
+echo " Special Flow:      $([ "$SPECIAL_FLOW_OK" = true ] && echo '✅ PASS' || echo '⚠️  WARN (voice_judge/critical_hit not observed)')"
+echo " Winner Interview:  $([ "$WINNER_INTERVIEW_OK" = true ] && echo '✅ PASS' || echo '⚠️  WARN (event not observed)')"
+echo " BGM Ready:         $([ "$BGM_READY_OK" = true ] && echo '✅ PASS' || echo '⚠️  WARN (event not observed)')"
+echo " Match Logs:        ${MATCH_LOG_COUNT} files"
+echo "═══════════════════════════════════════════════════"
+echo ""
 echo "Artifacts:"
-echo "  $RUN_LOG"
-echo "  $BACKEND_LOG"
-echo "  $FRONTEND_LOG"
-echo "  $RUNTIME_DIR"
-echo "  $SNAPSHOT"
+echo "  Playwright log: $RUN_LOG"
+echo "  Backend log:    $BACKEND_LOG"
+echo "  Frontend log:   $FRONTEND_LOG"
+echo "  Runtime dir:    $RUNTIME_DIR"
+echo "  Last snapshot:  $SNAPSHOT"

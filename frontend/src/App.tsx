@@ -11,6 +11,7 @@ import { DynamicSubtitle } from './components/ui/DynamicSubtitle';
 import { RemoteStreamView } from './components/ui/RemoteStreamView';
 import { CharacterLabPanel } from './components/ui/CharacterLabPanel';
 import { ShareArenaModal } from './components/ui/ShareArenaModal';
+import { ScanGuideOverlay } from './components/ui/ScanGuideOverlay';
 import { useVoiceController } from './hooks/useVoiceController';
 import { useWebXRScanner } from './hooks/useWebXRScanner';
 import { useAICommandListener } from './hooks/useAICommandListener';
@@ -312,6 +313,11 @@ function App() {
   const [recentABFeedbackCount, setRecentABFeedbackCount] = useState(0);
   const [bgmUrl, setBgmUrl] = useState('');
   const bgmAudioRef = useRef<HTMLAudioElement | null>(null);
+  // T1-4: scan state for AR plane detection guide
+  const [scanState, setScanState] = useState<'idle' | 'searching' | 'tracking' | 'ready' | 'unsupported'>('idle');
+  const [scanPointCount, setScanPointCount] = useState(0);
+  // Debug panel toggle (visible to all, toggled by header button)
+  const [debugVisible, setDebugVisible] = useState(DEBUG_UI);
   const [showLanguageChooser] = useState<boolean>(() => {
     try {
       return !localStorage.getItem(STORAGE_LANG_SELECTED_KEY);
@@ -705,7 +711,7 @@ function App() {
             if (tokenName) {
               geminiLiveService.connect({
                 tokenName,
-                model: String(payload.model ?? 'gemini-live-2.5-flash-preview'),
+                model: String(payload.model ?? 'gemini-2.5-flash-native-audio-preview-12-2025'),
               }).catch(() => {});
             }
           }
@@ -853,7 +859,7 @@ function App() {
   const requestLiveEphemeralToken = () => {
     wsService.requestEphemeralToken({
         request_id: `req_${Date.now()}`,
-        model: 'models/gemini-live-2.5-flash-preview',
+        model: 'models/gemini-2.5-flash-native-audio-preview-12-2025',
         response_modalities: ['AUDIO', 'TEXT'],
         session_resumption: true,
         store: false,
@@ -864,7 +870,7 @@ function App() {
     wsService.requestInteractionTurn({
         request_id: `req_${Date.now()}`,
         input: '現在の戦況で次の一手を一文で提案してください。',
-        model: 'models/gemini-flash-latest',
+        model: 'models/gemini-3-flash-preview',
         previous_interaction_id: liveDebugInfo.interactionId || undefined,
         store: false,
         system_instruction: 'You are a concise tactical assistant for PlaresAR. Reply in Japanese.',
@@ -878,7 +884,7 @@ function App() {
       try {
         await geminiLiveService.connect({
           tokenName: liveDebugInfo.tokenName,
-          model: 'models/gemini-live-2.5-flash-preview',
+          model: 'models/gemini-2.5-flash-native-audio-preview-12-2025',
         });
       } catch {
         // handled by service events
@@ -939,6 +945,17 @@ function App() {
       bgmAudioRef.current = null;
     };
   }, [bgmUrl]);
+
+  // T1-4: AR scan state listener for ScanGuideOverlay
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { scanState: newState, pointCount } = (e as CustomEvent).detail;
+      setScanState(newState);
+      setScanPointCount(pointCount);
+    };
+    window.addEventListener('scan_state_change', handler);
+    return () => window.removeEventListener('scan_state_change', handler);
+  }, []);
 
   useEffect(() => {
     const unsubscribe = wsService.addHandler((payload: WebRTCDataChannelPayload) => {
@@ -1215,7 +1232,7 @@ function App() {
           >
             {t.enterAr}
           </button>
-          {DEBUG_UI && (
+          {debugVisible && (
             <button
               id="btn-match-end"
               className="hud-btn hud-btn-danger hud-btn-mini"
@@ -1254,6 +1271,14 @@ function App() {
               Lab
             </button>
           )}
+          <button
+            id="btn-debug-toggle"
+            className={`hud-btn hud-btn-mini ${debugVisible ? 'hud-btn-warn' : 'hud-btn-carbon'}`}
+            onClick={() => setDebugVisible(v => !v)}
+            title="Toggle debug panels"
+          >
+            {debugVisible ? '🛠 DEBUG ON' : '🛠 DEBUG'}
+          </button>
         </div>
       </header>
 
@@ -1324,9 +1349,6 @@ function App() {
           <button className="hud-btn hud-btn-carbon hud-btn-mini" onClick={sendLiveTextPing}>
             {t.sendLiveText}
           </button>
-          <button className="hud-btn hud-btn-steel hud-btn-mini" onClick={requestInteractionTurn}>
-            {t.testInteraction}
-          </button>
         </div>
         <div className="hud-profile-grid">
           <span>{t.matches}</span><strong>{profileView.totalMatches}</strong>
@@ -1351,8 +1373,9 @@ function App() {
             ))}
           </div>
         )}
-        {DEBUG_UI && (liveDebugInfo.tokenName || liveDebugInfo.interactionId || liveDebugInfo.interactionText || bgmUrl) && (
-          <div className="hud-block hud-dim">
+        {debugVisible && (liveDebugInfo.tokenName || liveDebugInfo.interactionId || liveDebugInfo.interactionText || bgmUrl) && (
+          <div className="hud-block hud-dim" style={{ borderLeft: '2px solid #ff6b6b' }}>
+            <div style={{ fontSize: '0.6rem', color: '#ff6b6b', fontWeight: 700, marginBottom: 2 }}>🛠 DEBUG INFO</div>
             {liveDebugInfo.tokenName && <div className="hud-truncate">{`Token: ${liveDebugInfo.tokenName}`}</div>}
             {liveDebugInfo.resumeHandle && <div className="hud-truncate">{`Resume: ${liveDebugInfo.resumeHandle}`}</div>}
             {liveDebugInfo.interactionId && <div className="hud-truncate">{`Interaction: ${liveDebugInfo.interactionId}`}</div>}
@@ -1362,33 +1385,14 @@ function App() {
         )}
       </aside>
 
-      {DEBUG_UI && (
-        <div className="hud-right-rail hud-animate">
+      {debugVisible && (
+        <div className="hud-right-rail hud-animate" style={{ borderLeft: '2px solid #ff6b6b' }}>
+          <div style={{ fontSize: '0.7rem', color: '#ff6b6b', fontWeight: 700, letterSpacing: '0.1em', marginBottom: 6 }}>🛠 DEBUG TOOLS</div>
           <button id="btn-fusion-drop" className="hud-btn hud-btn-amber" onClick={requestFusionDrop}>
             {t.dropFusion}
           </button>
-          <button id="btn-profile-sync" className="hud-btn hud-btn-carbon" onClick={requestProfileSync}>
-            {t.refreshMemory}
-          </button>
           <button id="btn-live-token" className="hud-btn hud-btn-blue" onClick={requestLiveEphemeralToken}>
             {t.issueLiveToken}
-          </button>
-          <button
-            id="btn-live-connect"
-            className={`hud-btn ${isLiveConnected ? 'hud-btn-green' : 'hud-btn-teal'}`}
-            onClick={isLiveConnected ? disconnectLiveDirect : connectLiveDirect}
-          >
-            {isLiveConnected ? t.disconnectLive : t.connectLive}
-          </button>
-          <button
-            id="btn-live-mic"
-            className={`hud-btn ${isLiveMicActive ? 'hud-btn-warn' : 'hud-btn-blue'}`}
-            onClick={toggleLiveMic}
-          >
-            {isLiveMicActive ? t.stopLiveMic : t.startLiveMic}
-          </button>
-          <button id="btn-live-text" className="hud-btn hud-btn-carbon" onClick={sendLiveTextPing}>
-            {t.sendLiveText}
           </button>
           <button id="btn-interaction-turn" className="hud-btn hud-btn-steel" onClick={requestInteractionTurn}>
             {t.testInteraction}
@@ -1409,7 +1413,7 @@ function App() {
             : (isStreaming ? t.casting : (battleState.specialReady ? t.castSpecial : `EX ${battleState.exGauge}/${EX_GAUGE.MAX}`)))}
       </button>
 
-      {DEBUG_UI && (
+      {debugVisible && (
         <button
           id="btn-p2p-media"
           className={`hud-btn hud-chip-btn ${isP2PMediaOn ? 'is-on' : 'is-off'}`}
@@ -1438,8 +1442,9 @@ function App() {
       </Canvas>
 
       <ServerDrivenPanel />
-      {DEBUG_UI && <AnimationDebugPanel />}
+      {debugVisible && <AnimationDebugPanel />}
       <DynamicSubtitle />
+      <ScanGuideOverlay scanState={scanState} pointCount={scanPointCount} />
       <RemoteStreamView />
       <ShareArenaModal
         roomId={ROOM_ID}

@@ -4,10 +4,13 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useArenaSyncStore } from '../store/useArenaSyncStore';
 
+export type ScanState = 'idle' | 'searching' | 'tracking' | 'ready' | 'unsupported';
+
 interface XRScannerState {
   isScanning: boolean;
   hoverMatrix: THREE.Matrix4 | null; // latest hit-test pose
   pointCloud: THREE.Vector3[];       // aggregated surface points for NavMesh build
+  scanState: ScanState;
 }
 
 /**
@@ -49,6 +52,7 @@ export const useWebXRScanner = () => {
     isScanning: false,
     hoverMatrix: null,
     pointCloud: [],
+    scanState: 'idle',
   });
 
   // ── Session Initialisation ─────────────────────────────────────────────────
@@ -76,11 +80,12 @@ export const useWebXRScanner = () => {
           hitSource = await (session as any).requestHitTestSource({ space: viewerSpace });
           if (!cancelled) {
             hitTestSourceRef.current = hitSource;
-            setState(s => ({ ...s, isScanning: true }));
+            setState(s => ({ ...s, isScanning: true, scanState: 'searching' }));
             console.log('[XR] Hit-test source acquired (viewer space)');
           }
         } else {
           console.warn('[XR] Hit-test not supported on this device – NavMesh will not build');
+          setState(s => ({ ...s, scanState: 'unsupported' }));
           window.dispatchEvent(new CustomEvent('show_subtitle', {
             detail: { text: 'お使いの端末はAR空間認識に対応していません。ロボットは平面上での動作になります。' }
           }));
@@ -159,7 +164,13 @@ export const useWebXRScanner = () => {
               };
             }
 
-            return { ...prev, hoverMatrix: m, pointCloud: nextCloud };
+            // Derive scanState from point cloud density
+            const nextScanState: ScanState =
+              nextCloud.length >= MIN_NAVMESH_POINTS
+                ? 'ready'
+                : 'tracking';
+
+            return { ...prev, hoverMatrix: m, pointCloud: nextCloud, scanState: nextScanState };
           });
         }
       }
@@ -226,6 +237,15 @@ export const useWebXRScanner = () => {
       }
     }
   });
+
+  // T1-4: Dispatch scanState changes for HTML overlay outside Canvas
+  useEffect(() => {
+    window.dispatchEvent(
+      new CustomEvent('scan_state_change', {
+        detail: { scanState: state.scanState, pointCount: state.pointCloud.length },
+      })
+    );
+  }, [state.scanState, state.pointCloud.length]);
 
   return {
     ...state,

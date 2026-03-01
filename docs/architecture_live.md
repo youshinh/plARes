@@ -22,7 +22,7 @@
 | 認証       | Ephemeral Token（バックエンド `/ws/game` で発行）          |
 | 用途       | **リアルタイム音声入出力**（Native Audio）、滑舌判定、実況 |
 | レイテンシ | 最低（バックエンド中継なし）                               |
-| モデル     | `gemini-live-2.5-flash-preview`                            |
+| モデル     | `gemini-2.5-flash-native-audio-preview-12-2025`            |
 
 ### Path B: バックエンド中継（ADKエージェント用）
 

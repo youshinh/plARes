@@ -39,9 +39,17 @@ async def test_handle_client_connection():
     Unit test for handle_client_connection.
     Mocks the ADK runner.run_live() so no real Gemini API call is made.
     """
-    mock_ws = AsyncMock()
-    # Simulate client sending 2 messages then disconnecting
-    mock_ws.__aiter__ = MagicMock(return_value=iter([]))
+    class DummyWebSocket:
+        def __init__(self):
+            self.send = AsyncMock()
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            raise StopAsyncIteration
+
+    mock_ws = DummyWebSocket()
 
     async def mock_run_live(**kwargs):
         # Simulate the runner emitting one event then stopping
@@ -49,8 +57,7 @@ async def test_handle_client_connection():
         mock_event.__class__.__name__ = "TextEvent"
         yield mock_event
 
-    with patch("ai_core.streaming.bidi_session.runner") as mock_runner:
-        mock_runner.run_live = mock_run_live
+    with patch("ai_core.streaming.bidi_session.runner.run_live", new=mock_run_live):
         await asyncio.wait_for(
             handle_client_connection("test_client_id", mock_ws),
             timeout=3.0

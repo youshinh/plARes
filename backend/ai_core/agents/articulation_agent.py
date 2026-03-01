@@ -42,7 +42,7 @@ def get_plares_agent() -> LlmAgent:
     """
     Initializes the global stateless App Agent using ADK.
     """
-    default_live_model = "models/gemini-live-2.5-flash-preview"
+    default_live_model = "models/gemini-2.5-flash-native-audio-preview-12-2025"
     model_name = os.getenv("PLARES_ADK_MODEL", default_live_model).strip() or default_live_model
 
     evaluate_articulation_tool = FunctionTool(evaluate_articulation)

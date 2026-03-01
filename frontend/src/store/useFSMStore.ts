@@ -80,6 +80,9 @@ interface FSMState {
   setModelType: (type: 'A' | 'B') => void;
   debugSetState: (nextState: State) => void;
   debugSetHp: (target: 'local' | 'enemy', value: number) => void;
+  // ── T1-3: Priority tracking for debug panel ──
+  prioritySource: 'P1' | 'P2' | 'P3' | 'debug' | 'system';
+  transitionLog: Array<{ ts: number; from: State; to: State; source: string }>;
 }
 
 
@@ -97,10 +100,14 @@ export const useFSMStore = create<FSMState>((set, get) => ({
   enemyHp: 100,
 
   modelType: 'A',
+  prioritySource: 'system' as const,
+  transitionLog: [],
   setModelType: (type) => set({ modelType: type }),
   debugSetState: (nextState) => {
+    const prev = get().currentState;
     get().clearEvadeTimeout();
-    set({ currentState: nextState, targetPosition: null });
+    const log = [...get().transitionLog, { ts: Date.now(), from: prev, to: nextState, source: 'debug' }].slice(-10);
+    set({ currentState: nextState, targetPosition: null, prioritySource: 'debug', transitionLog: log });
   },
   debugSetHp: (target, value) => {
     const hp = Math.max(0, Math.min(100, Math.round(value)));
@@ -216,10 +223,14 @@ export const useFSMStore = create<FSMState>((set, get) => ({
       });
     }, 1000);
 
+    const prev = get().currentState;
+    const log = [...get().transitionLog, { ts: Date.now(), from: prev, to: State.EMERGENCY_EVADE, source: 'P1' }].slice(-10);
     set({
       currentState: State.EMERGENCY_EVADE,
       targetPosition: target,
       evadeTimeout: timeoutMsg,
+      prioritySource: 'P1',
+      transitionLog: log,
     });
   },
 
@@ -250,9 +261,13 @@ export const useFSMStore = create<FSMState>((set, get) => ({
           null;
       }
 
+      const prev = state.currentState;
+      const log = [...state.transitionLog, { ts: Date.now(), from: prev, to: nextState, source: 'P2' }].slice(-10);
       return {
         currentState: nextState,
         targetPosition: nextTarget,
+        prioritySource: 'P2' as const,
+        transitionLog: log,
       };
     }),
 

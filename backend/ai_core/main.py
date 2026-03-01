@@ -126,12 +126,12 @@ INTERACTIONS_API_VERSION = (
 EPHEMERAL_MODEL = (
     os.getenv("PLARES_EPHEMERAL_MODEL")
     or os.getenv("PLARES_ADK_MODEL")
-    or "models/gemini-live-2.5-flash-preview"
+    or "models/gemini-2.5-flash-native-audio-preview-12-2025"
 )
 INTERACTIONS_MODEL = (
     os.getenv("PLARES_INTERACTIONS_MODEL")
     or os.getenv("PLARES_LIGHT_MODEL")
-    or "gemini-1.5-flash"
+    or "gemini-3-flash-preview"
 )
 EPHEMERAL_DEFAULT_USES = int(os.getenv("PLARES_EPHEMERAL_USES", "3"))
 EPHEMERAL_EXPIRE_MINUTES = int(os.getenv("PLARES_EPHEMERAL_EXPIRE_MINUTES", "10"))
@@ -158,8 +158,18 @@ REJECT_ITEM_DISTRUST_THRESHOLD = int(os.getenv("PLARES_REJECT_ITEM_DISTRUST_THRE
 PROACTIVE_LINE_MAX_CHARS = int(os.getenv("PLARES_PROACTIVE_LINE_MAX_CHARS", "15"))
 BGM_READY_DELAY_SEC = float(os.getenv("PLARES_BGM_READY_DELAY_SEC", "0.2"))
 DNA_EVOLUTION_MATCH_STEP = int(os.getenv("PLARES_DNA_EVOLUTION_MATCH_STEP", "5"))
-CRITICAL_THRESHOLD_BASE = float(os.getenv("PLARES_CRITICAL_THRESHOLD_BASE", "0.72"))
-SYNC_BONUS_FACTOR = float(os.getenv("PLARES_SYNC_BONUS_FACTOR", "0.16"))
+CRITICAL_THRESHOLD_BASE = float(
+    os.getenv(
+        "PLARES_CRITICAL_THRESHOLD",
+        os.getenv("PLARES_CRITICAL_THRESHOLD_BASE", "0.72"),
+    )
+)
+SYNC_BONUS_FACTOR = float(
+    os.getenv(
+        "PLARES_SYNC_BONUS",
+        os.getenv("PLARES_SYNC_BONUS_FACTOR", "0.16"),
+    )
+)
 SYNC_THRESHOLD_FACTOR = float(os.getenv("PLARES_SYNC_THRESHOLD_FACTOR", "0.08"))
 
 game_clients: dict[Any, dict[str, Any]] = {}
@@ -2588,11 +2598,13 @@ async def _emit_victory_bgm(
     highlight_summary: str,
 ) -> None:
     try:
+        bgm_url: str | None = None
         if milestone_generator is not None:
-            await milestone_generator.trigger_victory_music(winner_id, highlight_summary)
+            bgm_url = await milestone_generator.trigger_victory_music(
+                winner_id,
+                highlight_summary,
+            )
         await asyncio.sleep(max(0.0, BGM_READY_DELAY_SEC))
-        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        bgm_url = f"https://praresar.storage/audio/victory_{winner_id}_{stamp}.mp3"
         payload = {
             "type": "event",
             "data": {
@@ -2606,6 +2618,13 @@ async def _emit_victory_bgm(
                 },
             },
         }
+        print(json.dumps({
+            "event": "bgm_ready",
+            "room_id": room_id,
+            "winner": winner_id,
+            "loser": loser_id,
+            "url": bgm_url,
+        }))
         await _broadcast_room(room_id, payload)
     except Exception as exc:
         print(f"[AI] Failed to emit victory BGM: {exc}")
@@ -2668,6 +2687,12 @@ async def _broadcast_winner_interview_and_bgm(
     loser_lang: str,
 ) -> None:
     interview_text = await _generate_winner_interview(room_id, winner_id, loser_id, loser_lang)
+    print(json.dumps({
+        "event": "winner_interview",
+        "room_id": room_id,
+        "winner": winner_id,
+        "loser": loser_id,
+    }))
     interview_payload = {
         "type": "event",
         "data": {
