@@ -286,7 +286,11 @@ async def generate_robot_stats(
     """
     client = _get_client()
     if client is None:
-        return _fallback_result(preset_text)
+        result = _fallback_result(preset_text)
+        result["error_code"] = "model_unavailable"
+        result["is_fallback"] = True
+        print(json.dumps({"event": "character_generation", "error_code": "model_unavailable"}))
+        return result
 
     try:
         contents: list = []
@@ -336,8 +340,14 @@ async def generate_robot_stats(
 
     except Exception as exc:
         # JSON解析失敗・API障害時はフォールバック
-        print(f"[character_generator] Gemini API error: {exc}")
-        return _fallback_result(preset_text)
+        error_code = "gemini_api_error"
+        if "quota" in str(exc).lower() or "429" in str(exc):
+            error_code = "gemini_quota_exceeded"
+        print(json.dumps({"event": "character_generation", "error_code": error_code, "error": str(exc)}))
+        result = _fallback_result(preset_text)
+        result["error_code"] = error_code
+        result["is_fallback"] = True
+        return result
 
 
 def build_robot_profile(result: dict, sync_rate: float = DEFAULT_SYNC_RATE) -> dict:

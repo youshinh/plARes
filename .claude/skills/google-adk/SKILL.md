@@ -26,7 +26,8 @@ Whenever you are asked about ADK implementation, API specifications, or architec
 
 ## Coding Standards
 
-- **Model Selection**: Default to `gemini-2.5-flash` unless specified otherwise.
+- **Model Selection**: Default to `gemini-3-flash-preview` unless specified otherwise.
+- **Approved Models Only**: Restrict usage to models listed in `/AGENTS.MD` section "Approved Gemini Models & Usage Policy".
 - **Modularity**: Prioritize using `agents.LlmAgent` and modular tools defined in `google.adk.tools`.
 - **Integrity**: Cross-reference the user's current code with the documentation in `./resources` to identify deprecated patterns or API mismatches.
 

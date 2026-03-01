@@ -22,7 +22,7 @@ import {
   type CharacterActionSpec,
   type CharacterClipName,
 } from '../utils/characterAnimation';
-import { updateDepthOcclusionUniforms } from '../utils/depthOcclusion';
+import { patchDepthOcclusionMaterial, updateDepthOcclusionUniforms } from '../utils/depthOcclusion';
 
 const HEIGHT_DEBUG = import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEBUG_UI === 'true';
 const GROUND_CLEARANCE_EPSILON = 0.004;
@@ -216,6 +216,10 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
             m.needsUpdate = true;
             mesh.material = m;
             createdMaterials.push(m);
+            // Patch for AR depth occlusion (T1-2)
+            if (patchDepthOcclusionMaterial(m)) {
+              occlusionMaterialsRef.current.push(m);
+            }
           }
         }
       });

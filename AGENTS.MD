@@ -172,3 +172,34 @@ nlm list sources 46106b3a-80d5-4567-85c4-25dc3ee293cc
 ```
 
 > **IMPORTANT**: NotebookLM frequently holds more detailed and updated information than local `/docs/*.md` files. Thus, querying NotebookLM is highly prioritized.
+
+---
+
+## 8. Approved Gemini Models & Usage Policy
+
+> [!CAUTION]
+> **AGENTS MUST ONLY USE THE MODELS LISTED BELOW.** Do NOT use any other Gemini model variants (e.g., `gemini-1.5-pro`, `gemini-2.0-flash`, `gemini-pro`, etc.). Using an unlisted model is a project rule violation.
+
+The following models are the **only approved models** for this project. Select the model strictly based on its designated use case:
+
+| Model                                           | Primary Use Case in PlaresAR                                                                                                                                                                                                                   |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gemini-3.1-pro-preview`                        | **Deep reasoning & strategy** — Complex agentic workflows, macro-tactic decision-making, long-context match history analysis, software engineering tasks, and multi-step tool use (Agent 2 main brain).                                        |
+| `gemini-3-flash-preview`                        | **General backend inference** — Interactive agentic loops, fast function calling, JSON command generation, and moderate reasoning tasks where near-Pro quality is needed at lower latency (Agent 2 real-time inference).                       |
+| `gemini-flash-lite-latest`                      | **Lightweight / high-frequency tasks** — Cost-sensitive, high-volume, low-complexity tasks: simple JSON extraction, lightweight chat responses, health checks, and any non-critical inference that must be cheap and fast.                     |
+| `gemini-2.5-flash-native-audio-preview-12-2025` | **Real-time audio streaming** — Bidirectional voice conversation (Multimodal Live API), native audio semantic analysis (scoring player voice: accuracy / speed / spirit), live voice command recognition, and multi-speaker scenarios in-game. |
+| `gemini-2.5-flash-preview-tts`                  | **Text-to-Speech (non-streaming)** — Robot character voice generation, pre-rendered battle commentary narration, multi-character dialogue (podcasts, highlight reels), and any case where expressive TTS with style control is needed.         |
+| `gemini-3.1-flash-image-preview`                | **Image generation & editing** — Generating robot skin textures from audience submissions ("8-Image Mix"), T2I for robot appearance customization, real-time texture editing, and any image generation/editing pipeline.                       |
+
+### Decision Guide
+
+```
+Need deep strategy / complex agent loop?      → gemini-3.1-pro-preview
+Need fast agent inference / function calling? → gemini-3-flash-preview
+High-volume / cheap / simple task?            → gemini-flash-lite-latest
+Real-time voice in/out (Live API)?            → gemini-2.5-flash-native-audio-preview-12-2025
+Pre-rendered TTS / narration?                 → gemini-2.5-flash-preview-tts
+Image generation or editing?                  → gemini-3.1-flash-image-preview
+```
+
+> **IMPORTANT**: When in doubt between Flash and Pro, default to `gemini-3-flash-preview`. Only escalate to `gemini-3.1-pro-preview` when the task explicitly requires frontier-level reasoning or very long context (>500k tokens).

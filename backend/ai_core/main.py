@@ -158,6 +158,9 @@ REJECT_ITEM_DISTRUST_THRESHOLD = int(os.getenv("PLARES_REJECT_ITEM_DISTRUST_THRE
 PROACTIVE_LINE_MAX_CHARS = int(os.getenv("PLARES_PROACTIVE_LINE_MAX_CHARS", "15"))
 BGM_READY_DELAY_SEC = float(os.getenv("PLARES_BGM_READY_DELAY_SEC", "0.2"))
 DNA_EVOLUTION_MATCH_STEP = int(os.getenv("PLARES_DNA_EVOLUTION_MATCH_STEP", "5"))
+CRITICAL_THRESHOLD_BASE = float(os.getenv("PLARES_CRITICAL_THRESHOLD_BASE", "0.72"))
+SYNC_BONUS_FACTOR = float(os.getenv("PLARES_SYNC_BONUS_FACTOR", "0.16"))
+SYNC_THRESHOLD_FACTOR = float(os.getenv("PLARES_SYNC_THRESHOLD_FACTOR", "0.08"))
 
 game_clients: dict[Any, dict[str, Any]] = {}
 room_members: dict[str, set[Any]] = defaultdict(set)
@@ -2383,11 +2386,12 @@ def _build_audio_result(
             passion = pcm_passion
 
     base_total = (accuracy * 0.45) + (speed * 0.2) + (passion * 0.35)
-    sync_bonus = (sync_rate - 0.5) * 0.16
+    sync_bonus = (sync_rate - 0.5) * SYNC_BONUS_FACTOR
     total = _clamp01(base_total + sync_bonus)
-    critical_threshold = _clamp01(0.72 - (sync_rate * 0.08))
+    critical_threshold = _clamp01(CRITICAL_THRESHOLD_BASE - (sync_rate * SYNC_THRESHOLD_FACTOR))
     verdict = "critical" if total >= critical_threshold else "miss"
-    return {
+
+    result = {
         "accuracy": round(accuracy, 3),
         "speed": round(speed, 3),
         "passion": round(passion, 3),
@@ -2399,6 +2403,20 @@ def _build_audio_result(
         "is_miss": verdict != "critical",
         "action": "heavy_attack" if verdict == "critical" else "stumble",
     }
+    # T2-2: structured JSON log for voice judge monitoring
+    print(json.dumps({
+        "event": "voice_judge",
+        "result": verdict,
+        "score": round(total, 3),
+        "threshold": round(critical_threshold, 3),
+        "accuracy": round(accuracy, 3),
+        "speed": round(speed, 3),
+        "passion": round(passion, 3),
+        "sync_rate": round(sync_rate, 3),
+        "frame_count": frame_count,
+        "elapsed_sec": round(elapsed, 3),
+    }))
+    return result
 
 def _normalize_persona_tone(raw_prompt: str) -> str:
     prompt = (raw_prompt or "").strip()
@@ -3358,14 +3376,14 @@ async def handle_character_connection(websocket: Any, request_path: str) -> None
             )
             await websocket.send(json.dumps(result, ensure_ascii=False))
         else:
-            await websocket.send(json.dumps({"error": "Character generator not available"}))
+            await websocket.send(json.dumps({"error": "Character generator not available", "error_code": "module_not_loaded"}))
             
     except ConnectionClosed:
         pass
     except Exception as e:
-        print(f"[CHARACTER_API] Error: {e}")
+        print(json.dumps({"event": "character_generation", "error_code": "server_error", "error": str(e)}))
         try:
-            await websocket.send(json.dumps({"error": str(e)}))
+            await websocket.send(json.dumps({"error": str(e), "error_code": "server_error"}))
         except:
             pass
     finally:

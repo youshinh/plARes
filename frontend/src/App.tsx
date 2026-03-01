@@ -203,7 +203,7 @@ const store = createXRStore({
 
 // ── Inner scene (must render inside Canvas + XR) ─────────────────────────────
 const MainScene: React.FC = () => {
-  const { hoverMatrix } = useWebXRScanner();
+  const { hoverMatrix, depthTexture, depthRawToMeters } = useWebXRScanner();
   useVoiceController();
   useAICommandListener();
 
@@ -237,7 +237,7 @@ const MainScene: React.FC = () => {
       <pointLight position={[2.2, 1.1, -1.5]} intensity={0.55} color="#FFB26B" />
       <Environment preset="sunset" />
       <RobotCharacter />
-      <RemoteRobotCharacter />
+      <RemoteRobotCharacter depthTexture={depthTexture} depthRawToMeters={depthRawToMeters} />
 
       {/* Hit-test placement ring */}
       {indicatorPos && (
@@ -311,6 +311,7 @@ function App() {
   const [isLabOpen, setIsLabOpen] = useState(false);
   const [recentABFeedbackCount, setRecentABFeedbackCount] = useState(0);
   const [bgmUrl, setBgmUrl] = useState('');
+  const bgmAudioRef = useRef<HTMLAudioElement | null>(null);
   const [showLanguageChooser] = useState<boolean>(() => {
     try {
       return !localStorage.getItem(STORAGE_LANG_SELECTED_KEY);
@@ -917,6 +918,27 @@ function App() {
     if (!isLiveConnected) return;
     geminiLiveService.sendClientText('現在の戦況を短く実況してください。');
   };
+
+  // T2-4: BGM audio playback when bgm_ready event provides a URL
+  useEffect(() => {
+    if (bgmAudioRef.current) {
+      bgmAudioRef.current.pause();
+      bgmAudioRef.current = null;
+    }
+    if (!bgmUrl) return;
+    const audio = new Audio(bgmUrl);
+    audio.volume = 0.5;
+    audio.loop = false;
+    bgmAudioRef.current = audio;
+    audio.play().catch((err) => {
+      console.warn('[BGM] Autoplay blocked or load failed:', err);
+    });
+    return () => {
+      audio.pause();
+      audio.src = '';
+      bgmAudioRef.current = null;
+    };
+  }, [bgmUrl]);
 
   useEffect(() => {
     const unsubscribe = wsService.addHandler((payload: WebRTCDataChannelPayload) => {

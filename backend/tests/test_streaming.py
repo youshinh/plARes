@@ -3,7 +3,8 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from ai_core.streaming.live_queue import LiveRequestQueue
-from ai_core.streaming.bidi_session import handle_client_connection, get_plares_agent
+from ai_core.streaming.bidi_session import handle_client_connection
+from ai_core.agents.articulation_agent import get_plares_agent
 
 
 @pytest.mark.asyncio

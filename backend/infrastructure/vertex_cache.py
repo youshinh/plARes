@@ -1,6 +1,7 @@
 import logging
 import asyncio
 import datetime
+import json
 import os
 from typing import Dict, Any
 
@@ -8,6 +9,8 @@ from google import genai
 from google.genai import types
 
 logger = logging.getLogger(__name__)
+
+CACHE_TTL_SECONDS = int(os.getenv("PLARES_CACHE_TTL_SECONDS", "3600"))
 
 class VertexContextCache:
     """
@@ -21,14 +24,14 @@ class VertexContextCache:
         
     async def load_historical_context(self, user_id: str, system_instruction: str, contents: list) -> str:
         """
-        Creates a cache on Vertex AI for 60 minutes.
+        Creates a cache on Vertex AI for the configured TTL (default: 1 hour).
         """
         logger.info(f"Creating Vertex AI Context Cache with {len(contents)} documents for User {user_id}")
         
         try:
             # We use an ephemeral client for cache creation based on environment
             client = genai.Client()
-            model_name = os.getenv("PLARES_INTERACTIONS_MODEL", "gemini-2.0-flash-exp")
+            model_name = os.getenv("PLARES_INTERACTIONS_MODEL", "gemini-3-flash-preview")
             if not model_name.startswith("models/"):
                 model_name = f"models/{model_name}"
             
@@ -38,7 +41,7 @@ class VertexContextCache:
                     config=types.CreateCacheConfig(
                         system_instruction=system_instruction,
                         contents=contents,
-                        ttl=f"{60 * 60}s",
+                        ttl=f"{CACHE_TTL_SECONDS}s",
                     )
                 )
                 
@@ -46,12 +49,38 @@ class VertexContextCache:
             
             cache_id = cache.name
             self.active_caches[user_id] = cache_id
-            logger.info(f"Context Caching successful. Cache ID: {cache_id}")
+            # T3-3: structured JSON log for cache creation
+            print(json.dumps({
+                "event": "context_cache",
+                "action": "create",
+                "result": "success",
+                "user_id": user_id,
+                "cache_id": cache_id,
+                "ttl_seconds": CACHE_TTL_SECONDS,
+                "doc_count": len(contents),
+            }))
             return cache_id
         except Exception as e:
+            # T3-3: structured JSON log for cache creation failure
+            print(json.dumps({
+                "event": "context_cache",
+                "action": "create",
+                "result": "error",
+                "user_id": user_id,
+                "error": str(e),
+            }))
             logger.error(f"Failed to create Context Cache: {e}")
             return ""
             
     def get_cache_for_user(self, user_id: str) -> str:
-        return self.active_caches.get(user_id, "")
-
+        cache_id = self.active_caches.get(user_id, "")
+        hit = bool(cache_id)
+        # T3-3: structured JSON log for cache hit/miss monitoring
+        print(json.dumps({
+            "event": "context_cache",
+            "action": "lookup",
+            "result": "hit" if hit else "miss",
+            "user_id": user_id,
+            "cache_id": cache_id if hit else None,
+        }))
+        return cache_id

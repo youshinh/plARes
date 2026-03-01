@@ -79,7 +79,17 @@ export function useCharacterSetup() {
           try {
             const result = JSON.parse(event.data);
             if (result.error) reject(new Error(result.error));
-            else resolve(result);
+            else {
+              // T2-3: If the result is a fallback, warn the user but still resolve
+              if (result.is_fallback || result.error_code) {
+                const code = result.error_code || 'unknown';
+                console.warn(`[useCharacterSetup] Fallback result used (error_code: ${code})`);
+                window.dispatchEvent(new CustomEvent('show_subtitle', {
+                  detail: { text: `AI生成が一時的に利用不可のためデフォルト値を使用しました (${code})` }
+                }));
+              }
+              resolve(result);
+            }
           } catch (e) {
             reject(new Error('Failed to parse generation result'));
           } finally {

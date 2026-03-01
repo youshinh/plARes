@@ -1,22 +1,30 @@
 # Claude Code Skills Directory
 
-This directory (`.claude/skills` and `.claudecode/skills`) is reserved for **Claude Code Skills**.
-As described in [Supercharge ADK Development with Claude Code Skills](https://medium.com/google-cloud/supercharge-adk-development-with-claude-code-skills-d192481cbe72), Claude Code intelligently discovers and loads specialized capabilities placed in these folders.
+This directory (`.claude/skills` and `.claudecode/skills`) is reserved for Claude Code Skills.
 
-## Adding a Skill
+## Active Skills
 
-To add a new skill to this project:
+- `google-adk`: ADK implementation guidance aligned with PlaresAR model policy.
+- `plares-e2e-testing`: Existing smoke-test execution and debugging flow.
+- `plares-search-first`: Research-before-implementation workflow.
+- `plares-contract-first-api`: Contract-first JSON/API/WebSocket design guardrails.
+- `plares-verification-loop`: Quality-gate checklist before handoff or PR.
+- `plares-e2e-ops`: PlaresAR E2E extension workflow (battle event checks).
+- `plares-security-review`: Security checklist for tokens, MCP, WebRTC/WebSocket, and secrets.
+- `plares-cost-gating`: Dynamic gating and model-routing policy for approved Gemini models.
 
-1. Create a new subfolder for your skill (e.g., `.claude/skills/adk-core/`).
-2. Inside the folder, create a `SKILL.md` file.
-3. Add the required YAML frontmatter at the top of `SKILL.md`:
-   ```yaml
-   ---
-   name: your-skill-name
-   description: A detailed description of when Claude should invoke this skill.
-   ---
-   ```
-4. Below the frontmatter, write Markdown instructions for Claude to follow when executing the skill.
-5. (Optional) Provide supporting scripts (Python, JS, etc.) or JSON templates in the same folder.
+## Imported and Adapted
 
-Claude will automatically parse this folder and utilize the skills contextually when assisting with the ADK or project development.
+The following skills were adapted on 2026-03-01 from:
+
+- Repo: `https://github.com/affaan-m/everything-claude-code`
+- Sources:
+  - `skills/search-first`
+  - `skills/api-design`
+  - `skills/verification-loop`
+  - `skills/e2e-testing`
+  - `skills/security-review`
+  - `skills/cost-aware-llm-pipeline`
+
+All adapted skills are customized to PlaresAR constraints in `AGENTS.MD`,
+`docs/architecture_live.md`, and `docs/15.プラレスAR：開発実行計画（タスク分解）.md`.
