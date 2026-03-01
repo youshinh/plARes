@@ -4,6 +4,7 @@
 
 ![plARes Display](img/display.png)
 ![plARes Mobile](img/mobile.png)
+![plARes Game Flow](img/flow.png)
 
 ---
 
@@ -41,7 +42,7 @@ The central hub for all technical and game design documents.
 ## 🛠 Tech Stack
 
 - **Frontend**: React, Three.js (React Three Fiber), WebXR, WebRTC.
-- **Backend**: Python (FastAPI), Google ADK (Agent Development Kit), Gemini 1.5/2.0 API.
+- **Backend**: Python (FastAPI), Google ADK (Agent Development Kit), Gemini API.
 - **Infrastructure**: Google Cloud Run, Firestore, Firebase Realtime DB, MediaPipe.
 
 ---

@@ -10,6 +10,7 @@
 
 | Date       | Owner    | TaskID | Directory                   | Status | NextAction                                              | Blocker |
 | ---------- | -------- | ------ | --------------------------- | ------ | ------------------------------------------------------- | ------- |
+| 2026-03-01 | Codex    | T1-17  | /frontend/src               | DONE   | 修行/散歩モード導線実装（モード切替、開始/完了、walk_vision_trigger送信、HUD表示） | なし    |
 | 2026-03-01 | Codex    | T1-16  | /backend, /docs, /cloudbuild | DONE   | Gemini APIキーを `GEMINI_API_KEY` に統一（コード参照先 + Cloud Build secrets + checklist更新） | なし    |
 | 2026-03-01 | Codex    | T1-15  | /frontend/src, /backend/ai_core | DONE   | 生成レスポンス正規化でstats欠落クラッシュ防止 + MediaPipe URL修正(0.10.20) + WS未接続時sync圧縮 | なし    |
 | 2026-03-01 | Codex    | T1-14  | /frontend/src               | DONE   | AR対応判定(isSessionSupported)追加 + iPhone等非対応端末でARボタン無効化と代替案内 | なし    |

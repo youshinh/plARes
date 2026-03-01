@@ -43,6 +43,7 @@ const DEBUG_UI = import.meta.env.VITE_ENABLE_DEBUG_UI === 'true';
 const CHARACTER_LAB_UI = import.meta.env.VITE_ENABLE_CHARACTER_LAB !== 'false';
 const STORAGE_LANG_KEY = 'plares_lang';
 const STORAGE_LANG_SELECTED_KEY = 'plares_lang_selected';
+const STORAGE_PLAY_MODE_KEY = 'plares_play_mode';
 const IS_ANDROID_CHROME = (() => {
   if (typeof navigator === 'undefined') return false;
   const ua = navigator.userAgent || '';
@@ -52,6 +53,12 @@ const SHADOWS_ENABLED = !IS_ANDROID_CHROME;
 const xrResizeGuardInstalled = new WeakSet<THREE.WebGLRenderer>();
 
 type UiLang = 'ja' | 'en' | 'es';
+type PlayMode = 'match' | 'training' | 'walk';
+
+type ModeSession = {
+  id: string;
+  startedAt: string;
+};
 
 const toUiLang = (raw: string): UiLang => {
   const value = (raw || '').toLowerCase();
@@ -93,6 +100,9 @@ const formatArEnterError = (error: unknown, lang: UiLang): string => {
     ? 'ARセッションの開始に失敗しました。ページ再読み込み後に再実行してください。'
     : 'Failed to start AR session. Reload the page and try again.';
 };
+
+const createModeSessionId = (prefix: 'training' | 'walk') =>
+  `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
 
 const clampHp = (value: number, maxHp: number): number =>
   Math.max(0, Math.min(value, maxHp));
@@ -179,6 +189,18 @@ const UI_TEXT: Record<UiLang, Record<string, string>> = {
     alignNeedSurface: 'AR平面が未検出です。床を映して再実行してください。',
     alignShared: '位置合わせ基準を共有しました',
     alignPeerSynced: '相手の位置合わせ情報を受信',
+    mode: 'モード',
+    modeMatch: '試合',
+    modeTraining: '修行',
+    modeWalk: '散歩',
+    startTraining: '修行開始',
+    completeTraining: '修行完了',
+    startWalk: '散歩開始',
+    completeWalk: '散歩完了',
+    sendWalkVision: '散歩トリガー',
+    trainingNotStarted: '修行セッションが開始されていません',
+    walkNotStarted: '散歩セッションが開始されていません',
+    walkOnlyHint: '散歩モード中に利用できます',
     voiceAckPrefix: '音声',
     voiceCmdSpecial: '必殺技',
     voiceCmdDodge: '回避',
@@ -230,6 +252,18 @@ const UI_TEXT: Record<UiLang, Record<string, string>> = {
     alignNeedSurface: 'No AR surface detected yet. Point the camera at the floor and retry.',
     alignShared: 'Shared arena alignment marker.',
     alignPeerSynced: 'Opponent alignment data received.',
+    mode: 'Mode',
+    modeMatch: 'Match',
+    modeTraining: 'Training',
+    modeWalk: 'Walk',
+    startTraining: 'Start Training',
+    completeTraining: 'Complete Training',
+    startWalk: 'Start Walk',
+    completeWalk: 'Complete Walk',
+    sendWalkVision: 'Walk Trigger',
+    trainingNotStarted: 'Training session has not started.',
+    walkNotStarted: 'Walk session has not started.',
+    walkOnlyHint: 'Available only in walk mode.',
     voiceAckPrefix: 'Voice',
     voiceCmdSpecial: 'Special',
     voiceCmdDodge: 'Dodge',
@@ -281,6 +315,18 @@ const UI_TEXT: Record<UiLang, Record<string, string>> = {
     alignNeedSurface: 'Aun no se detecta una superficie AR. Enfoca el suelo y reintenta.',
     alignShared: 'Marcador de alineacion compartido.',
     alignPeerSynced: 'Datos de alineacion del rival recibidos.',
+    mode: 'Modo',
+    modeMatch: 'Partida',
+    modeTraining: 'Entreno',
+    modeWalk: 'Paseo',
+    startTraining: 'Iniciar Entreno',
+    completeTraining: 'Completar Entreno',
+    startWalk: 'Iniciar Paseo',
+    completeWalk: 'Completar Paseo',
+    sendWalkVision: 'Disparar Paseo',
+    trainingNotStarted: 'La sesion de entrenamiento no ha comenzado.',
+    walkNotStarted: 'La sesion de paseo no ha comenzado.',
+    walkOnlyHint: 'Disponible solo en modo paseo.',
     voiceAckPrefix: 'Voz',
     voiceCmdSpecial: 'Especial',
     voiceCmdDodge: 'Esquivar',
@@ -413,6 +459,17 @@ function App() {
   const [isLiveMicActive, setIsLiveMicActive] = useState(false);
   const [isMatchPaused, setIsMatchPaused] = useState(false);
   const [voiceAckText, setVoiceAckText] = useState('');
+  const [playMode, setPlayMode] = useState<PlayMode>(() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_PLAY_MODE_KEY);
+      if (stored === 'training' || stored === 'walk' || stored === 'match') return stored;
+    } catch {
+      // noop
+    }
+    return 'match';
+  });
+  const [trainingSession, setTrainingSession] = useState<ModeSession | null>(null);
+  const [walkSession, setWalkSession] = useState<ModeSession | null>(null);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isShareOpen, setIsShareOpen] = useState(false);
   const [isLabOpen, setIsLabOpen] = useState(false);
@@ -481,6 +538,146 @@ function App() {
     }
     window.location.reload();
   };
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_PLAY_MODE_KEY, playMode);
+    } catch {
+      // noop
+    }
+  }, [playMode]);
+
+  const modeLabel =
+    playMode === 'training' ? t.modeTraining :
+    playMode === 'walk' ? t.modeWalk :
+    t.modeMatch;
+
+  const switchMode = (nextMode: PlayMode) => {
+    setPlayMode(nextMode);
+    window.dispatchEvent(new CustomEvent('show_subtitle', {
+      detail: {
+        text:
+          nextMode === 'training'
+            ? `${t.mode}: ${t.modeTraining}`
+            : nextMode === 'walk'
+              ? `${t.mode}: ${t.modeWalk}`
+              : `${t.mode}: ${t.modeMatch}`,
+      },
+    }));
+  };
+
+  const startTraining = () => {
+    const session: ModeSession = {
+      id: createModeSessionId('training'),
+      startedAt: new Date().toISOString(),
+    };
+    setTrainingSession(session);
+    switchMode('training');
+    window.dispatchEvent(new CustomEvent('show_subtitle', {
+      detail: { text: `${t.startTraining} (#${session.id.slice(-6)})` },
+    }));
+  };
+
+  const completeTraining = () => {
+    if (!trainingSession) {
+      window.dispatchEvent(new CustomEvent('show_subtitle', {
+        detail: { text: t.trainingNotStarted },
+      }));
+      return;
+    }
+    const endedAt = new Date().toISOString();
+    wsService.sendEvent({
+      event: 'buff_applied',
+      user: PLAYER_ID,
+      payload: {
+        kind: 'training_complete',
+        sessionId: trainingSession.id,
+        startedAt: trainingSession.startedAt,
+        endedAt,
+        drillType: 'voice_reaction',
+        result: battleState.hp > 0 ? 'SUCCESS' : 'FAILURE',
+        accuracyScore: Number(Math.min(1, Math.max(0, battleState.exGauge / EX_GAUGE.MAX)).toFixed(3)),
+        speedScore: Number(Math.min(1, Math.max(0, profileView.syncRate)).toFixed(3)),
+        passionScore: Number((battleState.heatActive ? 0.85 : 0.55).toFixed(3)),
+        retryCount: 0,
+        highlights: [
+          `hp:${battleState.hp}/${battleState.maxHp}`,
+          `enemy:${battleState.opponentHp}/${battleState.opponentMaxHp}`,
+          `ex:${battleState.exGauge}`,
+        ],
+        aiComment: 'Training completed from frontend HUD',
+        syncRateAfter: profileView.syncRate,
+      },
+    });
+    setTrainingSession(null);
+    switchMode('match');
+    window.dispatchEvent(new CustomEvent('show_subtitle', {
+      detail: { text: t.completeTraining },
+    }));
+  };
+
+  const startWalk = () => {
+    const session: ModeSession = {
+      id: createModeSessionId('walk'),
+      startedAt: new Date().toISOString(),
+    };
+    setWalkSession(session);
+    switchMode('walk');
+    window.dispatchEvent(new CustomEvent('show_subtitle', {
+      detail: { text: `${t.startWalk} (#${session.id.slice(-6)})` },
+    }));
+  };
+
+  const completeWalk = () => {
+    if (!walkSession) {
+      window.dispatchEvent(new CustomEvent('show_subtitle', {
+        detail: { text: t.walkNotStarted },
+      }));
+      return;
+    }
+    const endedAt = new Date().toISOString();
+    wsService.sendEvent({
+      event: 'buff_applied',
+      user: PLAYER_ID,
+      payload: {
+        kind: 'walk_complete',
+        sessionId: walkSession.id,
+        startedAt: walkSession.startedAt,
+        endedAt,
+        routeSummary: 'HUD walk route',
+        foundItems: [],
+        proactiveAudioHighlights: [],
+        visionTriggers: [],
+        aiComment: 'Walk completed from frontend HUD',
+        syncRateAfter: profileView.syncRate,
+      },
+    });
+    setWalkSession(null);
+    switchMode('match');
+    window.dispatchEvent(new CustomEvent('show_subtitle', {
+      detail: { text: t.completeWalk },
+    }));
+  };
+
+  const sendWalkVisionTrigger = () => {
+    if (playMode !== 'walk') {
+      window.dispatchEvent(new CustomEvent('show_subtitle', {
+        detail: { text: t.walkOnlyHint },
+      }));
+      return;
+    }
+    wsService.sendEvent({
+      event: 'walk_vision_trigger',
+      user: PLAYER_ID,
+      payload: {
+        trigger: 'environment',
+        context: 'manual_hud_trigger',
+      },
+    });
+    window.dispatchEvent(new CustomEvent('show_subtitle', {
+      detail: { text: t.sendWalkVision },
+    }));
+  };
+
   const publishArenaCalibration = () => {
     const sample = useArenaSyncStore.getState().latestSample;
     if (!sample) {
@@ -1576,7 +1773,46 @@ function App() {
             {t.sendLiveText}
           </button>
         </div>
+        <div className="hud-main-commands">
+          <button
+            className={`hud-btn hud-btn-mini ${playMode === 'match' ? 'hud-btn-blue' : 'hud-btn-carbon'}`}
+            onClick={() => switchMode('match')}
+          >
+            {t.modeMatch}
+          </button>
+          <button
+            className={`hud-btn hud-btn-mini ${playMode === 'training' ? 'hud-btn-blue' : 'hud-btn-carbon'}`}
+            onClick={() => switchMode('training')}
+          >
+            {t.modeTraining}
+          </button>
+          <button
+            className={`hud-btn hud-btn-mini ${playMode === 'walk' ? 'hud-btn-blue' : 'hud-btn-carbon'}`}
+            onClick={() => switchMode('walk')}
+          >
+            {t.modeWalk}
+          </button>
+          <button
+            className="hud-btn hud-btn-steel hud-btn-mini"
+            onClick={playMode === 'walk' ? sendWalkVisionTrigger : requestProfileSync}
+          >
+            {playMode === 'walk' ? t.sendWalkVision : t.refreshMemory}
+          </button>
+          <button
+            className={`hud-btn hud-btn-mini ${playMode === 'training' ? 'hud-btn-teal' : 'hud-btn-carbon'}`}
+            onClick={trainingSession ? completeTraining : startTraining}
+          >
+            {trainingSession ? t.completeTraining : t.startTraining}
+          </button>
+          <button
+            className={`hud-btn hud-btn-mini ${playMode === 'walk' ? 'hud-btn-teal' : 'hud-btn-carbon'}`}
+            onClick={walkSession ? completeWalk : startWalk}
+          >
+            {walkSession ? t.completeWalk : t.startWalk}
+          </button>
+        </div>
         <div className="hud-profile-grid">
+          <span>{t.mode}</span><strong>{modeLabel}</strong>
           <span>AR</span><strong>{isARSessionActive ? `${scanState} (${scanPointCount})` : 'OFF'}</strong>
           <span>{t.matches}</span><strong>{profileView.totalMatches}</strong>
           <span>{t.training}</span><strong>{profileView.totalTrainingSessions}</strong>
