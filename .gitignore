@@ -48,8 +48,27 @@ lerna-debug.log*
 Thumbs.db
 ehthumbs.db
 Desktop.ini
-.claude/
-.agents/
+
+# ==========================
+# Agent Config (selective tracking)
+# ==========================
+# Keep repository-shared skills/rules tracked, ignore local runtime/cache.
+.claude/*
+!.claude/README.md
+!.claude/skills/
+!.claude/skills/**
+.claude/skills/google-adk/resources/
+.claude/**/.env*
+.claude/**/secrets*
+.claude/cache/
+.claude/tmp/
+
+.agents/*
+!.agents/rules/
+!.agents/rules/**
+.agents/**/*.log
+.agents/**/tmp/
+.agents/**/cache/
 
 # ==========================
 # Editors / IDEs
