@@ -172,6 +172,11 @@ export const useVoiceController = () => {
           scheduleRestart(1200 * deniedRetryCountRef.current);
           return;
         }
+        if (event.error === 'no-speech') {
+          // Normal on mobile when ambient audio drops; avoid noisy warning logs.
+          console.info('[VoiceController] no-speech; waiting for next input.');
+          return;
+        }
         console.warn('[VoiceController] SpeechRecognition error, will restart:', event.error);
       };
 

@@ -60,7 +60,10 @@ def _get_genai_client():
     """Return a genai.Client or None if SDK/API key unavailable."""
     if genai is None:
         return None
-    api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+    api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    # Enforce GEMINI_API_KEY as single source of truth for SDK initialization.
+    if api_key and os.getenv("GOOGLE_API_KEY"):
+        os.environ.pop("GOOGLE_API_KEY", None)
     if not api_key:
         return None
     try:

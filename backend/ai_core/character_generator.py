@@ -82,7 +82,10 @@ _TEXT_USER_PROMPT = """\
 def _get_client() -> Optional[object]:
     if genai is None:
         return None
-    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    # Enforce GEMINI_API_KEY as single source of truth for SDK initialization.
+    if api_key and os.getenv("GOOGLE_API_KEY"):
+        os.environ.pop("GOOGLE_API_KEY", None)
     if not api_key:
         return None
     try:
@@ -224,9 +227,27 @@ def _normalize_result(raw: dict, face_image_base64: Optional[str], preset_text: 
             material_type=material_type,
         )
 
+    # Canonical contract-first shape (frontend/shared types) + legacy flat keys.
     return {
         "name":     name,
         "material": material,
+        "stats": {
+            "power": stats["power"],
+            "speed": stats["speed"],
+            "vit": stats["vit"],
+        },
+        "personality": {
+            "talkSkill": stats["talkSkill"],
+            "adlibSkill": stats["adlibSkill"],
+            "tone": tone,
+        },
+        "network": {
+            "syncRate": DEFAULT_SYNC_RATE,
+            "unison": DEFAULT_UNISON,
+        },
+        "characterDna": character_dna,
+
+        # Backward compatibility for older clients.
         "power":    stats["power"],
         "speed":    stats["speed"],
         "vit":      stats["vit"],
@@ -250,11 +271,14 @@ def _fallback_result(preset_text: Optional[str]) -> dict:
     result = {
         "name": "レスラーMk1",
         "material": "Wood",
-        "power": power, "speed": speed, "vit": vit,
-        "talk_skill": talk_skill, "adlib_skill": adlib,
+        "power": power,
+        "speed": speed,
+        "vit": vit,
+        "talk_skill": talk_skill,
+        "adlib_skill": adlib,
         "tone": tone,
     }
-    result["character_dna"] = _build_character_dna(
+    character_dna = _build_character_dna(
         name=result["name"],
         material=result["material"],
         tone=result["tone"],
@@ -265,6 +289,22 @@ def _fallback_result(preset_text: Optional[str]) -> dict:
         preset_text=preset_text,
         material_type="plastic",
     )
+    result["character_dna"] = character_dna
+    result["characterDna"] = character_dna
+    result["stats"] = {
+        "power": result["power"],
+        "speed": result["speed"],
+        "vit": result["vit"],
+    }
+    result["personality"] = {
+        "talkSkill": result["talk_skill"],
+        "adlibSkill": result["adlib_skill"],
+        "tone": result["tone"],
+    }
+    result["network"] = {
+        "syncRate": DEFAULT_SYNC_RATE,
+        "unison": DEFAULT_UNISON,
+    }
     return result
 
 

@@ -596,6 +596,17 @@ def _save_match_log_to_firestore(user_id: str, match_log: dict[str, Any]) -> Non
         return
 
 
+def _resolve_gemini_api_key() -> str:
+    """
+    Resolve API key from GEMINI_API_KEY only.
+    If legacy GOOGLE_API_KEY is also set, remove it to avoid SDK-side precedence.
+    """
+    api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    if api_key and os.getenv("GOOGLE_API_KEY"):
+        os.environ.pop("GOOGLE_API_KEY", None)
+    return api_key
+
+
 def _get_genai_client(api_version: str) -> Any | None:
     global _genai_disabled_reason
     cached = _genai_clients.get(api_version)
@@ -604,7 +615,7 @@ def _get_genai_client(api_version: str) -> Any | None:
     if genai is None or genai_types is None:
         _genai_disabled_reason = "google_genai_unavailable"
         return None
-    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    api_key = _resolve_gemini_api_key()
     if not api_key:
         _genai_disabled_reason = "api_key_missing"
         return None

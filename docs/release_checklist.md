@@ -10,7 +10,7 @@
 - [ ] `python3 -m py_compile` — 全 backend モジュール OK
 - [ ] `npm run build` — production ビルド成功
 - [ ] Dead code 削除済み (T3-4)
-- [ ] `.env` に本番用 `GOOGLE_API_KEY` 設定
+- [ ] `.env` に本番用 `GEMINI_API_KEY` 設定
 
 ### テスト
 

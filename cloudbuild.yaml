@@ -63,7 +63,7 @@ steps:
       - "--timeout=3600" # 1h: WebSocket long-running sessions
       - "--session-affinity" # Required for sticky WebSocket sessions
       - "--set-env-vars=PLARES_HOST=0.0.0.0,PLARES_FIRESTORE_MODE=auto,GCP_PROJECT=$PROJECT_ID"
-      - "--set-secrets=GEMINI_API_KEY=GEMINI_API_KEY:latest,GOOGLE_API_KEY=GOOGLE_API_KEY:latest"
+      - "--set-secrets=GEMINI_API_KEY=GEMINI_API_KEY:latest"
     waitFor: ["push-backend"]
 
   # ── Deploy Frontend to Cloud Run ───────────────────────────────────

@@ -21,6 +21,7 @@ class WebSocketService {
   private syncRate: number = 0.5;
   private shouldReconnect = false;
   private pendingQueue: WebRTCDataChannelPayload[] = [];
+  private pendingSync: SyncData | null = null;
   private readonly maxPendingQueue = 128;
   private lastQueueWarnAt = 0;
   private readonly queueWarnIntervalMs = 3000;
@@ -112,7 +113,12 @@ class WebSocketService {
 
   /** Send position/velocity sync to opponent(s) */
   sendSync(data: SyncData) {
-    this._send({ type: 'sync', data });
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this._send({ type: 'sync', data });
+      return;
+    }
+    // Sync is high-frequency; keep only the latest frame until socket opens.
+    this.pendingSync = data;
   }
 
   /** Send a game event (e.g. attack result) */
@@ -164,10 +170,14 @@ class WebSocketService {
   }
 
   private flushPendingQueue() {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || this.pendingQueue.length === 0) return;
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
     const queue = this.pendingQueue.splice(0);
     for (const payload of queue) {
       this.ws.send(JSON.stringify(payload));
+    }
+    if (this.pendingSync) {
+      this.ws.send(JSON.stringify({ type: 'sync', data: this.pendingSync }));
+      this.pendingSync = null;
     }
   }
 
@@ -176,6 +186,7 @@ class WebSocketService {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.stopHeartbeat();
     this.pendingQueue = [];
+    this.pendingSync = null;
     this.ws?.close();
     this.ws = null;
   }

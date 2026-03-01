@@ -34,6 +34,94 @@ const CHARACTER_WS_URL =
   import.meta.env.VITE_CHARACTER_WS_URL ??
   `${backendProtocol === 'https' ? 'wss' : 'ws'}://${defaultBackendHost}:8000/ws/character`;
 
+type NormalizedGenerationResult = {
+  name: string;
+  material: 'Wood' | 'Metal' | 'Resin';
+  stats: {
+    power: number;
+    speed: number;
+    vit: number;
+  };
+  personality: {
+    talkSkill: number;
+    adlibSkill: number;
+    tone: string;
+  };
+  network: {
+    syncRate: number;
+    unison: number;
+  };
+  characterDna?: unknown;
+  character_dna?: unknown;
+  error_code?: string;
+  is_fallback?: boolean;
+};
+
+const toFiniteNumber = (value: unknown, fallback: number): number => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const normalizeGenerationResult = (raw: unknown): NormalizedGenerationResult => {
+  const obj = (raw && typeof raw === 'object') ? (raw as Record<string, unknown>) : {};
+  const statsObj = (obj.stats && typeof obj.stats === 'object')
+    ? (obj.stats as Record<string, unknown>)
+    : {};
+  const personalityObj = (obj.personality && typeof obj.personality === 'object')
+    ? (obj.personality as Record<string, unknown>)
+    : {};
+  const networkObj = (obj.network && typeof obj.network === 'object')
+    ? (obj.network as Record<string, unknown>)
+    : {};
+
+  const materialRaw = String(obj.material ?? 'Wood');
+  const material: 'Wood' | 'Metal' | 'Resin' =
+    materialRaw === 'Metal' || materialRaw === 'Resin' ? materialRaw : 'Wood';
+
+  const tone = String(
+    personalityObj.tone ??
+    obj.tone ??
+    'balanced',
+  );
+
+  return {
+    name: String(obj.name ?? 'レスラーMk1'),
+    material,
+    stats: {
+      power: toFiniteNumber(statsObj.power ?? obj.power, 40),
+      speed: toFiniteNumber(statsObj.speed ?? obj.speed, 40),
+      vit: toFiniteNumber(statsObj.vit ?? obj.vit, 40),
+    },
+    personality: {
+      talkSkill: toFiniteNumber(
+        personalityObj.talkSkill ??
+        personalityObj.talk_skill ??
+        obj.talk_skill,
+        30,
+      ),
+      adlibSkill: toFiniteNumber(
+        personalityObj.adlibSkill ??
+        personalityObj.adlib_skill ??
+        obj.adlib_skill,
+        30,
+      ),
+      tone,
+    },
+    network: {
+      syncRate: toFiniteNumber(
+        networkObj.syncRate ??
+        networkObj.sync_rate,
+        0.5,
+      ),
+      unison: toFiniteNumber(networkObj.unison, 100),
+    },
+    characterDna: obj.characterDna,
+    character_dna: obj.character_dna,
+    error_code: typeof obj.error_code === 'string' ? obj.error_code : undefined,
+    is_fallback: Boolean(obj.is_fallback),
+  };
+};
+
 export function useCharacterSetup() {
   const setRobotStats = useFSMStore(s => s.setRobotStats);
   const setRobotDna = useFSMStore(s => s.setRobotDna);
@@ -68,7 +156,7 @@ export function useCharacterSetup() {
         preset_text: presetText,
       };
 
-      const data: RobotGenerationResult = await new Promise((resolve, reject) => {
+      const data = await new Promise<NormalizedGenerationResult>((resolve, reject) => {
         const ws = new WebSocket(CHARACTER_WS_URL);
         
         ws.onopen = () => {
@@ -88,7 +176,7 @@ export function useCharacterSetup() {
                   detail: { text: `AI生成が一時的に利用不可のためデフォルト値を使用しました (${code})` }
                 }));
               }
-              resolve(result);
+              resolve(normalizeGenerationResult(result));
             }
           } catch (e) {
             reject(new Error('Failed to parse generation result'));
@@ -117,10 +205,9 @@ export function useCharacterSetup() {
         },
       );
 
-      const maybeSnakeCaseDna =
-        (data as RobotGenerationResult & { character_dna?: unknown }).character_dna;
+      const maybeSnakeCaseDna = data.character_dna;
       const apiDna =
-        normalizeCharacterDNA(data.characterDna) ??
+        normalizeCharacterDNA(data.characterDna as RobotGenerationResult['characterDna']) ??
         normalizeCharacterDNA(maybeSnakeCaseDna);
       const dna = apiDna
         ? evolveCharacterDNAByMatchCount(
