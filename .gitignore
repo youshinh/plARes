@@ -48,6 +48,8 @@ lerna-debug.log*
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+.claude/
+.agents/
 
 # ==========================
 # Editors / IDEs
