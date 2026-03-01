@@ -38,9 +38,14 @@ type SpeechRecognitionConstructorLike = new () => SpeechRecognitionInstanceLike;
 export const useVoiceController = () => {
   const setEmergencyEvade = useFSMStore((state) => state.setEmergencyEvade);
   const stoppedRef = useRef(false);
+  const deniedRetryCountRef = useRef(0);
+  const restartTimerRef = useRef<number | null>(null);
+  const specialTriggerAtRef = useRef(0);
 
   useEffect(() => {
     stoppedRef.current = false;
+    deniedRetryCountRef.current = 0;
+    specialTriggerAtRef.current = 0;
 
     // Check if browser supports Web Speech API
     const speechWindow = window as Window & {
@@ -58,6 +63,28 @@ export const useVoiceController = () => {
 
     let recognition: SpeechRecognitionInstanceLike | null = null;
 
+    const scheduleRestart = (delayMs: number) => {
+      if (stoppedRef.current) return;
+      if (restartTimerRef.current !== null) {
+        clearTimeout(restartTimerRef.current);
+      }
+      restartTimerRef.current = window.setTimeout(() => {
+        restartTimerRef.current = null;
+        start();
+      }, delayMs);
+    };
+
+    const publishVoiceFeedback = (
+      command: 'special' | 'dodge' | 'forward' | 'attack' | 'flank',
+      transcript: string,
+    ) => {
+      window.dispatchEvent(
+        new CustomEvent('voice_command_feedback', {
+          detail: { command, transcript },
+        }),
+      );
+    };
+
     const start = () => {
       if (stoppedRef.current) return;
 
@@ -70,8 +97,28 @@ export const useVoiceController = () => {
         if (!useArenaSyncStore.getState().matchAlignmentReady) return;
         const current = event.resultIndex;
         const transcript = event.results[current][0].transcript.trim().toLowerCase();
-        
+        deniedRetryCountRef.current = 0;
+
         console.info('[VoiceController] Heard:', transcript);
+
+        if (
+          transcript.includes('必殺') ||
+          transcript.includes('スペシャル') ||
+          transcript.includes('ストライク') ||
+          transcript.includes('special') ||
+          transcript.includes('ultimate')
+        ) {
+          const now = Date.now();
+          if (now - specialTriggerAtRef.current > 1800) {
+            specialTriggerAtRef.current = now;
+            window.dispatchEvent(new CustomEvent('voice_cast_special', {
+              detail: { transcript },
+            }));
+            publishVoiceFeedback('special', transcript);
+            console.info('[VoiceController] Trigger: cast special (voice)');
+          }
+          return;
+        }
 
         // Simple keyword detection for Priority 1 Action
         if (
@@ -80,6 +127,7 @@ export const useVoiceController = () => {
           transcript.includes('避けろ')
         ) {
           useFSMStore.getState().setEmergencyEvade(new THREE.Vector3(1, 0, 0), 0.9); // Right-dodge
+          publishVoiceFeedback('dodge', transcript);
         } else if (
           transcript.includes('forward') ||
           transcript.includes('前へ') ||
@@ -87,6 +135,7 @@ export const useVoiceController = () => {
           transcript.includes('走れ')
         ) {
           useFSMStore.getState().setEmergencyEvade(new THREE.Vector3(0, 0, -1), 1.2); // Forward charge
+          publishVoiceFeedback('forward', transcript);
         } else if (
           transcript.includes('attack') ||
           transcript.includes('攻撃') ||
@@ -96,6 +145,7 @@ export const useVoiceController = () => {
           const fsm = useFSMStore.getState();
           const target = fsm.remoteRobotPosition?.clone();
           useFSMStore.getState().setAICommand({ action: 'basic_attack', target });
+          publishVoiceFeedback('attack', transcript);
         } else if (
           transcript.includes('flank') ||
           transcript.includes('回り込め') ||
@@ -103,14 +153,23 @@ export const useVoiceController = () => {
         ) {
           const target = new THREE.Vector3(1.5, 0, 0); // Temporary target
           useFSMStore.getState().setAICommand({ action: 'flank_right', target });
+          publishVoiceFeedback('flank', transcript);
         }
       };
 
       recognition.onerror = (event: SpeechRecognitionErrorLike) => {
         // 'not-allowed' means mic permission was denied; don't retry endlessly.
         if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-          console.warn('[VoiceController] Mic permission denied – voice control disabled.');
-          stoppedRef.current = true;
+          deniedRetryCountRef.current += 1;
+          if (deniedRetryCountRef.current >= 3) {
+            console.warn('[VoiceController] Mic permission denied repeatedly – voice control disabled.');
+            stoppedRef.current = true;
+            return;
+          }
+          console.warn(
+            `[VoiceController] Mic permission unavailable (attempt ${deniedRetryCountRef.current}/3). Retrying...`
+          );
+          scheduleRestart(1200 * deniedRetryCountRef.current);
           return;
         }
         console.warn('[VoiceController] SpeechRecognition error, will restart:', event.error);
@@ -120,7 +179,7 @@ export const useVoiceController = () => {
       recognition.onend = () => {
         if (stoppedRef.current) return;
         // Small delay to avoid hot-looping if something causes repeated failures
-        setTimeout(start, 500);
+        scheduleRestart(500);
       };
 
       try {
@@ -135,6 +194,10 @@ export const useVoiceController = () => {
 
     return () => {
       stoppedRef.current = true;
+      if (restartTimerRef.current !== null) {
+        clearTimeout(restartTimerRef.current);
+        restartTimerRef.current = null;
+      }
       try { recognition?.stop(); } catch { /* ignore */ }
     };
   }, [setEmergencyEvade]);

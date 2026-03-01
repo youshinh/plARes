@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Canvas } from '@react-three/fiber';
-import { XR, createXRStore } from '@react-three/xr';
+import { XR, createXRStore, useXR } from '@react-three/xr';
 import { Environment, OrbitControls } from '@react-three/drei';
 import { RobotCharacter } from './components/RobotCharacter';
 import { RemoteRobotCharacter } from './components/RemoteRobotCharacter';
@@ -43,6 +43,13 @@ const DEBUG_UI = import.meta.env.VITE_ENABLE_DEBUG_UI === 'true';
 const CHARACTER_LAB_UI = import.meta.env.VITE_ENABLE_CHARACTER_LAB !== 'false';
 const STORAGE_LANG_KEY = 'plares_lang';
 const STORAGE_LANG_SELECTED_KEY = 'plares_lang_selected';
+const IS_ANDROID_CHROME = (() => {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  return /android/i.test(ua) && /chrome/i.test(ua);
+})();
+const SHADOWS_ENABLED = !IS_ANDROID_CHROME;
+const xrResizeGuardInstalled = new WeakSet<THREE.WebGLRenderer>();
 
 type UiLang = 'ja' | 'en' | 'es';
 
@@ -90,6 +97,45 @@ const formatArEnterError = (error: unknown, lang: UiLang): string => {
 const clampHp = (value: number, maxHp: number): number =>
   Math.max(0, Math.min(value, maxHp));
 
+const installXrPresentationGuards = (renderer: THREE.WebGLRenderer) => {
+  if (xrResizeGuardInstalled.has(renderer)) return;
+
+  const originalSetSize = renderer.setSize.bind(renderer);
+  const originalSetPixelRatio = renderer.setPixelRatio.bind(renderer);
+  let pendingSize: { width: number; height: number; updateStyle?: boolean } | null = null;
+  let pendingPixelRatio: number | null = null;
+
+  renderer.setSize = ((width: number, height: number, updateStyle?: boolean) => {
+    if (renderer.xr.isPresenting) {
+      pendingSize = { width, height, updateStyle };
+      return renderer;
+    }
+    return originalSetSize(width, height, updateStyle);
+  }) as THREE.WebGLRenderer['setSize'];
+
+  renderer.setPixelRatio = ((value: number) => {
+    if (renderer.xr.isPresenting) {
+      pendingPixelRatio = value;
+      return;
+    }
+    originalSetPixelRatio(value);
+  }) as THREE.WebGLRenderer['setPixelRatio'];
+
+  const flushPending = () => {
+    if (pendingPixelRatio !== null) {
+      originalSetPixelRatio(pendingPixelRatio);
+      pendingPixelRatio = null;
+    }
+    if (pendingSize) {
+      originalSetSize(pendingSize.width, pendingSize.height, pendingSize.updateStyle);
+      pendingSize = null;
+    }
+  };
+  renderer.xr.addEventListener('sessionend', flushPending);
+
+  xrResizeGuardInstalled.add(renderer);
+};
+
 const UI_TEXT: Record<UiLang, Record<string, string>> = {
   ja: {
     brandSub: '次世代AIエージェントバトル',
@@ -130,6 +176,12 @@ const UI_TEXT: Record<UiLang, Record<string, string>> = {
     alignNeedSurface: 'AR平面が未検出です。床を映して再実行してください。',
     alignShared: '位置合わせ基準を共有しました',
     alignPeerSynced: '相手の位置合わせ情報を受信',
+    voiceAckPrefix: '音声',
+    voiceCmdSpecial: '必殺技',
+    voiceCmdDodge: '回避',
+    voiceCmdForward: '前進',
+    voiceCmdAttack: '攻撃',
+    voiceCmdFlank: '回り込み',
     menu: 'メニュー',
     share: '共有 (QR)',
   },
@@ -172,6 +224,12 @@ const UI_TEXT: Record<UiLang, Record<string, string>> = {
     alignNeedSurface: 'No AR surface detected yet. Point the camera at the floor and retry.',
     alignShared: 'Shared arena alignment marker.',
     alignPeerSynced: 'Opponent alignment data received.',
+    voiceAckPrefix: 'Voice',
+    voiceCmdSpecial: 'Special',
+    voiceCmdDodge: 'Dodge',
+    voiceCmdForward: 'Forward',
+    voiceCmdAttack: 'Attack',
+    voiceCmdFlank: 'Flank',
     menu: 'Menu',
     share: 'Share (QR)',
   },
@@ -214,6 +272,12 @@ const UI_TEXT: Record<UiLang, Record<string, string>> = {
     alignNeedSurface: 'Aun no se detecta una superficie AR. Enfoca el suelo y reintenta.',
     alignShared: 'Marcador de alineacion compartido.',
     alignPeerSynced: 'Datos de alineacion del rival recibidos.',
+    voiceAckPrefix: 'Voz',
+    voiceCmdSpecial: 'Especial',
+    voiceCmdDodge: 'Esquivar',
+    voiceCmdForward: 'Avanzar',
+    voiceCmdAttack: 'Atacar',
+    voiceCmdFlank: 'Flanquear',
     menu: 'Menu',
     share: 'Compartir (QR)',
   },
@@ -231,6 +295,7 @@ const store = createXRStore({
 
 // ── Inner scene (must render inside Canvas + XR) ─────────────────────────────
 const MainScene: React.FC = () => {
+  const { session } = useXR();
   const { hoverMatrix, depthTexture, depthRawToMeters } = useWebXRScanner();
   useVoiceController();
   useAICommandListener();
@@ -249,6 +314,7 @@ const MainScene: React.FC = () => {
   const indicatorPos = hoverMatrix
     ? new THREE.Vector3().setFromMatrixPosition(hoverMatrix)
     : null;
+  const showGround = !session || session.environmentBlendMode === 'opaque';
 
   return (
     <>
@@ -257,7 +323,7 @@ const MainScene: React.FC = () => {
       <directionalLight
         position={[4, 8, 6]}
         intensity={1.4}
-        castShadow
+        castShadow={SHADOWS_ENABLED}
         shadow-mapSize-width={2048}
         shadow-mapSize-height={2048}
       />
@@ -275,11 +341,13 @@ const MainScene: React.FC = () => {
         </mesh>
       )}
 
-      {/* Ground for non-AR debug view */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-        <planeGeometry args={[10, 10]} />
-        <meshStandardMaterial color="#2C313A" roughness={0.86} metalness={0.08} />
-      </mesh>
+      {/* Ground should stay hidden in AR camera view; keep it for VR/non-XR. */}
+      {showGround && (
+        <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow={SHADOWS_ENABLED}>
+          <planeGeometry args={[10, 10]} />
+          <meshStandardMaterial color="#2C313A" roughness={0.86} metalness={0.08} />
+        </mesh>
+      )}
     </>
   );
 };
@@ -334,12 +402,14 @@ function App() {
   const [isLiveConnected, setIsLiveConnected] = useState(false);
   const [isLiveMicActive, setIsLiveMicActive] = useState(false);
   const [isMatchPaused, setIsMatchPaused] = useState(false);
+  const [voiceAckText, setVoiceAckText] = useState('');
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isShareOpen, setIsShareOpen] = useState(false);
   const [isLabOpen, setIsLabOpen] = useState(false);
   const [recentABFeedbackCount, setRecentABFeedbackCount] = useState(0);
   const [bgmUrl, setBgmUrl] = useState('');
   const bgmAudioRef = useRef<HTMLAudioElement | null>(null);
+  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   // T1-4: scan state for AR plane detection guide
   const [scanState, setScanState] = useState<'idle' | 'searching' | 'tracking' | 'ready' | 'unsupported'>('idle');
   const [scanPointCount, setScanPointCount] = useState(0);
@@ -371,6 +441,7 @@ function App() {
   const castEndsAtRef = useRef<number>(0);
   const specialRetryRef = useRef(0);
   const judgeTimeoutRef = useRef<number | null>(null);
+  const voiceAckTimerRef = useRef<number | null>(null);
   const alignmentReady = matchAlignmentReady;
   const profileView = profileInfo ?? {
     totalMatches: 0,
@@ -1003,6 +1074,14 @@ function App() {
   }, []);
 
   useEffect(() => {
+    const renderer = rendererRef.current;
+    if (!renderer) return;
+    const enableShadows = SHADOWS_ENABLED && !isARSessionActive;
+    renderer.shadowMap.enabled = enableShadows;
+    renderer.shadowMap.autoUpdate = enableShadows;
+  }, [isARSessionActive]);
+
+  useEffect(() => {
     const unsubscribe = wsService.addHandler((payload: WebRTCDataChannelPayload) => {
       if (payload.type !== 'event') return;
       handleRemoteBattleEvent(payload.data as GameEvent);
@@ -1121,6 +1200,41 @@ function App() {
   }, []);
 
   useEffect(() => {
+    const commandLabels: Record<string, string> = {
+      special: t.voiceCmdSpecial,
+      dodge: t.voiceCmdDodge,
+      forward: t.voiceCmdForward,
+      attack: t.voiceCmdAttack,
+      flank: t.voiceCmdFlank,
+    };
+
+    const onVoiceFeedback = (event: Event) => {
+      const detail = (event as CustomEvent<{ command?: string }>).detail;
+      const command = detail?.command ?? '';
+      const label = commandLabels[command];
+      if (!label) return;
+
+      setVoiceAckText(`${t.voiceAckPrefix}: ${label}`);
+      if (voiceAckTimerRef.current !== null) {
+        clearTimeout(voiceAckTimerRef.current);
+      }
+      voiceAckTimerRef.current = window.setTimeout(() => {
+        setVoiceAckText('');
+        voiceAckTimerRef.current = null;
+      }, 1600);
+    };
+
+    window.addEventListener('voice_command_feedback', onVoiceFeedback as EventListener);
+    return () => {
+      window.removeEventListener('voice_command_feedback', onVoiceFeedback as EventListener);
+      if (voiceAckTimerRef.current !== null) {
+        clearTimeout(voiceAckTimerRef.current);
+        voiceAckTimerRef.current = null;
+      }
+    };
+  }, [t]);
+
+  useEffect(() => {
     return () => {
       if (judgeTimeoutRef.current) {
         clearTimeout(judgeTimeoutRef.current);
@@ -1131,18 +1245,21 @@ function App() {
 
   const handleCastSpecial = async () => {
     if (!matchAlignmentReady) {
+      console.info('[Special] blocked: arena alignment pending');
       window.dispatchEvent(new CustomEvent('show_subtitle', {
         detail: { text: t.alignPending }
       }));
       return;
     }
     if (isMatchPaused) {
+      console.info('[Special] blocked: match is paused');
       window.dispatchEvent(new CustomEvent('show_subtitle', {
         detail: { text: '試合が一時停止中です' }
       }));
       return;
     }
     if (!battleState.specialReady) {
+      console.info(`[Special] blocked: EX gauge ${battleState.exGauge}/${EX_GAUGE.MAX}`);
       window.dispatchEvent(new CustomEvent('show_subtitle', {
         detail: { text: `EXゲージ不足 (${battleState.exGauge}/${EX_GAUGE.MAX})` }
       }));
@@ -1157,6 +1274,7 @@ function App() {
       judgeTimeoutRef.current = null;
     }
     setCastingSpecial();
+    console.info('[Special] casting started');
 
     // 2) Visual feedback starts immediately while backend inference runs in parallel
     window.dispatchEvent(new CustomEvent('show_subtitle', {
@@ -1209,6 +1327,16 @@ function App() {
 
     scheduleJudgeTimeout(GAMEPLAY_RULES.specialChargeMs);
   };
+
+  useEffect(() => {
+    const onVoiceCastSpecial = () => {
+      void handleCastSpecial();
+    };
+    window.addEventListener('voice_cast_special', onVoiceCastSpecial as EventListener);
+    return () => {
+      window.removeEventListener('voice_cast_special', onVoiceCastSpecial as EventListener);
+    };
+  }, [handleCastSpecial]);
 
   return (
     <div className="arena-shell">
@@ -1473,8 +1601,14 @@ function App() {
 
       <Canvas
         className="arena-canvas"
-        shadows={{ type: THREE.PCFShadowMap }}
+        shadows={SHADOWS_ENABLED ? { type: THREE.PCFShadowMap } : false}
         camera={{ position: [0, 1.55, 3.2], fov: 48, near: 0.01, far: 100 }}
+        onCreated={({ gl }) => {
+          rendererRef.current = gl;
+          installXrPresentationGuards(gl);
+          gl.shadowMap.enabled = SHADOWS_ENABLED;
+          gl.shadowMap.autoUpdate = SHADOWS_ENABLED;
+        }}
       >
         <XR store={store}>
           <MainScene />
@@ -1490,6 +1624,11 @@ function App() {
       <ServerDrivenPanel />
       {debugVisible && <AnimationDebugPanel />}
       <DynamicSubtitle />
+      {voiceAckText && (
+        <div className="hud-voice-ack" aria-live="polite">
+          {voiceAckText}
+        </div>
+      )}
       {isARSessionActive && <ScanGuideOverlay scanState={scanState} pointCount={scanPointCount} />}
       <RemoteStreamView />
       <ShareArenaModal

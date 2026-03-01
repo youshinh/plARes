@@ -752,10 +752,44 @@
   animation: subtitleRise 280ms var(--ease-spring);
 }
 
+.hud-voice-ack {
+  position: fixed;
+  left: 50%;
+  bottom: calc(126px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 29;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid hsl(188 100% 68% / 0.35);
+  background: hsl(216 38% 10% / 0.86);
+  color: hsl(188 100% 86%);
+  font-family: "Barlow Condensed", "Noto Sans JP", sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1.2;
+  pointer-events: none;
+  backdrop-filter: var(--glass-blur-sm);
+  -webkit-backdrop-filter: var(--glass-blur-sm);
+  box-shadow: 0 0 12px hsl(188 100% 65% / 0.2);
+  animation: voiceAckRise 180ms var(--ease-spring);
+}
+
 @keyframes subtitleRise {
   from {
     opacity: 0;
     transform: translateX(-50%) translateY(12px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
+}
+
+@keyframes voiceAckRise {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(4px) scale(0.98);
   }
   to {
     opacity: 1;
@@ -1363,6 +1397,11 @@
     font-size: 32px;
   }
 
+  .hud-voice-ack {
+    bottom: 136px;
+    font-size: 13px;
+  }
+
   /* Lab card — centered modal on tablet+ */
   .lab-overlay {
     align-items: center;
@@ -1415,5 +1454,10 @@
   .hud-subtitle {
     font-size: 34px;
     bottom: 86px;
+  }
+
+  .hud-voice-ack {
+    bottom: 142px;
+    font-size: 14px;
   }
 }

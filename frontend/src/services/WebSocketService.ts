@@ -22,6 +22,8 @@ class WebSocketService {
   private shouldReconnect = false;
   private pendingQueue: WebRTCDataChannelPayload[] = [];
   private readonly maxPendingQueue = 128;
+  private lastQueueWarnAt = 0;
+  private readonly queueWarnIntervalMs = 3000;
 
   connect(url: string, userId: string, roomId: string, lang: string, syncRate: number) {
     this.baseUrl = url;
@@ -153,7 +155,11 @@ class WebSocketService {
         this.pendingQueue.shift();
       }
       this.pendingQueue.push(payload);
-      console.warn('[WS] Queueing payload – socket not open');
+      const now = Date.now();
+      if (now - this.lastQueueWarnAt >= this.queueWarnIntervalMs) {
+        this.lastQueueWarnAt = now;
+        console.warn(`[WS] Queueing payload – socket not open (queued=${this.pendingQueue.length})`);
+      }
     }
   }
 

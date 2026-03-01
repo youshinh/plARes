@@ -1,5 +1,6 @@
 import { useRef, useState, useCallback } from 'react';
 import { PLAYER_ID, PLAYER_LANG, ROOM_ID, SYNC_RATE } from '../utils/identity';
+import { createPcmCaptureWorklet } from '../utils/pcmCaptureWorklet';
 
 const SAMPLE_RATE = 16000;
 const defaultBackendHost = (() => {
@@ -40,7 +41,9 @@ const buildAudioEndpoint = () => {
 export const useAudioStreamer = () => {
   const [isStreaming, setIsStreaming] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
-  const processorRef = useRef<ScriptProcessorNode | null>(null);
+  const processorRef = useRef<ScriptProcessorNode | AudioWorkletNode | null>(null);
+  const processorCleanupRef = useRef<(() => void) | null>(null);
+  const captureSinkGainRef = useRef<GainNode | null>(null);
   const contextRef = useRef<AudioContext | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const ownsStreamRef = useRef<boolean>(false);
@@ -60,7 +63,15 @@ export const useAudioStreamer = () => {
     }
     captureCanvasRef.current = null;
 
+    processorCleanupRef.current?.();
+    processorCleanupRef.current = null;
+    if (processorRef.current && 'onaudioprocess' in processorRef.current) {
+      (processorRef.current as ScriptProcessorNode).onaudioprocess = null;
+    }
     processorRef.current?.disconnect();
+    processorRef.current = null;
+    captureSinkGainRef.current?.disconnect();
+    captureSinkGainRef.current = null;
     contextRef.current?.close();
     if (ownsStreamRef.current) {
       streamRef.current?.getTracks().forEach(t => t.stop());
@@ -68,7 +79,6 @@ export const useAudioStreamer = () => {
     wsRef.current?.close();
     wsRef.current = null;
     contextRef.current = null;
-    processorRef.current = null;
     streamRef.current = null;
     ownsStreamRef.current = false;
     setIsStreaming(false);
@@ -97,13 +107,6 @@ export const useAudioStreamer = () => {
       const ctx = new AudioContext({ sampleRate: SAMPLE_RATE });
       contextRef.current = ctx;
       const source = ctx.createMediaStreamSource(mediaStream);
-
-      // ScriptProcessorNode gives us raw PCM Float32 frames
-      // bufferSize=4096 ≈ 256 ms @ 16 kHz – low enough latency
-      const processor = ctx.createScriptProcessor(4096, 1, 1);
-      processorRef.current = processor;
-      source.connect(processor);
-      processor.connect(ctx.destination);
 
       // 3. Open dedicated WebSocket for raw audio (separate from the game event WS)
       const ws = new WebSocket(buildAudioEndpoint());
@@ -160,17 +163,44 @@ export const useAudioStreamer = () => {
         }
       }
 
-      // 4. Send Int16 PCM frames as binary
-      processor.onaudioprocess = (e) => {
-        if (ws.readyState !== WebSocket.OPEN) return;
-        const float32 = e.inputBuffer.getChannelData(0);
-        // Convert Float32 → Int16
+      const sendChunk = (float32: Float32Array) => {
+        if (wsRef.current?.readyState !== WebSocket.OPEN) return;
         const int16 = new Int16Array(float32.length);
         for (let i = 0; i < float32.length; i++) {
           int16[i] = Math.max(-32768, Math.min(32767, Math.round(float32[i] * 32767)));
         }
-        ws.send(int16.buffer);
+        wsRef.current.send(int16.buffer);
       };
+
+      // 4. Capture PCM stream: prefer AudioWorkletNode, fallback to ScriptProcessorNode.
+      let captureReady = false;
+      if (typeof AudioWorkletNode !== 'undefined' && ctx.audioWorklet) {
+        try {
+          const worklet = await createPcmCaptureWorklet(ctx, source, sendChunk);
+          processorRef.current = worklet.node;
+          captureSinkGainRef.current = worklet.sinkGain;
+          processorCleanupRef.current = worklet.disconnect;
+          captureReady = true;
+        } catch (workletError) {
+          console.warn('[AudioStreamer] AudioWorklet unavailable, fallback to ScriptProcessorNode:', workletError);
+        }
+      }
+
+      if (!captureReady) {
+        // bufferSize=4096 ≈ 256 ms @ 16 kHz – low enough latency
+        const processor = ctx.createScriptProcessor(4096, 1, 1);
+        const sinkGain = ctx.createGain();
+        sinkGain.gain.value = 0;
+        processorRef.current = processor;
+        captureSinkGainRef.current = sinkGain;
+        source.connect(processor);
+        processor.connect(sinkGain);
+        sinkGain.connect(ctx.destination);
+        processor.onaudioprocess = (e) => {
+          const float32 = e.inputBuffer.getChannelData(0);
+          sendChunk(float32);
+        };
+      }
 
       // 5. Handle scoring result from ADK / Gemini
       ws.onmessage = (evt) => {

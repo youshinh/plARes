@@ -42,6 +42,7 @@ export class NavMeshGenerator {
   private recast: any = null;
   private built = false;
   private disabled = false;
+  private unsupportedApiWarned = false;
 
   async buildFromPoints(points: THREE.Vector3[]): Promise<void> {
     if (this.disabled) return;
@@ -54,6 +55,26 @@ export class NavMeshGenerator {
       this.navMesh = null;
       this.navMeshQuery = null;
       console.warn('[NavMesh] recast-wasm init failed. Falling back to direct movement path.', error);
+      return;
+    }
+
+    const hasLegacyBuilderApi =
+      typeof this.recast?.RecastConfig === 'function' &&
+      typeof this.recast?.FloatArray === 'function' &&
+      typeof this.recast?.IntArray === 'function' &&
+      typeof this.recast?.NavMeshBuilder === 'function' &&
+      typeof this.recast?.NavMeshQuery === 'function';
+    if (!hasLegacyBuilderApi) {
+      if (!this.unsupportedApiWarned) {
+        console.warn(
+          '[NavMesh] recast-wasm API mismatch (NavMeshBuilder unavailable). Disabling NavMesh and using straight-line fallback.'
+        );
+        this.unsupportedApiWarned = true;
+      }
+      this.disabled = true;
+      this.built = false;
+      this.navMesh = null;
+      this.navMeshQuery = null;
       return;
     }
 
@@ -110,10 +131,11 @@ export class NavMeshGenerator {
       this.built = true;
       console.log('[NavMesh] Built successfully');
     } catch (error) {
+      this.disabled = true;
       this.built = false;
       this.navMesh = null;
       this.navMeshQuery = null;
-      console.warn('[NavMesh] build failed. Falling back to straight-line path.', error);
+      console.warn('[NavMesh] build failed. Disabling NavMesh and falling back to straight-line path.', error);
       return;
     }
   }

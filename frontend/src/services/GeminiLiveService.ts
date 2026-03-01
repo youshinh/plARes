@@ -1,4 +1,5 @@
 import { GoogleGenAI, Modality, type LiveServerMessage, type Session } from '@google/genai';
+import { createPcmCaptureWorklet } from '../utils/pcmCaptureWorklet';
 
 type LiveStatusDetail = {
   connected: boolean;
@@ -44,8 +45,9 @@ export class GeminiLiveService {
   private resumeHandle = '';
   private captureStream: MediaStream | null = null;
   private captureContext: AudioContext | null = null;
-  private captureProcessor: ScriptProcessorNode | null = null;
+  private captureProcessor: ScriptProcessorNode | AudioWorkletNode | null = null;
   private captureSinkGain: GainNode | null = null;
+  private captureCleanup: (() => void) | null = null;
   private playbackContext: AudioContext | null = null;
   private playbackCursor = 0;
   private micActive = false;
@@ -138,20 +140,12 @@ export class GeminiLiveService {
     this.captureStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
     this.captureContext = new AudioContext({ sampleRate: 16000 });
     const source = this.captureContext.createMediaStreamSource(this.captureStream);
-    this.captureProcessor = this.captureContext.createScriptProcessor(4096, 1, 1);
-    this.captureSinkGain = this.captureContext.createGain();
-    this.captureSinkGain.gain.value = 0;
-
-    source.connect(this.captureProcessor);
-    this.captureProcessor.connect(this.captureSinkGain);
-    this.captureSinkGain.connect(this.captureContext.destination);
 
     this.micActive = true;
     dispatchMicState(true);
 
-    this.captureProcessor.onaudioprocess = (event) => {
+    const sendChunk = (float32: Float32Array) => {
       if (!this.session) return;
-      const float32 = event.inputBuffer.getChannelData(0);
       const int16 = new Int16Array(float32.length);
       for (let i = 0; i < float32.length; i++) {
         int16[i] = Math.max(-32768, Math.min(32767, Math.round(float32[i] * 32767)));
@@ -163,6 +157,34 @@ export class GeminiLiveService {
         },
       });
     };
+
+    let captureReady = false;
+    if (typeof AudioWorkletNode !== 'undefined' && this.captureContext.audioWorklet) {
+      try {
+        const worklet = await createPcmCaptureWorklet(this.captureContext, source, sendChunk);
+        this.captureProcessor = worklet.node;
+        this.captureSinkGain = worklet.sinkGain;
+        this.captureCleanup = worklet.disconnect;
+        captureReady = true;
+      } catch (workletError) {
+        console.warn('[GeminiLive] AudioWorklet unavailable, fallback to ScriptProcessorNode:', workletError);
+      }
+    }
+
+    if (!captureReady) {
+      const processor = this.captureContext.createScriptProcessor(4096, 1, 1);
+      const sinkGain = this.captureContext.createGain();
+      sinkGain.gain.value = 0;
+      source.connect(processor);
+      processor.connect(sinkGain);
+      sinkGain.connect(this.captureContext.destination);
+      processor.onaudioprocess = (event) => {
+        sendChunk(event.inputBuffer.getChannelData(0));
+      };
+      this.captureProcessor = processor;
+      this.captureSinkGain = sinkGain;
+      this.captureCleanup = null;
+    }
   }
 
   stopMic() {
@@ -176,6 +198,11 @@ export class GeminiLiveService {
   }
 
   private cleanupMic() {
+    this.captureCleanup?.();
+    this.captureCleanup = null;
+    if (this.captureProcessor && 'onaudioprocess' in this.captureProcessor) {
+      (this.captureProcessor as ScriptProcessorNode).onaudioprocess = null;
+    }
     this.captureProcessor?.disconnect();
     this.captureProcessor = null;
     this.captureSinkGain?.disconnect();

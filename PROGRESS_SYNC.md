@@ -10,6 +10,9 @@
 
 | Date       | Owner    | TaskID | Directory                   | Status | NextAction                                              | Blocker |
 | ---------- | -------- | ------ | --------------------------- | ------ | ------------------------------------------------------- | ------- |
+| 2026-03-01 | Codex    | T1-13  | /frontend/src               | DONE   | AR時の床CG非表示(VR/非XRのみ表示) + 音声コマンド受理ミニ表示HUD追加 | なし    |
+| 2026-03-01 | Codex    | T1-12  | /frontend/src               | DONE   | AudioWorklet移行(2系統) + XR presenting中resizeガード + Android影描画抑制 | なし    |
+| 2026-03-01 | Codex    | T1-11  | /frontend/src               | DONE   | NavMesh API不整合時の無効化フォールバック + 音声必殺トリガー追加 + Voice再試行安定化 | なし    |
 | 2026-03-01 | Codex    | T1-10  | /frontend/src               | DONE   | WS open前送信のキュー化 + PCFSoftShadowMap警告の抑制設定 | なし    |
 | 2026-03-01 | Codex    | T1-9   | /frontend/src, /frontend    | DONE   | recast.wasm配信経路修正（Vite URL解決+Nginx wasm静的配信） | なし    |
 | 2026-03-01 | Codex    | T1-8   | /frontend/src               | DONE   | Pixel向け安定化: depthSensing要求をOFFに変更（hit-test優先） | なし    |
