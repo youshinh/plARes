@@ -9,7 +9,7 @@ metadata:
 
 # Artifacts Builder (Server-Driven UI)
 
-This skill guides the AI in creating dynamic, responsive React components driven by server-side JSON structures. It is primarily used for constructing the frontend interface for PlaresAR.
+This skill guides the AI in creating dynamic, responsive React components driven by server-side JSON structures. It is primarily used for constructing the frontend interface for plARes.
 
 ## When to Use This Skill
 

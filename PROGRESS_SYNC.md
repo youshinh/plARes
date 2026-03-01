@@ -12,7 +12,7 @@
 | ---------- | -------- | ------ | --------------------------- | ------ | ------------------------------------------------------- | ------- |
 | 2026-03-01 | Codex    | V-2    | /.claude/skills, /docs      | DONE   | skills origin明記 + performance_cost_report のモデル整合 | なし    |
 | 2026-03-01 | Codex    | V-1    | /backend/tests, /scripts    | DONE   | test_streaming安定化 + e2eクリック遮断フォールバック実装 | なし    |
-| 2026-03-01 | Agent3   | T0-4   | /.claude/skills             | DONE   | ECC由来6skillをPlaresAR向けに改修・追加                 | なし    |
+| 2026-03-01 | Agent3   | T0-4   | /.claude/skills             | DONE   | ECC由来6skillをplARes向けに改修・追加                 | なし    |
 | 2026-03-01 | -        | T3-4   | /backend/infrastructure     | DONE   | 削除完了（bidi_stream/state_manager/models等5ファイル） | なし    |
 | 2026-03-01 | -        | T3-5   | /backend/requirements.txt   | DONE   | pubsub/storage/pytest-asyncio 追加済み                  | なし    |
 | 2026-03-01 | Agent2   | T0-2   | /backend/tests              | DONE   | test_streaming.py import修正完了                        | なし    |
