@@ -1864,8 +1864,9 @@ async def _heartbeat_watchdog() -> None:
     while True:
         await asyncio.sleep(1.0)
         now = time.monotonic()
-        for room_id, users in list(room_user_meta.items()):
-            for user_id, meta in list(users.items()):
+        stale_clients = []
+        for room_id, users in room_user_meta.items():
+            for user_id, meta in users.items():
                 ws = room_user_map.get(room_id, {}).get(user_id)
                 if ws is None:
                     continue
@@ -1875,11 +1876,14 @@ async def _heartbeat_watchdog() -> None:
                 key = (room_id, user_id)
                 if key in room_disconnect_tasks:
                     continue
-                try:
-                    await ws.close()
-                except Exception:
-                    pass
-                _cleanup_game_client(ws, reason="heartbeat_timeout")
+                stale_clients.append(ws)
+
+        for ws in stale_clients:
+            try:
+                await ws.close()
+            except Exception:
+                pass
+            _cleanup_game_client(ws, reason="heartbeat_timeout")
 
 
 def _initial_tactics_payload(lang: str) -> dict:
