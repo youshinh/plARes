@@ -1473,7 +1473,7 @@ function App() {
 
       <Canvas
         className="arena-canvas"
-        shadows
+        shadows={{ type: THREE.PCFShadowMap }}
         camera={{ position: [0, 1.55, 3.2], fov: 48, near: 0.01, far: 100 }}
       >
         <XR store={store}>

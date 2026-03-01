@@ -1,13 +1,25 @@
 import * as THREE from 'three';
+import recastWasmUrl from 'recast-wasm/dist/recast.wasm?url';
 
 // Lazily import recast-wasm to avoid blocking the initial render.
 // recast-wasm exposes a factory function that returns a WASM module with
 // the full Recast navigation mesh generation pipeline.
 let Recast: any = null;
+let recastLoadFailed = false;
 const loadRecast = async () => {
+  if (recastLoadFailed) {
+    throw new Error('recast-wasm initialization previously failed');
+  }
   if (!Recast) {
     const mod = await import('recast-wasm');
-    Recast = await (mod.default as any)();
+    Recast = await (mod.default as any)({
+      locateFile: (path: string) => {
+        if (path.endsWith('.wasm')) {
+          return recastWasmUrl;
+        }
+        return path;
+      },
+    });
   }
   return Recast;
 };
@@ -29,9 +41,21 @@ export class NavMeshGenerator {
   private navMeshQuery: any = null;
   private recast: any = null;
   private built = false;
+  private disabled = false;
 
   async buildFromPoints(points: THREE.Vector3[]): Promise<void> {
-    this.recast = await loadRecast();
+    if (this.disabled) return;
+    try {
+      this.recast = await loadRecast();
+    } catch (error) {
+      recastLoadFailed = true;
+      this.disabled = true;
+      this.built = false;
+      this.navMesh = null;
+      this.navMeshQuery = null;
+      console.warn('[NavMesh] recast-wasm init failed. Falling back to direct movement path.', error);
+      return;
+    }
 
     // Flatten points into a bounding-box-aligned triangle soup.
     // For a ground plane NavMesh we build simple triangulated quads from
@@ -51,39 +75,47 @@ export class NavMeshGenerator {
       return;
     }
 
-    const rc = new this.recast.RecastConfig();
-    rc.cs = 0.1;    // cell size
-    rc.ch = 0.05;   // cell height
-    rc.walkableSlopeAngle = 30;
-    rc.walkableHeight = 2;
-    rc.walkableClimb = 0.4;
-    rc.walkableRadius = 0.2;
-    rc.maxEdgeLen = 12;
-    rc.maxSimplificationError = 1.3;
-    rc.minRegionArea = 8;
-    rc.mergeRegionArea = 20;
-    rc.maxVertsPerPoly = 6;
-    rc.detailSampleDist = 6;
-    rc.detailSampleMaxError = 1;
+    try {
+      const rc = new this.recast.RecastConfig();
+      rc.cs = 0.1;    // cell size
+      rc.ch = 0.05;   // cell height
+      rc.walkableSlopeAngle = 30;
+      rc.walkableHeight = 2;
+      rc.walkableClimb = 0.4;
+      rc.walkableRadius = 0.2;
+      rc.maxEdgeLen = 12;
+      rc.maxSimplificationError = 1.3;
+      rc.minRegionArea = 8;
+      rc.mergeRegionArea = 20;
+      rc.maxVertsPerPoly = 6;
+      rc.detailSampleDist = 6;
+      rc.detailSampleMaxError = 1;
 
-    const vertsArray = new this.recast.FloatArray(verts.length);
-    verts.forEach((v, i) => vertsArray.set(i, v));
+      const vertsArray = new this.recast.FloatArray(verts.length);
+      verts.forEach((v, i) => vertsArray.set(i, v));
 
-    const trisArray = new this.recast.IntArray(tris.length);
-    tris.forEach((t, i) => trisArray.set(i, t));
+      const trisArray = new this.recast.IntArray(tris.length);
+      tris.forEach((t, i) => trisArray.set(i, t));
 
-    const builder = new this.recast.NavMeshBuilder();
-    const result = builder.build(vertsArray, verts.length / 3, trisArray, tris.length / 3, rc);
+      const builder = new this.recast.NavMeshBuilder();
+      const result = builder.build(vertsArray, verts.length / 3, trisArray, tris.length / 3, rc);
 
-    if (!result.success) {
-      console.error('[NavMesh] Recast build failed');
+      if (!result.success) {
+        console.error('[NavMesh] Recast build failed');
+        return;
+      }
+
+      this.navMesh = result.navMesh;
+      this.navMeshQuery = new this.recast.NavMeshQuery(this.navMesh);
+      this.built = true;
+      console.log('[NavMesh] Built successfully');
+    } catch (error) {
+      this.built = false;
+      this.navMesh = null;
+      this.navMeshQuery = null;
+      console.warn('[NavMesh] build failed. Falling back to straight-line path.', error);
       return;
     }
-
-    this.navMesh = result.navMesh;
-    this.navMeshQuery = new this.recast.NavMeshQuery(this.navMesh);
-    this.built = true;
-    console.log('[NavMesh] Built successfully');
   }
 
   isReady(): boolean {

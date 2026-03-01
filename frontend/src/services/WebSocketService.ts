@@ -20,6 +20,8 @@ class WebSocketService {
   private lang: string = 'en-US';
   private syncRate: number = 0.5;
   private shouldReconnect = false;
+  private pendingQueue: WebRTCDataChannelPayload[] = [];
+  private readonly maxPendingQueue = 128;
 
   connect(url: string, userId: string, roomId: string, lang: string, syncRate: number) {
     this.baseUrl = url;
@@ -55,6 +57,7 @@ class WebSocketService {
     this.ws.onopen = () => {
       console.log('[WS] Connected');
       if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+      this.flushPendingQueue();
       this.startHeartbeat();
     };
 
@@ -146,7 +149,19 @@ class WebSocketService {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(payload));
     } else {
-      console.warn('[WS] Cannot send – socket not open');
+      if (this.pendingQueue.length >= this.maxPendingQueue) {
+        this.pendingQueue.shift();
+      }
+      this.pendingQueue.push(payload);
+      console.warn('[WS] Queueing payload – socket not open');
+    }
+  }
+
+  private flushPendingQueue() {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || this.pendingQueue.length === 0) return;
+    const queue = this.pendingQueue.splice(0);
+    for (const payload of queue) {
+      this.ws.send(JSON.stringify(payload));
     }
   }
 
@@ -154,6 +169,7 @@ class WebSocketService {
     this.shouldReconnect = false;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.stopHeartbeat();
+    this.pendingQueue = [];
     this.ws?.close();
     this.ws = null;
   }

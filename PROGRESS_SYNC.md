@@ -10,6 +10,8 @@
 
 | Date       | Owner    | TaskID | Directory                   | Status | NextAction                                              | Blocker |
 | ---------- | -------- | ------ | --------------------------- | ------ | ------------------------------------------------------- | ------- |
+| 2026-03-01 | Codex    | T1-10  | /frontend/src               | DONE   | WS open前送信のキュー化 + PCFSoftShadowMap警告の抑制設定 | なし    |
+| 2026-03-01 | Codex    | T1-9   | /frontend/src, /frontend    | DONE   | recast.wasm配信経路修正（Vite URL解決+Nginx wasm静的配信） | なし    |
 | 2026-03-01 | Codex    | T1-8   | /frontend/src               | DONE   | Pixel向け安定化: depthSensing要求をOFFに変更（hit-test優先） | なし    |
 | 2026-03-01 | Codex    | T1-7   | /frontend/src               | DONE   | Depth未対応セッションでの例外停止防止 + 不要XR機能要求/レンダーログ抑制 | なし    |
 | 2026-03-01 | Codex    | T1-6   | /frontend/src               | DONE   | AR平面検出失敗時の強制フォールバック追加 + HUDにAR状態表示追加 | なし    |
