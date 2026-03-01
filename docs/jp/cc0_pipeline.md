@@ -1,18 +1,22 @@
-# プラレスAR：CC0素材調達パイプライン規約
+# plARes：CC0素材調達パイプライン規約
+
+[English Version (EN)](../cc0_pipeline.md)
 
 **更新日**: 2026-02-21  
 **目的**: 商用利用可能なCC0素材だけを、安全かつ再現可能にインポートする。
 
 ## 1. 対象ファイル
+
 - マニフェスト: `assets/cc0/manifest.json`
 - インポータ: `scripts/import_cc0_assets.py`
 - ロックファイル: `assets/cc0/import-lock.json`
 - 出力先: `frontend/public/assets/cc0`
 
 ## 2. 自動インポート規約
+
 1. `license` は `CC0` のみ許可
 2. `download_url` は `https://` 必須
-3. ドメインは allowlist のみ許可  
+3. ドメインは allowlist のみ許可
    - `polyhaven.com`
    - `dl.polyhaven.org`
    - `ambientcg.com`
@@ -22,6 +26,7 @@
 5. `checksum_sha256` が設定されている場合は一致必須
 
 ## 3. 実行コマンド
+
 ```bash
 # 計画のみ生成（推奨）
 python3 scripts/import_cc0_assets.py --dry-run
@@ -31,6 +36,7 @@ python3 scripts/import_cc0_assets.py --fetch
 ```
 
 ## 4. 運用ルール
+
 1. 新規素材を追加する際は必ず `manifest.json` に追記する
 2. `source_page` にライセンス確認ページURLを残す
 3. PRでは `import-lock.json` の差分をレビュー対象にする

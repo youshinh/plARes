@@ -1,4 +1,6 @@
-# 15.プラレスAR：開発実行計画（タスク分解）
+# 15.plARes：開発実行計画（タスク分解）
+
+[English Version (EN)](../execution_plan.md)
 
 最終更新日: 2026-03-01（全コード精読・デッドコード削除後に更新）
 対象期間: 2026-03-02 〜 2026-04-10（6週間）
@@ -235,8 +237,8 @@
 - 対象: `/backend/infrastructure/multimodal_pipeline.py`
 - 背景: `generate_fused_item` は `asyncio.sleep(1)` + ハードコードURLのみ。`MilestoneVideoGenerator` も Pub/Sub未接続。
 - 【MCP確認済み】使用API:
-  - **画像生成**: `google.genai` クライアント経由で `imagen-4.0-generate-001`（または `imagen-3.0-generate-002`）を使用
-    - `response = await asyncio.to_thread(client.models.generate_images, model='imagen-4.0-generate-001', prompt=prompt, config=types.GenerateImagesConfig(number_of_images=1))`
+  - **画像生成**: `google.genai` クライアント経由で `gemini-3.1-flash-image-preview` を使用
+    - `response = await asyncio.to_thread(client.models.generate_images, model='gemini-3.1-flash-image-preview', prompt=prompt, config=types.GenerateImagesConfig(number_of_images=1))`
     - レスポンスは `response.generated_images[0].image.image_bytes` でバイト列として取得
   - **動画生成 (Veo)**: モデル名は `veo-3.1-generate-001`（long-running operation の非同期ポーリングが必要）
   - **Pub/Sub**: `google-cloud-pubsub` の `pubsub_v1.PublisherClient()` を使用（現在コメントアウト中 → `requirements.txt` に `google-cloud-pubsub` が必要）
@@ -274,15 +276,15 @@
 - 担当: Agent 3
 - 対象: `/backend/infrastructure/vertex_cache.py`, `/backend/ai_core/main.py`
 - 背景: `VertexContextCache.load_historical_context` は実API呼び出し済み（`google.genai client.caches.create`）。計測が不足。
-- 【MCP確認済み】Context Cache対応モデル:
-  - **Vertex AI経由使用可能モデル**: `gemini-3-flash-preview`, `gemini-3.1-pro-preview`, `gemini-2.5-flash-native-audio-preview-12-2025`, `gemini-2.5-flash-preview-tts`, `gemini-3.1-flash-image-preview`
-  - `PLARES_INTERACTIONS_MODEL` env変数の値が `gemini-3-flash-preview` 形式になっているか確認が必要 -古いモデルなし（例: `gemini-2.5-flash`）では Context Cache が機能しない
+- 【MCP確認済み】- Context Cache対応モデル:
+  - **Vertex AI経由使用可能モデル**: `gemini-3-flash-preview`, `gemini-2.5-flash-native-audio-preview-12-2025`, `gemini-2.5-flash-preview-tts`, `gemini-3.1-flash-image-preview`
+  - `PLARES_INTERACTIONS_MODEL` env変数の値が `gemini-3-flash-preview` 形式になっているか確認が必要
 - 実施内容:
   1. `get_cache_for_user` 呼び出し時に `hit` / `miss` をstructured JSON形式でログ出力
      - `{"event": "context_cache", "result": "hit", "user_id": "...", "cache_id": "..."}`
   2. キャッシュ作成失敗時のエラーログに `user_id` と失敗理由を含める
   3. ユーザー別TTLをenv変数 `PLARES_CACHE_TTL_SECONDS`（デフォルト3600）で設定変更可能にする
-  4. `PLARES_INTERACTIONS_MODEL` のデフォルト値を `gemini-2.0-flash-exp` から `gemini-3-flash-preview` に更新し、READMEにバージョン番号必須の旨を明記
+  4. `PLARES_INTERACTIONS_MODEL` のデフォルト値を `gemini-3-flash-preview` に更新し、READMEにバージョン番号必須の旨を明記
 - DoD:
   - ログでキャッシュヒット率がモニタリング可能
   - 再接続時のTTFT改善が開発者ログで観測できる

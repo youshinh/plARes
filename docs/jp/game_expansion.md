@@ -1,7 +1,7 @@
-# プラレスAR：ゲーム機能拡張仕様書
+# plARes：ゲーム機能拡張仕様書
 
 **対象**: 実装担当エージェント・開発者  
-**目的**: Doc.11（補完設計書）に加え、NotebookLM照会（2026-02-21）で判明した拡張機能の仕様をまとめる。  
+**目的**: [ゲームシステム補完設計書](game_supplement.md)に加え、NotebookLM照会（2026-02-21）で判明した拡張機能の仕様をまとめる。  
 **情報源**: NotebookLM `46106b3a-80d5-4567-85c4-25dc3ee293cc`
 
 ---
@@ -62,7 +62,7 @@ interface TrainingLog {
   ↓ 公園のベンチを認識 → "マスター、いい木材だな！" とプロアクティブ発話
   ↓ 周囲が暗くなる → Function Calling { action: "glow_eyes" } を発行
   ↓ プレイヤーが物体を撮影 → テキストプロンプト付きで送信
-  ↓ Nano Banana Pro が 8-Image Mix で 1〜2秒でテクスチャ生成
+  ↓ gemini-3.1-flash-image-preview が 1〜2秒でテクスチャ生成
   ↓ Firestore users/{id}/inventory に保存（次回対戦で装備可能）
 ```
 
@@ -104,8 +104,8 @@ groupRef.current.scale.setScalar(bodyScale);
 
 ```
 aiMemorySummary から戦歴ハイライトを抽出
-  ↓ "炎の攻撃を受けた黒い焦げ跡" などを Nano Banana Pro に送信
-  ↓ ベーステクスチャ + プロンプト → 8-Image Mix → 新テクスチャURL
+  ↓ "炎の攻撃を受けた黒い焦げ跡" などを gemini-3.1-flash-image-preview に送信
+  ↓ ベーステクスチャ + プロンプト → 生成 → 新テクスチャURL
   ↓ Firestore の textureUrl を上書き Update
   ↓ フロントエンドが TextureLoader で非同期ロード → material.needsUpdate = true
 ```
@@ -187,9 +187,9 @@ system_prompt = f"""
 
 > 「HAHAHA！マスターの滑舌は最高だったぜ！でも『カゲブンシン』は見掛け倒しだったな。出直してきな！」
 
-### LyriaによるBGM生成（非同期）
+### gemini-2.5-flash-preview-tts によるBGM生成（非同期）
 
-勝利確定と同時に非同期で Lyria API をコール：
+勝利確定と同時に非同期で gemini-2.5-flash-preview-tts または相当するAPIをコール：
 
 ```python
 # バックグラウンドタスクで実行（フロントをブロックしない）

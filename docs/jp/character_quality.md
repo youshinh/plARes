@@ -1,4 +1,6 @@
-# プラレスAR：キャラクター商用品質化計画
+# plARes：キャラクター商用品質化計画
+
+[English Version (EN)](../character_quality.md)
 
 **更新日**: 2026-02-21  
 **目的**: 「ダサい」を構造的に解消し、写真入力時でも品質を崩さないキャラ生成フローを確立する。
@@ -109,6 +111,7 @@
 ## 5. 実装レシピ（写真→DNA→見た目）
 
 ### 5.1 オンライン推奨フロー（本番）
+
 1. FaceScannerで写真1枚取得
 2. 顔領域クロップ + ランドマーク抽出（MediaPipe）
 3. 代表色抽出（K-means, K=4）
@@ -116,11 +119,13 @@
 5. `RobotCharacter` のパーツと色に適用
 
 ### 5.2 変化の作り方（写真バリエーション）
+
 - 同一人物でも `seed` を `photoHash + seasonTag + matchCountBand` で変える
 - 例: `v1:seed = hash(face + "S2" + floor(totalMatches/5))`
 - 5試合ごとに軽微な変化（色味・パネル傷・発光色）を追加
 
 ### 5.3 品質ゲート（必須）
+
 - 1キャラあたり draw call 上限: 35
 - マテリアル数上限: 8
 - テクスチャ解像度上限: 1024
@@ -143,7 +148,7 @@
 
 ## 7. 素材調達パイプライン
 
-- CC0素材の自動インポート規約は `docs/14.プラレスAR：CC0素材調達パイプライン規約.md` を参照。
+- CC0素材の自動インポート規約は [CC0素材調達パイプライン規約](cc0_pipeline.md) を参照。
 - 実装ファイル:
   - `assets/cc0/manifest.json`
   - `scripts/import_cc0_assets.py`

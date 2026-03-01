@@ -1,11 +1,11 @@
-# AGENTS.md: PlaresAR Master Development Design & Agent Skills
+# AGENTS.md: plARes Master Development Design & Agent Skills
 
 **Target**: AI Development Agents participating in the project (Agents 1, 2, and 3)
-**Purpose**: This document serves as the master design instruction for "PlaresAR", a next-generation WebAR x AI multi-agent battle game set in real-world spaces. It defines the architecture, tech stacks, directory responsibilities, specific skills, and development rules for the 3 parallel development agents.
+**Purpose**: This document serves as the master design instruction for "plARes", a next-generation WebAR x AI multi-agent battle game set in real-world spaces. It defines the architecture, tech stacks, directory responsibilities, specific skills, and development rules for the 3 parallel development agents.
 
 ## 1. Project Vision
 
-PlaresAR is a metaverse game where players summon their original AI robots (PlaresWrestlers) onto real-world surfaces (desks, living room floors, DIY woodwork) and command them to fight using voice and gestures. It blends high competitiveness with the joy of DIY, offering an advanced entertainment experience where audiences can join and expand the game via web browsers without needing dedicated apps.
+plARes is a metaverse game where players summon their original AI robots (Pla-Wrestlers) onto real-world surfaces (desks, living room floors, DIY woodwork) and command them to fight using voice and gestures. It blends high competitiveness with the joy of DIY, offering an advanced entertainment experience where audiences can join and expand the game via web browsers without needing dedicated apps.
 
 ## 2. Collaboration Rules & Directory Structure
 
@@ -62,7 +62,7 @@ Maintain `PROGRESS_SYNC.md` in the project root. Agents must update this file wh
 
 ### Agent 2: Backend AI & Streaming (The Brain)
 
-**Role**: Bidirectional streaming, advanced inference, articulation/enthusiasm scoring, and macro-tactics using Gemini 3.1 Pro.
+**Role**: Bidirectional streaming, advanced inference, articulation/enthusiasm scoring, and macro-tactics using **gemini-3.1-pro-preview**.
 **Directory**: `/backend/ai_core/`
 **Target Module**: Module B (Brain & Strategy)
 **Tech Stack**: Python, Agent Development Kit (ADK) / Antigravity, Gemini Multimodal Live API
@@ -143,7 +143,7 @@ The master source of truth for all design specs relies on a NotebookLM document 
 
 ### Notebook Info
 
-- **Title**: PlaresAR: The Heated Battle Sketched with Next-Gen AI Agents
+- **Title**: plARes: The Heated Battle Sketched with Next-Gen AI Agents
 - **Notebook ID**: `46106b3a-80d5-4567-85c4-25dc3ee293cc`
 - **URL**: https://notebooklm.google.com/notebook/46106b3a-80d5-4567-85c4-25dc3ee293cc
 
@@ -182,7 +182,7 @@ nlm list sources 46106b3a-80d5-4567-85c4-25dc3ee293cc
 
 The following models are the **only approved models** for this project. Select the model strictly based on its designated use case:
 
-| Model                                           | Primary Use Case in PlaresAR                                                                                                                                                                                                                   |
+| Model                                           | Primary Use Case in plARes                                                                                                                                                                                                                     |
 | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `gemini-3.1-pro-preview`                        | **Deep reasoning & strategy** — Complex agentic workflows, macro-tactic decision-making, long-context match history analysis, software engineering tasks, and multi-step tool use (Agent 2 main brain).                                        |
 | `gemini-3-flash-preview`                        | **General backend inference** — Interactive agentic loops, fast function calling, JSON command generation, and moderate reasoning tasks where near-Pro quality is needed at lower latency (Agent 2 real-time inference).                       |
