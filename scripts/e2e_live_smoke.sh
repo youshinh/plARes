@@ -155,6 +155,27 @@ click_first_present() {
   return 1
 }
 
+click_by_id_fallback() {
+  local element_id="$1"
+  pw eval "() => {
+    const el = document.getElementById('${element_id}');
+    if (!el) return false;
+    el.click();
+    return true;
+  }" || true
+}
+
+click_by_text_fallback() {
+  local pattern="$1"
+  pw eval "() => {
+    const re = new RegExp('${pattern}');
+    const btn = [...document.querySelectorAll('button')].find((el) => re.test((el.textContent || '').trim()));
+    if (!btn) return false;
+    btn.click();
+    return true;
+  }" || true
+}
+
 pw open "$FRONTEND_URL"
 SNAPSHOT="$(take_snapshot)"
 if [[ -z "${SNAPSHOT:-}" ]]; then
@@ -180,6 +201,7 @@ for _ in $(seq 1 20); do
     break
   fi
   click_first_present "$SNAPSHOT" "Issue Live Token" "ISSUE LIVE TOKEN" "Liveトークン発行" "Emitir Token Live" || true
+  click_by_id_fallback "btn-live-token"
   sleep 2
   SNAPSHOT="$(take_snapshot)"
 done
@@ -203,6 +225,7 @@ for _ in $(seq 1 25); do
     break
   fi
   click_first_present "$SNAPSHOT" "Connect Live" "CONNECT LIVE" "LIVE接続" "Conectar Live" || true
+  click_by_text_fallback "Connect Live|CONNECT LIVE|LIVE接続|Conectar Live"
   sleep 1
   SNAPSHOT="$(take_snapshot)"
 done
@@ -247,6 +270,7 @@ echo "Match log files found: $MATCH_LOG_COUNT"
 SPECIAL_FLOW_OK=false
 for _ in $(seq 1 2); do
   click_first_present "$SNAPSHOT" "Cast Special ⚡" "Lanzar Especial ⚡" "必殺発動 ⚡" || true
+  click_by_id_fallback "btn-cast-special"
   sleep 4
   if rg -q '"event": ?"voice_judge"|"critical_hit"' "$BACKEND_LOG" 2>/dev/null; then
     SPECIAL_FLOW_OK=true

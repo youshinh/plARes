@@ -139,8 +139,18 @@ async def handle_client_connection(client_id, websocket):
     listen_task = asyncio.create_task(listen_to_client())
     run_task = asyncio.create_task(process_downstream())
 
-    # Wait for both tasks to complete or client disconnects
-    await asyncio.gather(listen_task, run_task, return_exceptions=True)
+    # Prefer prompt teardown on disconnect: when either side completes,
+    # cancel the other side to avoid hanging sessions.
+    done, pending = await asyncio.wait(
+        {listen_task, run_task},
+        return_when=asyncio.FIRST_COMPLETED,
+    )
+    for task in pending:
+        task.cancel()
+    if pending:
+        await asyncio.gather(*pending, return_exceptions=True)
+    if done:
+        await asyncio.gather(*done, return_exceptions=True)
 
     # 4. Cleanup
     print(f"Cleaning up ADK session {client_id}")

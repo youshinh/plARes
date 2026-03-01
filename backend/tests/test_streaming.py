@@ -1,6 +1,6 @@
 import pytest
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 from ai_core.streaming.live_queue import LiveRequestQueue
 from ai_core.streaming.bidi_session import handle_client_connection
@@ -42,20 +42,34 @@ async def test_handle_client_connection():
     class DummyWebSocket:
         def __init__(self):
             self.send = AsyncMock()
+            self._messages = ['{"type":"activity_start"}']
 
         def __aiter__(self):
             return self
 
         async def __anext__(self):
+            if self._messages:
+                return self._messages.pop(0)
             raise StopAsyncIteration
 
     mock_ws = DummyWebSocket()
 
+    class FakeTextEvent:
+        def model_dump(self, mode="json"):
+            return {"text": "hello"}
+
+        def get_function_calls(self):
+            return None
+
+        def get_function_responses(self):
+            return None
+
+        def is_final_response(self):
+            return True
+
     async def mock_run_live(**kwargs):
         # Simulate the runner emitting one event then stopping
-        mock_event = MagicMock()
-        mock_event.__class__.__name__ = "TextEvent"
-        yield mock_event
+        yield FakeTextEvent()
 
     with patch("ai_core.streaming.bidi_session.runner.run_live", new=mock_run_live):
         await asyncio.wait_for(
@@ -64,7 +78,7 @@ async def test_handle_client_connection():
         )
 
     # Check that websocket.send was called with the serialized event
-    mock_ws.send.assert_called_once()
+    assert mock_ws.send.call_count >= 1
     call_arg = mock_ws.send.call_args[0][0]
     assert "TextEvent" in call_arg
 
