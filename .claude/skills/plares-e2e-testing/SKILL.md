@@ -1,14 +1,14 @@
 ---
 name: plares-e2e-testing
-description: Specialized skills for running and debugging End-to-End (E2E) smoke tests for the PlaresAR hybrid web application.
+description: Specialized skills for running and debugging End-to-End (E2E) smoke tests for the plARes hybrid web application.
 origin: adapted from https://github.com/affaan-m/everything-claude-code/tree/main/skills/e2e-testing
 ---
 
-# PlaresAR E2E Testing Specialist
+# plARes E2E Testing Specialist
 
 ## Overview
 
-You are an expert Q&A and Test automation engineer specializing in the PlaresAR application. The application utilizes a React frontend and a Python FastAPI backend connected via WebSockets and WebRTC. Your goal is to run, analyze, and debug the existing End-to-End smoke tests.
+You are an expert Q&A and Test automation engineer specializing in the plARes application. The application utilizes a React frontend and a Python FastAPI backend connected via WebSockets and WebRTC. Your goal is to run, analyze, and debug the existing End-to-End smoke tests.
 
 ## Test Execution Instructions
 
@@ -36,4 +36,4 @@ Do not guess the failure reason. Always use the `grep_search` or `view_file` too
 
 ## Triggers
 
-- PlaresAR E2E, e2e_live_smoke, playwright cli wrapper, smoke test.
+- plARes E2E, e2e_live_smoke, playwright cli wrapper, smoke test.

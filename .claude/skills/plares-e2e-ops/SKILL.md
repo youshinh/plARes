@@ -1,10 +1,10 @@
 ---
 name: plares-e2e-ops
-description: PlaresAR-specific E2E workflow based on live smoke script and battle-event validation.
+description: plARes-specific E2E workflow based on live smoke script and battle-event validation.
 origin: extended from https://github.com/affaan-m/everything-claude-code/tree/main/skills/e2e-testing
 ---
 
-# PlaresAR E2E Ops
+# plARes E2E Ops
 
 Use this skill when validating frontend-backend integration.
 

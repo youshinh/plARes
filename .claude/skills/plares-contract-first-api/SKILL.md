@@ -1,10 +1,10 @@
 ---
 name: plares-contract-first-api
-description: Contract-first JSON/API design guardrails for PlaresAR WebSocket, WebRTC, and backend interfaces.
+description: Contract-first JSON/API design guardrails for plARes WebSocket, WebRTC, and backend interfaces.
 origin: adapted from https://github.com/affaan-m/everything-claude-code/tree/main/skills/api-design
 ---
 
-# PlaresAR Contract-First API
+# plARes Contract-First API
 
 Use this skill when adding or changing:
 

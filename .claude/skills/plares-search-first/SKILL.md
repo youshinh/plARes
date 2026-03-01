@@ -1,10 +1,10 @@
 ---
 name: plares-search-first
-description: Research-before-implementation workflow for PlaresAR. Use before adding features, dependencies, or architecture changes.
+description: Research-before-implementation workflow for plARes. Use before adding features, dependencies, or architecture changes.
 origin: adapted from https://github.com/affaan-m/everything-claude-code/tree/main/skills/search-first
 ---
 
-# PlaresAR Search-First
+# plARes Search-First
 
 Use this skill before writing new code in `/frontend`, `/backend/ai_core`, `/backend/infrastructure`, or `/shared`.
 
@@ -43,7 +43,7 @@ Contract impact: <shared/types change or none>
 Risk: <top 1-3 risks>
 ```
 
-## PlaresAR Guardrails
+## plARes Guardrails
 
 - Contract-first: define/update JSON types in `/shared/types` before implementation.
 - Respect directory ownership split (Agent 1/2/3 boundaries).

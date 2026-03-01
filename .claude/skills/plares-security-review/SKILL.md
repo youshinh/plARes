@@ -1,10 +1,10 @@
 ---
 name: plares-security-review
-description: Security checklist for PlaresAR covering secrets, transport boundaries, MCP safety, and input validation.
+description: Security checklist for plARes covering secrets, transport boundaries, MCP safety, and input validation.
 origin: adapted from https://github.com/affaan-m/everything-claude-code/tree/main/skills/security-review
 ---
 
-# PlaresAR Security Review
+# plARes Security Review
 
 Run this skill when changing auth, networking, MCP tools, or model-facing inputs.
 

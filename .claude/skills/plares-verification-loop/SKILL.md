@@ -1,10 +1,10 @@
 ---
 name: plares-verification-loop
-description: End-to-end verification gates for PlaresAR before handoff or PR.
+description: End-to-end verification gates for plARes before handoff or PR.
 origin: adapted from https://github.com/affaan-m/everything-claude-code/tree/main/skills/verification-loop
 ---
 
-# PlaresAR Verification Loop
+# plARes Verification Loop
 
 Run this after meaningful code changes.
 

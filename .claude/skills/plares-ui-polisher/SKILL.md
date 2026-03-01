@@ -35,7 +35,7 @@ metadata:
 ヘッドレスブラウザ（Playwright）を使い、現在の描画結果を画像として取得する。
 
 ```bash
-# スクリプト: skills/agent1/ui-polisher/scripts/capture.sh
+# スクリプト:  .claude/skills/plares/ui-polisher/scripts/capture.sh
 npx playwright screenshot \
   --browser chromium \
   --viewport-size "390,844" \

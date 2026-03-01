@@ -1,10 +1,10 @@
 ---
 name: plares-cost-gating
-description: Cost-aware model routing and dynamic gating policy for PlaresAR Gemini workloads.
+description: Cost-aware model routing and dynamic gating policy for plARes Gemini workloads.
 origin: adapted from https://github.com/affaan-m/everything-claude-code/tree/main/skills/cost-aware-llm-pipeline
 ---
 
-# PlaresAR Cost Gating
+# plARes Cost Gating
 
 Use this skill when implementing or reviewing AI calls.
 
