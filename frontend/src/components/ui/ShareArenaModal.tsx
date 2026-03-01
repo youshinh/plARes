@@ -16,7 +16,6 @@ export const ShareArenaModal: React.FC<ShareArenaModalProps> = ({
 }) => {
   const [copied, setCopied] = useState(false);
 
-  console.log('ShareArenaModal render, open=', open, 'roomId=', roomId);
   if (!open) return null;
 
   const getTexts = () => {

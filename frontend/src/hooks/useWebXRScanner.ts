@@ -85,6 +85,7 @@ export const useWebXRScanner = () => {
   const depthTextureRef = useRef<THREE.DataTexture | null>(null);
   const depthRawToMetersRef = useRef<number>(0.001);
   const depthTextureTypeRef = useRef<number>(THREE.UnsignedByteType);
+  const depthUnsupportedRef = useRef(false);
   const lastPublishedSampleRef = useRef<{
     x: number;
     y: number;
@@ -112,6 +113,9 @@ export const useWebXRScanner = () => {
       lastPublishedSampleRef.current = null;
       noHitFrameCountRef.current = 0;
       forceFallbackNotifiedRef.current = false;
+      depthUnsupportedRef.current = false;
+      depthTextureRef.current = null;
+      depthRawToMetersRef.current = 0.001;
       setState({
         isScanning: false,
         hoverMatrix: null,
@@ -136,6 +140,9 @@ export const useWebXRScanner = () => {
         noHitFrameCountRef.current = 0;
         lastPublishedSampleRef.current = null;
         forceFallbackNotifiedRef.current = false;
+        depthUnsupportedRef.current = false;
+        depthTextureRef.current = null;
+        depthRawToMetersRef.current = 0.001;
 
         // 'local-floor' gives y=0 at floor level; fall back to 'local'
         const localSpace = await session.requestReferenceSpace('local-floor')
@@ -200,6 +207,9 @@ export const useWebXRScanner = () => {
       lastPublishedSampleRef.current = null;
       noHitFrameCountRef.current = 0;
       forceFallbackNotifiedRef.current = false;
+      depthUnsupportedRef.current = false;
+      depthTextureRef.current = null;
+      depthRawToMetersRef.current = 0.001;
       setState({
         isScanning: false,
         hoverMatrix: null,
@@ -219,6 +229,9 @@ export const useWebXRScanner = () => {
       viewerSpaceRef.current = null;
       noHitFrameCountRef.current = 0;
       forceFallbackNotifiedRef.current = false;
+      depthUnsupportedRef.current = false;
+      depthTextureRef.current = null;
+      depthRawToMetersRef.current = 0.001;
     };
   }, [session]);
 
@@ -335,10 +348,23 @@ export const useWebXRScanner = () => {
     }
 
     // ② Depth Sensing – upload depth map as DataTexture for occlusion shader
-    if (typeof (frame as any).getDepthInformation === 'function') {
+    if (!depthUnsupportedRef.current && typeof (frame as any).getDepthInformation === 'function') {
       if (viewerPose) {
         for (const view of viewerPose.views) {
-          const depthInfo: XRDepthInformation | null = (frame as any).getDepthInformation(view);
+          let depthInfo: XRDepthInformation | null = null;
+          try {
+            depthInfo = (frame as any).getDepthInformation(view);
+          } catch (error) {
+            const name = (error as any)?.name;
+            if (name === 'NotSupportedError') {
+              depthUnsupportedRef.current = true;
+              depthTextureRef.current = null;
+              depthRawToMetersRef.current = 0.001;
+              console.warn('[XR] Depth sensing is unavailable in this AR session. Continuing without occlusion depth.');
+              break;
+            }
+            throw error;
+          }
           if (depthInfo && (depthInfo as any).data) {
             const d = depthInfo as any;
             const rawData = d.data as ArrayBufferView;

@@ -10,6 +10,8 @@
 
 | Date       | Owner    | TaskID | Directory                   | Status | NextAction                                              | Blocker |
 | ---------- | -------- | ------ | --------------------------- | ------ | ------------------------------------------------------- | ------- |
+| 2026-03-01 | Codex    | T1-8   | /frontend/src               | DONE   | Pixel向け安定化: depthSensing要求をOFFに変更（hit-test優先） | なし    |
+| 2026-03-01 | Codex    | T1-7   | /frontend/src               | DONE   | Depth未対応セッションでの例外停止防止 + 不要XR機能要求/レンダーログ抑制 | なし    |
 | 2026-03-01 | Codex    | T1-6   | /frontend/src               | DONE   | AR平面検出失敗時の強制フォールバック追加 + HUDにAR状態表示追加 | なし    |
 | 2026-03-01 | Codex    | T1-5   | /frontend/src               | DONE   | WebXR平面検出フォールバック + ARセッション復帰時状態リセット実装 | なし    |
 | 2026-03-01 | Codex    | V-2    | /.claude/skills, /docs      | DONE   | skills origin明記 + performance_cost_report のモデル整合 | なし    |

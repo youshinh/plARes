@@ -223,7 +223,10 @@ const store = createXRStore({
   // Request AR features through @pmndrs/xr session-init options.
   // local-floor is a reference space requested in useWebXRScanner.
   hitTest: true,
-  depthSensing: true,
+  depthSensing: false,
+  layers: false,
+  meshDetection: false,
+  planeDetection: false,
 });
 
 // ── Inner scene (must render inside Canvas + XR) ─────────────────────────────
