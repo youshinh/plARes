@@ -2383,9 +2383,8 @@ def _build_audio_result(
             response = client.models.generate_content(model=model, contents=prompt)
             txt = response.text.strip()
             # Try parsing
-            import json
             if txt.startswith("```json"): txt = txt[7:]
-            if txt.endswith("```"): txt[:-3]
+            if txt.endswith("```"): txt = txt[:-3]
             parsed = json.loads(txt.strip())
             accuracy = float(parsed.get("accuracy", 0.7))
             ai_passion = float(parsed.get("passion", 0.7))
