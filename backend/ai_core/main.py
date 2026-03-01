@@ -5,6 +5,7 @@ import os
 import random
 import time
 import uuid
+import logging
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -13,6 +14,8 @@ from urllib.parse import parse_qs, urlparse
 
 import websockets
 from websockets.exceptions import ConnectionClosed
+
+from .utils import logger, to_json_safe, safe_json_loads, clamp01, to_float, to_int
 
 try:
     from dotenv import load_dotenv
@@ -24,6 +27,7 @@ try:
 except Exception as exc:  # pragma: no cover - import may fail in local envs
     adk_live_handler = None
     ADK_IMPORT_ERROR = str(exc)
+    logger.error(f"ADK Import Error: {ADK_IMPORT_ERROR}")
 else:
     ADK_IMPORT_ERROR = ""
 
@@ -85,13 +89,13 @@ if FirestoreMCPServer is not None:
         mcp_server_instance = FirestoreMCPServer(os.getenv("GCP_PROJECT", "plaresar"))
         mcp_firestore_tools = mcp_server_instance.register_firestore_tools()
     except Exception as e:
-        print(f"MCP init failed: {e}")
+        logger.error(f"MCP init failed: {e}", exc_info=True)
 
 if VertexContextCache is not None:
     try:
         vertex_cache_instance = VertexContextCache()
     except Exception as e:
-        print(f"Vertex cache init failed: {e}")
+        logger.error(f"Vertex cache init failed: {e}", exc_info=True)
 
 if load_dotenv is not None:
     env_path = Path(__file__).resolve().parents[1] / ".env"
@@ -294,34 +298,6 @@ def _evolve_character_dna_by_matches(dna: dict[str, Any], total_matches: int) ->
     return evolved
 
 
-def _safe_json_loads(message: str) -> Optional[dict]:
-    try:
-        payload = json.loads(message)
-        return payload if isinstance(payload, dict) else None
-    except json.JSONDecodeError:
-        return None
-
-
-def _to_json_safe(value: Any) -> Any:
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-    if isinstance(value, list):
-        return [_to_json_safe(item) for item in value]
-    if isinstance(value, tuple):
-        return [_to_json_safe(item) for item in value]
-    if isinstance(value, dict):
-        return {str(k): _to_json_safe(v) for k, v in value.items()}
-
-    for method_name in ("model_dump", "dict"):
-        method = getattr(value, method_name, None)
-        if callable(method):
-            try:
-                return _to_json_safe(method())
-            except Exception:
-                pass
-    return str(value)
-
-
 def _normalize_model_name(model_name: str, fallback: str) -> str:
     raw = (model_name or fallback).strip()
     if not raw:
@@ -376,7 +352,7 @@ def _parse_lang(query: dict[str, list[str]]) -> str:
 def _parse_sync_rate(query: dict[str, list[str]], default: float = 0.5) -> float:
     raw = query.get("sync_rate", [str(default)])[0]
     try:
-        return _clamp01(float(raw))
+        return clamp01(float(raw))
     except (TypeError, ValueError):
         return default
 
@@ -726,7 +702,7 @@ def _issue_ephemeral_token_sync(requested: dict[str, Any], user_id: str, room_id
             "room_id": room_id,
         }
 
-    token_payload = _to_json_safe(token)
+    token_payload = to_json_safe(token)
     token_name = ""
     if isinstance(token_payload, dict):
         token_name = str(token_payload.get("name", ""))
@@ -821,7 +797,7 @@ def _run_interaction_sync(requested: dict[str, Any], user_id: str, room_id: str)
             "room_id": room_id,
         }
 
-    raw = _to_json_safe(interaction)
+    raw = to_json_safe(interaction)
     interaction_id = ""
     if isinstance(raw, dict):
         for key in ("id", "name", "interaction_id"):
@@ -979,14 +955,14 @@ def _append_mode_log(
     if not isinstance(network, dict):
         network = {}
 
-    sync_before = round(_clamp01(_to_float(network.get("sync_rate", sync_rate), sync_rate)), 3)
+    sync_before = round(clamp01(to_float(network.get("sync_rate", sync_rate), sync_rate)), 3)
     raw_sync_after = payload.get(
         "syncRateAfter",
         payload.get("sync_rate_after", payload.get("syncRate", payload.get("sync_rate"))),
     )
     sync_after = sync_before
     if raw_sync_after is not None:
-        sync_after = round(_clamp01(_to_float(raw_sync_after, sync_before)), 3)
+        sync_after = round(clamp01(to_float(raw_sync_after, sync_before)), 3)
     network["sync_rate"] = sync_after
 
     raw_tone = payload.get("tone")
@@ -1003,14 +979,14 @@ def _append_mode_log(
         session_id = str(payload.get("sessionId") or payload.get("session_id") or f"training_{uuid.uuid4().hex[:10]}")
         started_at = _safe_timestamp(payload.get("startedAt", payload.get("started_at", now)), now)
         ended_at = _safe_timestamp(payload.get("endedAt", payload.get("ended_at", now)), now)
-        accuracy_score = _clamp01(
-            _to_float(payload.get("accuracyScore", payload.get("accuracy_score", payload.get("accuracy"))), 0.0)
+        accuracy_score = clamp01(
+            to_float(payload.get("accuracyScore", payload.get("accuracy_score", payload.get("accuracy"))), 0.0)
         )
-        speed_score = _clamp01(
-            _to_float(payload.get("speedScore", payload.get("speed_score", payload.get("speed"))), 0.0)
+        speed_score = clamp01(
+            to_float(payload.get("speedScore", payload.get("speed_score", payload.get("speed"))), 0.0)
         )
-        passion_score = _clamp01(
-            _to_float(payload.get("passionScore", payload.get("passion_score", payload.get("passion"))), 0.0)
+        passion_score = clamp01(
+            to_float(payload.get("passionScore", payload.get("passion_score", payload.get("passion"))), 0.0)
         )
         result_raw = str(payload.get("result", "SUCCESS")).strip().upper()
         if result_raw in {"SUCCESS", "WIN", "CRITICAL"}:
@@ -1034,10 +1010,10 @@ def _append_mode_log(
             "accuracy_score": round(accuracy_score, 3),
             "speed_score": round(speed_score, 3),
             "passion_score": round(passion_score, 3),
-            "accuracy": round(_to_float(payload.get("accuracy", accuracy_score), accuracy_score), 3),
-            "speed": round(_to_float(payload.get("speed", speed_score), speed_score), 3),
-            "passion": round(_to_float(payload.get("passion", passion_score), passion_score), 3),
-            "retry_count": _to_int(payload.get("retryCount", payload.get("retry_count", 0)), 0),
+            "accuracy": round(to_float(payload.get("accuracy", accuracy_score), accuracy_score), 3),
+            "speed": round(to_float(payload.get("speed", speed_score), speed_score), 3),
+            "passion": round(to_float(payload.get("passion", passion_score), passion_score), 3),
+            "retry_count": to_int(payload.get("retryCount", payload.get("retry_count", 0)), 0),
             "highlights": highlights,
             "ai_comment": ai_comment,
             "highlight_events": _normalize_highlight_events(
@@ -1193,20 +1169,6 @@ def _append_memory_summary(existing: str, entry: str) -> str:
     return merged[-MAX_MEMORY_SUMMARY_CHARS:]
 
 
-def _to_float(value: Any, default: float = 0.0) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def _to_int(value: Any, default: int = 0) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
-
-
 def _to_string_list(value: Any, max_items: int = 20) -> list[str]:
     if not isinstance(value, list):
         return []
@@ -1282,7 +1244,7 @@ def _summarize_memory_summary(
     model = _normalize_model_name(INTERACTIONS_MODEL, INTERACTIONS_MODEL)
     try:
         response = client.models.generate_content(model=model, contents=prompt)
-        raw = _to_json_safe(response)
+        raw = to_json_safe(response)
         fragments: list[str] = []
         _collect_text_fragments(raw, fragments)
         text = " ".join(dict.fromkeys(fragments)).strip()
@@ -1324,7 +1286,7 @@ def _seed_runtime_state_from_room_meta(room_id: str) -> None:
         user_state = state["per_user"][user_id]
         user_state["lang"] = str(meta.get("lang", "en-US"))
         try:
-            user_state["sync_rate"] = _clamp01(float(meta.get("sync_rate", 0.5)))
+            user_state["sync_rate"] = clamp01(float(meta.get("sync_rate", 0.5)))
         except (TypeError, ValueError):
             user_state["sync_rate"] = 0.5
         user_state["last_heartbeat"] = time.monotonic()
@@ -1449,7 +1411,7 @@ def _generate_global_match_summary(events: list[dict[str, Any]], highlights: lis
     model = _normalize_model_name(INTERACTIONS_MODEL, INTERACTIONS_MODEL)
     try:
         response = client.models.generate_content(model=model, contents=prompt)
-        raw = _to_json_safe(response)
+        raw = to_json_safe(response)
         fragments: list[str] = []
         _collect_text_fragments(raw, fragments)
         text = " ".join(dict.fromkeys(fragments)).strip()
@@ -1475,7 +1437,7 @@ def _finalize_room_runtime(
     }
     sync_packets = int(state.get("sync_packets", 0))
     if sync_packets <= 0 and len(events) == 0:
-        print(f"[MATCH] skipped empty commit room={room_id} trigger={trigger}")
+        logger.info(f"[MATCH] skipped empty commit room={room_id} trigger={trigger}")
         return []
 
     summary = {
@@ -1601,7 +1563,7 @@ def _finalize_room_runtime(
             }
         )
 
-    print(f"[MATCH] committed runtime summary room={room_id} trigger={trigger} file={out_file}")
+    logger.info(f"[MATCH] committed runtime summary room={room_id} trigger={trigger} file={out_file}")
     return memory_updates
 
 
@@ -1980,8 +1942,6 @@ def _score_pcm16_frame(chunk: bytes) -> tuple[float, float]:
     return avg, peak_norm
 
 
-def _clamp01(value: float) -> float:
-    return max(0.0, min(1.0, value))
 
 
 def _normalize_material(value: Any) -> str:
@@ -2581,7 +2541,7 @@ async def _generate_proactive_line(
             model=model,
             contents=prompt,
         )
-        raw = _to_json_safe(response)
+        raw = to_json_safe(response)
         fragments: list[str] = []
         _collect_text_fragments(raw, fragments)
         text = " ".join(dict.fromkeys(fragments)).strip()
@@ -2678,7 +2638,7 @@ async def _generate_winner_interview(room_id: str, winner_id: str, loser_id: str
             model=model,
             contents=prompt,
         )
-        raw = _to_json_safe(response)
+        raw = to_json_safe(response)
         fragments: list[str] = []
         _collect_text_fragments(raw, fragments)
         text = " ".join(dict.fromkeys(fragments)).strip()
@@ -2697,7 +2657,7 @@ async def _broadcast_winner_interview_and_bgm(
     loser_lang: str,
 ) -> None:
     interview_text = await _generate_winner_interview(room_id, winner_id, loser_id, loser_lang)
-    print(json.dumps({
+    logger.info(json.dumps({
         "event": "winner_interview",
         "room_id": room_id,
         "winner": winner_id,
@@ -2749,7 +2709,7 @@ async def handle_game_connection(websocket: Any, request_path: str) -> None:
             await vertex_cache_instance.load_historical_context(user_id, sys_inst, contents)
             
         asyncio.create_task(_init_cache())
-    print(
+    logger.info(
         f"[GAME] connected user={user_id} room={room_id} lang={lang} sync_rate={sync_rate:.2f} "
         f"room_clients={len(room_members.get(room_id, set()))}"
     )
@@ -2772,7 +2732,7 @@ async def handle_game_connection(websocket: Any, request_path: str) -> None:
         async for message in websocket:
             if isinstance(message, bytes):
                 continue
-            payload = _safe_json_loads(message)
+            payload = safe_json_loads(message)
             if not payload:
                 continue
 
@@ -2898,8 +2858,8 @@ async def handle_game_connection(websocket: Any, request_path: str) -> None:
                     ):
                         target_user = str(event_data.get("target", user_id) or user_id)
                         target_lang = _room_user_lang(room_id, target_user, default=lang)
-                        target_sync_rate = _clamp01(
-                            _to_float(
+                        target_sync_rate = clamp01(
+                            to_float(
                                 room_user_meta.get(room_id, {}).get(target_user, {}).get("sync_rate", sync_rate),
                                 sync_rate,
                             )
@@ -2959,8 +2919,8 @@ async def handle_game_connection(websocket: Any, request_path: str) -> None:
                     ):
                         target_user = str(event_data.get("target", user_id) or user_id)
                         target_lang = _room_user_lang(room_id, target_user, default=lang)
-                        target_sync_rate = _clamp01(
-                            _to_float(
+                        target_sync_rate = clamp01(
+                            to_float(
                                 room_user_meta.get(room_id, {}).get(target_user, {}).get("sync_rate", sync_rate),
                                 sync_rate,
                             )
@@ -2974,8 +2934,8 @@ async def handle_game_connection(websocket: Any, request_path: str) -> None:
                         if choice not in {"A", "B"}:
                             choice = "A"
                         note = str(payload_obj.get("note", "")).strip()[:120]
-                        score_a = _to_float(payload_obj.get("scoreA", payload_obj.get("score_a", 0.0)), 0.0)
-                        score_b = _to_float(payload_obj.get("scoreB", payload_obj.get("score_b", 0.0)), 0.0)
+                        score_a = to_float(payload_obj.get("scoreA", payload_obj.get("score_a", 0.0)), 0.0)
+                        score_b = to_float(payload_obj.get("scoreB", payload_obj.get("score_b", 0.0)), 0.0)
                         entry = {
                             "timestamp": datetime.now(timezone.utc).isoformat(),
                             "choice": choice,
@@ -3046,8 +3006,8 @@ async def handle_game_connection(websocket: Any, request_path: str) -> None:
                         _record_room_event(room_id, target_user, proactive_payload["data"])
 
                         target_lang = _room_user_lang(room_id, target_user, default=lang)
-                        target_sync_rate = _clamp01(
-                            _to_float(
+                        target_sync_rate = clamp01(
+                            to_float(
                                 room_user_meta.get(room_id, {}).get(target_user, {}).get("sync_rate", sync_rate),
                                 sync_rate,
                             )
@@ -3121,8 +3081,8 @@ async def handle_game_connection(websocket: Any, request_path: str) -> None:
                     ):
                         target_user = str(event_data.get("target", user_id) or user_id)
                         target_lang = _room_user_lang(room_id, target_user, default=lang)
-                        target_sync_rate = _clamp01(
-                            _to_float(
+                        target_sync_rate = clamp01(
+                            to_float(
                                 room_user_meta.get(room_id, {}).get(target_user, {}).get("sync_rate", sync_rate),
                                 sync_rate,
                             )
@@ -3137,7 +3097,7 @@ async def handle_game_connection(websocket: Any, request_path: str) -> None:
                         if not isinstance(personality, dict):
                             personality = {}
                         old_tone = str(personality.get("tone", "balanced"))
-                        reject_count = _to_int(
+                        reject_count = to_int(
                             personality.get("reject_item_count", payload_obj.get("reject_count", 0)),
                             0,
                         ) + 1
@@ -3281,7 +3241,7 @@ async def handle_game_connection(websocket: Any, request_path: str) -> None:
     finally:
         _cleanup_game_client(websocket, reason="connection_closed")
         await _broadcast_roster(room_id)
-        print(
+        logger.info(
             f"[GAME] disconnected user={user_id} room={room_id} "
             f"room_clients={len(room_members.get(room_id, set()))}"
         )
@@ -3303,7 +3263,7 @@ async def handle_audio_connection(websocket: Any, request_path: str) -> None:
     try:
         async for message in websocket:
             if isinstance(message, str):
-                payload = _safe_json_loads(message) or {}
+                payload = safe_json_loads(message) or {}
                 cmd = payload.get("cmd")
                 if cmd == "open_audio_gate":
                     audio_gate_open = True
@@ -3313,9 +3273,9 @@ async def handle_audio_connection(websocket: Any, request_path: str) -> None:
                     user_id = str(payload.get("user_id", user_id))
                     room_id = str(payload.get("room_id", room_id))
                     try:
-                        sync_rate = _clamp01(float(payload.get("sync_rate", sync_rate)))
+                        sync_rate = clamp01(float(payload.get("sync_rate", sync_rate)))
                     except (TypeError, ValueError):
-                        sync_rate = _clamp01(sync_rate)
+                        sync_rate = clamp01(sync_rate)
                     start = time.monotonic()
                 elif cmd == "video_frame":
                     video_frame_count += 1
@@ -3396,7 +3356,7 @@ async def handle_character_connection(websocket: Any, request_path: str) -> None
         if isinstance(message, bytes):
             message = message.decode("utf-8")
         
-        request_data = _safe_json_loads(message)
+        request_data = safe_json_loads(message)
         if not request_data:
             await websocket.send(json.dumps({"error": "Invalid JSON format"}))
             return
@@ -3416,10 +3376,10 @@ async def handle_character_connection(websocket: Any, request_path: str) -> None
     except ConnectionClosed:
         pass
     except Exception as e:
-        print(json.dumps({"event": "character_generation", "error_code": "server_error", "error": str(e)}))
+        logger.error(json.dumps({"event": "character_generation", "error_code": "server_error", "error": str(e)}), exc_info=True)
         try:
             await websocket.send(json.dumps({"error": str(e), "error_code": "server_error"}))
-        except:
+        except Exception:
             pass
     finally:
         await websocket.close()
@@ -3462,9 +3422,9 @@ async def websocket_router(websocket: Any, path: Optional[str] = None) -> None:
 
 
 async def start_server() -> None:
-    print("Starting PlaresAR Backend AI Core...")
-    print(f"WebSocket server listening on ws://{HOST}:{PORT}")
-    print(f"Routes: {GAME_PATH}, {AUDIO_PATH}, {LIVE_PATH}")
+    logger.info("Starting PlaresAR Backend AI Core...")
+    logger.info(f"WebSocket server listening on ws://{HOST}:{PORT}")
+    logger.info(f"Routes: {GAME_PATH}, {AUDIO_PATH}, {LIVE_PATH}")
     watchdog_task = asyncio.create_task(_heartbeat_watchdog())
     try:
         async with websockets.serve(websocket_router, HOST, PORT):
