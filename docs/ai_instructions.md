@@ -35,4 +35,4 @@ The **ADK (Agent Development Kit)** orchestrates multiple specialized agents run
 
 ---
 
-> Refer to [Master Design](master_design.md) for the complete architecture, and the root [AGENTS.MD](../../AGENTS.MD) for detailed agent roles and coordination rules.
+> Refer to [Master Design](master_design.md) for the complete architecture, and the root [AGENTS.MD](../AGENTS.MD) for detailed agent roles and coordination rules.
