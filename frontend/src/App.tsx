@@ -1393,6 +1393,7 @@ function App() {
           </button>
         </div>
         <div className="hud-profile-grid">
+          <span>AR</span><strong>{isARSessionActive ? `${scanState} (${scanPointCount})` : 'OFF'}</strong>
           <span>{t.matches}</span><strong>{profileView.totalMatches}</strong>
           <span>{t.training}</span><strong>{profileView.totalTrainingSessions}</strong>
           <span>{t.walks}</span><strong>{profileView.totalWalkSessions}</strong>

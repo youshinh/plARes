@@ -31,10 +31,13 @@ interface XRScannerState {
 
 const MIN_NAVMESH_POINTS = 50; // trigger NavMesh rebuild once we have enough surface data
 const FALLBACK_ACTIVATE_NO_HIT_FRAMES = 8;
+const FALLBACK_FORCE_FORWARD_NO_HIT_FRAMES = 20;
 const SEARCHING_REASSERT_NO_HIT_FRAMES = 24;
 const MIN_FALLBACK_DOWNWARD_DOT = -0.12;
 const MAX_FALLBACK_DISTANCE_METERS = 6;
 const MIN_SAMPLE_PUBLISH_INTERVAL_MS = 120;
+const MIN_FALLBACK_FORWARD_DISTANCE_METERS = 0.9;
+const MAX_FALLBACK_FORWARD_DISTANCE_METERS = 2.2;
 
 const deriveFallbackFloorMatrix = (viewerPose: XRViewerPose): THREE.Matrix4 | null => {
   const position = viewerPose.transform.position;
@@ -48,6 +51,28 @@ const deriveFallbackFloorMatrix = (viewerPose: XRViewerPose): THREE.Matrix4 | nu
   if (!Number.isFinite(t) || t <= 0 || t > MAX_FALLBACK_DISTANCE_METERS) return null;
 
   const point = cameraPos.clone().addScaledVector(forward, t);
+  return new THREE.Matrix4().makeTranslation(point.x, point.y, point.z);
+};
+
+const deriveForwardApproxFloorMatrix = (viewerPose: XRViewerPose): THREE.Matrix4 => {
+  const position = viewerPose.transform.position;
+  const orientation = viewerPose.transform.orientation;
+  const cameraPos = new THREE.Vector3(position.x, position.y, position.z);
+  const cameraQuat = new THREE.Quaternion(orientation.x, orientation.y, orientation.z, orientation.w);
+  const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(cameraQuat);
+  const forwardXZ = new THREE.Vector3(forward.x, 0, forward.z);
+  if (forwardXZ.lengthSq() < 1e-6) {
+    forwardXZ.set(0, 0, -1);
+  } else {
+    forwardXZ.normalize();
+  }
+
+  const forwardDistance = Math.min(
+    MAX_FALLBACK_FORWARD_DISTANCE_METERS,
+    Math.max(MIN_FALLBACK_FORWARD_DISTANCE_METERS, cameraPos.y * 0.85),
+  );
+  const point = cameraPos.clone().addScaledVector(forwardXZ, forwardDistance);
+  point.y = 0;
   return new THREE.Matrix4().makeTranslation(point.x, point.y, point.z);
 };
 
@@ -68,6 +93,7 @@ export const useWebXRScanner = () => {
     at: number;
   } | null>(null);
   const noHitFrameCountRef = useRef(0);
+  const forceFallbackNotifiedRef = useRef(false);
 
   const [state, setState] = useState<XRScannerState>({
     isScanning: false,
@@ -85,6 +111,7 @@ export const useWebXRScanner = () => {
       viewerSpaceRef.current = null;
       lastPublishedSampleRef.current = null;
       noHitFrameCountRef.current = 0;
+      forceFallbackNotifiedRef.current = false;
       setState({
         isScanning: false,
         hoverMatrix: null,
@@ -108,6 +135,7 @@ export const useWebXRScanner = () => {
         });
         noHitFrameCountRef.current = 0;
         lastPublishedSampleRef.current = null;
+        forceFallbackNotifiedRef.current = false;
 
         // 'local-floor' gives y=0 at floor level; fall back to 'local'
         const localSpace = await session.requestReferenceSpace('local-floor')
@@ -171,6 +199,7 @@ export const useWebXRScanner = () => {
       viewerSpaceRef.current = null;
       lastPublishedSampleRef.current = null;
       noHitFrameCountRef.current = 0;
+      forceFallbackNotifiedRef.current = false;
       setState({
         isScanning: false,
         hoverMatrix: null,
@@ -189,6 +218,7 @@ export const useWebXRScanner = () => {
       localSpaceRef.current = null;
       viewerSpaceRef.current = null;
       noHitFrameCountRef.current = 0;
+      forceFallbackNotifiedRef.current = false;
     };
   }, [session]);
 
@@ -273,11 +303,23 @@ export const useWebXRScanner = () => {
     if (!hasValidHit) {
       noHitFrameCountRef.current += 1;
 
+      let fallbackMatrix: THREE.Matrix4 | null = null;
       if (noHitFrameCountRef.current >= FALLBACK_ACTIVATE_NO_HIT_FRAMES) {
-        const fallbackMatrix = deriveFallbackFloorMatrix(viewerPose);
-        if (fallbackMatrix) {
-          commitSurfacePose(fallbackMatrix);
+        fallbackMatrix = deriveFallbackFloorMatrix(viewerPose);
+      }
+
+      if (!fallbackMatrix && noHitFrameCountRef.current >= FALLBACK_FORCE_FORWARD_NO_HIT_FRAMES) {
+        fallbackMatrix = deriveForwardApproxFloorMatrix(viewerPose);
+        if (!forceFallbackNotifiedRef.current) {
+          forceFallbackNotifiedRef.current = true;
+          window.dispatchEvent(new CustomEvent('show_subtitle', {
+            detail: { text: 'AR平面検出が不安定なため簡易推定モードで継続します。' }
+          }));
         }
+      }
+
+      if (fallbackMatrix) {
+        commitSurfacePose(fallbackMatrix);
       }
 
       if (noHitFrameCountRef.current >= SEARCHING_REASSERT_NO_HIT_FRAMES) {
