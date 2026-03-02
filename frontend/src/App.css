@@ -1461,3 +1461,12 @@
     font-size: 14px;
   }
 }
+
+/* Accessibility focus styles added by Palette 🎨 */
+.hud-btn:focus-visible,
+.tactics-title:focus-visible,
+.tactics-item:focus-visible {
+  outline: 2px solid hsl(212 100% 60%);
+  outline-offset: 2px;
+  border-radius: var(--radius-md, 4px);
+}
