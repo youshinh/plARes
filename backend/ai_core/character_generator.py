@@ -21,7 +21,10 @@ import hashlib
 import json
 import os
 import re
+import logging
 from typing import Optional
+
+from .utils import logger
 
 try:
     from google import genai  # type: ignore
@@ -329,7 +332,7 @@ async def generate_robot_stats(
         result = _fallback_result(preset_text)
         result["error_code"] = "model_unavailable"
         result["is_fallback"] = True
-        print(json.dumps({"event": "character_generation", "error_code": "model_unavailable"}))
+        logger.warning(json.dumps({"event": "character_generation", "error_code": "model_unavailable"}))
         return result
 
     try:
@@ -383,7 +386,7 @@ async def generate_robot_stats(
         error_code = "gemini_api_error"
         if "quota" in str(exc).lower() or "429" in str(exc):
             error_code = "gemini_quota_exceeded"
-        print(json.dumps({"event": "character_generation", "error_code": error_code, "error": str(exc)}))
+        logger.error(json.dumps({"event": "character_generation", "error_code": error_code, "error": str(exc)}), exc_info=True)
         result = _fallback_result(preset_text)
         result["error_code"] = error_code
         result["is_fallback"] = True
