@@ -202,4 +202,31 @@ Pre-rendered TTS / narration?                 → gemini-2.5-flash-preview-tts
 Image generation or editing?                  → gemini-3.1-flash-image-preview
 ```
 
-> **IMPORTANT**: When in doubt between Flash and Pro, default to `gemini-3-flash-preview`. Only escalate to `gemini-3.1-pro-preview` when the task explicitly requires frontier-level reasoning or very long context (>500k tokens).
+---
+
+## 9. Manual Deployment Procedure
+
+When redeploying the latest local changes to Cloud Run (both Frontend and Backend), follow this automated procedure using Google Cloud Build.
+
+### 🚀 Deployment Command
+
+Run the following command from the project root:
+
+```bash
+gcloud builds submit --config cloudbuild.yaml --substitutions=COMMIT_SHA=$(git rev-parse --short HEAD) .
+```
+
+### 💡 Breakdown of the Procedure
+
+1.  **Preparation**: Ensure you have committed or staged your local changes if you want them to be tracked by the commit SHA tag (though `gcloud builds submit` sends the current local directory state).
+2.  **Execution**: The command above triggers the `cloudbuild.yaml` pipeline.
+3.  **Automation**:
+    - **Backend**: Builds a new Docker image, tags it with the current Git commit SHA, pushes it to Artifact Registry, and updates the Cloud Run service.
+    - **Frontend**: Injects the backend URL, builds the production bundle, creates an Nginx-based Docker image, pushes it, and updates the Cloud Run service.
+4.  **Verification**: Once completed, confirm the status in the Google Cloud Console or by checking the live URLs.
+
+### Requirements
+
+- [Google Cloud CLI](https://cloud.google.com/sdk/docs/install) installed.
+- Authentication: `gcloud auth login`
+- Project Context: `gcloud config set project plaresar`
