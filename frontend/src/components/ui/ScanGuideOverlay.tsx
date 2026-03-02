@@ -23,7 +23,10 @@ interface Props {
   pointCount?: number;
 }
 
-export const ScanGuideOverlay: React.FC<Props> = ({ scanState, pointCount = 0 }) => {
+// ⚡ Bolt: Wrapped ScanGuideOverlay in React.memo to prevent unnecessary re-renders.
+// Since it receives primitive props (scanState, pointCount), it benefits significantly
+// from memoization when the parent component re-renders due to other state changes.
+export const ScanGuideOverlay: React.FC<Props> = React.memo(({ scanState, pointCount = 0 }) => {
   const config = GUIDE_CONFIG[scanState];
 
   // Auto-dismiss after 'ready' or if hidden
@@ -90,4 +93,4 @@ export const ScanGuideOverlay: React.FC<Props> = ({ scanState, pointCount = 0 })
       )}
     </div>
   );
-};
+});
