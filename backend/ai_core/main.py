@@ -3,6 +3,7 @@ import json
 import math
 import os
 import random
+import re
 import time
 import uuid
 from collections import defaultdict
@@ -184,6 +185,11 @@ _firestore_client: Any | None = None
 _firestore_disabled_reason: str = ""
 _genai_clients: dict[str, Any] = {}
 _genai_disabled_reason: str = ""
+
+
+def _sanitize_id(val: str) -> str:
+    """Sanitize identifier for safe path construction to prevent path traversal."""
+    return re.sub(r'[^a-zA-Z0-9_-]', '_', str(val))
 
 
 def _default_character_dna(material: str = "Wood", tone: str = "balanced") -> dict[str, Any]:
@@ -863,7 +869,7 @@ async def _run_interaction(
 
 
 def _user_profile_path(user_id: str) -> Path:
-    return USER_RUNTIME_DIR / user_id / "profile.json"
+    return USER_RUNTIME_DIR / _sanitize_id(user_id) / "profile.json"
 
 
 def _default_user_profile(user_id: str, lang: str, sync_rate: float) -> dict[str, Any]:
@@ -1491,7 +1497,8 @@ def _finalize_room_runtime(
 
     MATCH_LOG_DIR.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    out_file = MATCH_LOG_DIR / f"{room_id}_{stamp}.json"
+    safe_room_id = _sanitize_id(room_id)
+    out_file = MATCH_LOG_DIR / f"{safe_room_id}_{stamp}.json"
     out_file.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
 
     # Persist per-user memory bank and compact match logs (local fallback for Doc 6).
@@ -1586,9 +1593,9 @@ def _finalize_room_runtime(
                 asyncio.create_task(milestone_generator.trigger_victory_music(user_id, str(profile.get("ai_memory_summary", ""))))
             asyncio.create_task(milestone_generator.check_and_generate_highlight_reel(profile["total_matches"], user_id))
 
-        user_log_dir = USER_RUNTIME_DIR / user_id / "match_logs"
+        user_log_dir = USER_RUNTIME_DIR / _sanitize_id(user_id) / "match_logs"
         user_log_dir.mkdir(parents=True, exist_ok=True)
-        user_log_file = user_log_dir / f"{room_id}_{stamp}.json"
+        user_log_file = user_log_dir / f"{safe_room_id}_{stamp}.json"
         user_log_file.write_text(json.dumps(match_log, ensure_ascii=False, indent=2), encoding="utf-8")
         memory_updates.append(
             {
