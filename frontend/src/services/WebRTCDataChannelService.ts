@@ -74,6 +74,23 @@ class WebRTCDataChannelService {
     return true;
   }
 
+  sendNavMesh(points: { x: number; y: number; z: number }[]): boolean {
+    if (!this.isOpen() || !this.channel) return false;
+    // Chunking could be needed if payload is too large, but for now we attempt to send as a single payload.
+    // If it exceeds RTCDataChannel max message size (typically 16-64KB depending on browser), 
+    // it will throw. We wrap in try-catch to avoid crashing the app.
+    try {
+      this.channel.send(JSON.stringify({
+        type: 'navmesh',
+        data: points,
+      }));
+      return true;
+    } catch (err) {
+      console.warn('[RTC] Failed to send navmesh (possibly too large)', err);
+      return false;
+    }
+  }
+
   getLocalStream(): MediaStream | null {
     return this.localStream;
   }

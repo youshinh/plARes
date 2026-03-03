@@ -19,6 +19,7 @@ export interface CharacterDNA {
   battlePatina: 'clean' | 'worn' | 'scarred' | 'legend';
   materialType?: string;
   emblemUrl?: string;
+  skinUrl?: string;
 }
 
 export interface CharacterDNAInput {

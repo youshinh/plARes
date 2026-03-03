@@ -129,7 +129,8 @@
 }
 
 .hud-brand-main {
-  font-family: "Saira Semi Condensed", "Barlow Condensed", "DIN Alternate", sans-serif;
+  font-family:
+    "Saira Semi Condensed", "Barlow Condensed", "DIN Alternate", sans-serif;
   font-size: 20px;
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -332,6 +333,60 @@
   letter-spacing: 0.05em;
   margin-bottom: 4px;
   text-shadow: 0 1px 2px hsl(0 0% 0% / 0.8);
+}
+
+/* Training Mode UI */
+.hud-twist-telop {
+  position: absolute;
+  top: 110px; /* Below health bars */
+  left: 50%;
+  transform: translateX(-50%);
+  background: linear-gradient(90deg, transparent, hsl(330 80% 40% / 0.7), transparent);
+  color: #fff;
+  padding: 8px 40px;
+  font-family: 'Space Mono', monospace;
+  font-size: 1.1rem;
+  letter-spacing: 0.1em;
+  text-shadow: 0 0 10px hsl(330 80% 50% / 0.8);
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 10;
+  animation: twist-glimmer 2s ease-in-out infinite;
+}
+
+@keyframes twist-glimmer {
+  0%, 100% { opacity: 0.8; }
+  50% { opacity: 1; text-shadow: 0 0 20px hsl(330 80% 50%); }
+}
+
+.hud-training-actions {
+  position: absolute;
+  bottom: 120px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 15px;
+  z-index: 100;
+}
+
+.hud-btn-special {
+  background: linear-gradient(135deg, #f09, #f06);
+  border: 1px solid #f6c;
+  box-shadow: 0 0 15px rgba(255, 0, 102, 0.4);
+  font-weight: 800;
+  min-width: 140px;
+  height: 48px;
+}
+
+.hud-btn-special:active {
+  transform: scale(0.95);
+  box-shadow: 0 0 5px rgba(255, 0, 102, 0.8);
+}
+
+.hud-btn-special.is-disabled {
+  filter: grayscale(1);
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .hud-hp-track {
@@ -887,6 +942,50 @@
   flex-wrap: wrap;
 }
 
+/* Data-driven grid: 2 columns on most screens, 1 on very narrow */
+.language-gate-grid {
+  margin-top: 20px;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+@media (max-width: 320px) {
+  .language-gate-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.language-gate-lang-btn {
+  position: relative;
+  justify-content: center;
+  text-align: center;
+  transition:
+    background var(--duration-base) var(--ease-smooth),
+    border-color var(--duration-base) var(--ease-smooth),
+    box-shadow var(--duration-base) var(--ease-smooth);
+}
+
+.language-gate-lang-btn.is-active {
+  border-color: hsl(212 80% 60% / 0.65);
+  background: linear-gradient(
+    145deg,
+    hsl(212 52% 22% / 0.96),
+    hsl(212 52% 14% / 0.96)
+  );
+  box-shadow:
+    var(--shadow-md),
+    0 0 18px hsl(212 80% 60% / 0.22);
+}
+
+/* Auto-detected checkmark badge */
+.language-gate-check {
+  margin-right: 5px;
+  color: hsl(145 80% 65%);
+  font-size: 13px;
+  line-height: 1;
+}
+
 /* =============================================================
    GENERIC MODAL
    ============================================================= */
@@ -956,7 +1055,7 @@
   background: linear-gradient(
     160deg,
     hsl(217 26% 20% / 0.46),
-    hsl(217 24% 13% / 0.30)
+    hsl(217 24% 13% / 0.3)
   );
 
   transition:
@@ -981,17 +1080,17 @@
 .hud-btn:hover:not(:disabled) {
   transform: translateY(-1px);
   box-shadow:
-    0 12px 26px hsl(220 40% 2% / 0.30),
+    0 12px 26px hsl(220 40% 2% / 0.3),
     inset 0 1px 0 hsl(0 0% 100% / 0.16);
   filter: brightness(1.05);
-  border-color: hsl(214 32% 88% / 0.30);
+  border-color: hsl(214 32% 88% / 0.3);
 }
 
 .hud-btn:active:not(:disabled) {
   transform: translateY(0) scale(0.985);
   box-shadow:
     0 6px 14px hsl(220 40% 2% / 0.22),
-    inset 0 1px 0 hsl(0 0% 100% / 0.10);
+    inset 0 1px 0 hsl(0 0% 100% / 0.1);
   filter: brightness(0.98);
   transition-duration: var(--duration-fast);
 }

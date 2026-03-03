@@ -12,6 +12,7 @@ import { RemoteStreamView } from './components/ui/RemoteStreamView';
 import { CharacterLabPanel } from './components/ui/CharacterLabPanel';
 import { ShareArenaModal } from './components/ui/ShareArenaModal';
 import { ScanGuideOverlay } from './components/ui/ScanGuideOverlay';
+import { FusionCraftModal } from './components/ui/FusionCraftModal';
 import { useVoiceController } from './hooks/useVoiceController';
 import { useWebXRScanner } from './hooks/useWebXRScanner';
 import { useAICommandListener } from './hooks/useAICommandListener';
@@ -52,19 +53,75 @@ const IS_ANDROID_CHROME = (() => {
 const SHADOWS_ENABLED = !IS_ANDROID_CHROME;
 const xrResizeGuardInstalled = new WeakSet<THREE.WebGLRenderer>();
 
+// ── Multi-language configuration ─────────────────────────────────────────────
+// To add a new language: add one entry to LANG_OPTIONS with its BCP-47 code.
+// If the language is NOT in UI_TEXT, translations will be auto-generated via
+// Gemini (gemini-flash-lite-latest) on first selection and cached in
+// localStorage so subsequent loads are instant.
+export type LangOption = {
+  /** BCP-47 code sent to backend, e.g. "fr-FR" */
+  code: string;
+  /** Native script label shown in the picker */
+  label: string;
+  /** ISO 639-1 key used to look up UI_TEXT */
+  dictKey: 'ja' | 'en' | 'es';
+};
+
 type UiLang = 'ja' | 'en' | 'es';
+
+// ── Supported languages ───────────────────────────────────────────────────────
+// Add new rows here; the picker will show them automatically.
+// dictKey determines which built-in dictionary is the base for Gemini translation.
+export const LANG_OPTIONS: LangOption[] = [
+  { code: 'ja-JP', label: '日本語', dictKey: 'ja' },
+  { code: 'en-US', label: 'English', dictKey: 'en' },
+  { code: 'es-ES', label: 'Español', dictKey: 'es' },
+  { code: 'zh-CN', label: '中文（简体）', dictKey: 'en' },
+  { code: 'ko-KR', label: '한국어', dictKey: 'en' },
+  { code: 'fr-FR', label: 'Français', dictKey: 'en' },
+  { code: 'de-DE', label: 'Deutsch', dictKey: 'en' },
+  { code: 'pt-BR', label: 'Português', dictKey: 'en' },
+];
+
+/** BCP-47 prefix → dict key (for built-in ja/en/es) */
+const BUILTIN_LANG_MAP: Record<string, UiLang> = {
+  ja: 'ja',
+  es: 'es',
+};
+
+const toUiLang = (raw: string): UiLang => {
+  const value = (raw || '').toLowerCase();
+  const prefix = value.substring(0, 2);
+  return BUILTIN_LANG_MAP[prefix] ?? 'en';
+};
+
+// ── Dynamic translation cache (localStorage) ──────────────────────────────────
+const STORAGE_TRANSLATED_PREFIX = 'plares_ui_trans_';
+
+const loadCachedTranslations = (bcp47: string): Record<string, string> | null => {
+  try {
+    const raw = localStorage.getItem(STORAGE_TRANSLATED_PREFIX + bcp47);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return typeof parsed === 'object' && parsed !== null ? parsed : null;
+  } catch {
+    return null;
+  }
+};
+
+const saveCachedTranslations = (bcp47: string, dict: Record<string, string>): void => {
+  try {
+    localStorage.setItem(STORAGE_TRANSLATED_PREFIX + bcp47, JSON.stringify(dict));
+  } catch {
+    // storage quota; noop
+  }
+};
+
 type PlayMode = 'match' | 'training' | 'walk';
 
 type ModeSession = {
   id: string;
   startedAt: string;
-};
-
-const toUiLang = (raw: string): UiLang => {
-  const value = (raw || '').toLowerCase();
-  if (value.startsWith('ja')) return 'ja';
-  if (value.startsWith('es')) return 'es';
-  return 'en';
 };
 
 const toFiniteNumber = (value: unknown, fallback: number): number => {
@@ -256,6 +313,8 @@ const UI_TEXT: Record<UiLang, Record<string, string>> = {
     modeMatch: 'Match',
     modeTraining: 'Training',
     modeWalk: 'Walk',
+    incantationStart: 'Start Incantation ⚡',
+    twistTitle: 'Tongue Twister:',
     startTraining: 'Start Training',
     completeTraining: 'Complete Training',
     startWalk: 'Start Walk',
@@ -319,6 +378,8 @@ const UI_TEXT: Record<UiLang, Record<string, string>> = {
     modeMatch: 'Partida',
     modeTraining: 'Entreno',
     modeWalk: 'Paseo',
+    incantationStart: 'Iniciar Encantamiento ⚡',
+    twistTitle: 'Trabalenguas:',
     startTraining: 'Iniciar Entreno',
     completeTraining: 'Completar Entreno',
     startWalk: 'Iniciar Paseo',
@@ -360,10 +421,52 @@ const MainScene: React.FC = () => {
     const handler = async (e: Event) => {
       const points = (e as CustomEvent<THREE.Vector3[]>).detail;
       await navMesh.buildFromPoints(points);
+      
+      // Send local navmesh to remote peer
+      if (rtcService.isOpen()) {
+        const plainPoints = points.map(p => ({ x: p.x, y: p.y, z: p.z }));
+        rtcService.sendNavMesh(plainPoints);
+      }
     };
     window.addEventListener('navmesh_ready', handler);
     return () => window.removeEventListener('navmesh_ready', handler);
   }, []);
+
+  // Listen for remote NavMesh ready event (received via WebRTC)
+  useEffect(() => {
+    const handler = async (e: Event) => {
+      const pointsData = (e as CustomEvent<{x: number, y: number, z: number}[]>).detail;
+      if (Array.isArray(pointsData)) {
+        console.info('[NavMesh] Received remote navmesh points, building local navmesh...');
+        const points = pointsData.map(p => new THREE.Vector3(p.x, p.y, p.z));
+        await navMesh.buildFromPoints(points);
+        window.dispatchEvent(
+          new CustomEvent('show_subtitle', { detail: { text: 'Remote NavMesh loaded' } })
+        );
+      }
+    };
+    window.addEventListener('remote_navmesh_ready', handler);
+    return () => window.removeEventListener('remote_navmesh_ready', handler);
+  }, []);
+
+  // Listen for automated environment detection from useWebXRScanner
+  const playMode = useFSMStore(s => s.playMode);
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { trigger, context } = (e as CustomEvent).detail;
+      if (playMode === 'walk') {
+        console.info(`[Vision] Auto-trigger detected: ${trigger} (${context})`);
+        wsService.sendEvent({
+          event: 'walk_vision_trigger',
+          user: PLAYER_ID,
+          target: PLAYER_ID,
+          payload: { trigger, context: `auto_${context}` }
+        });
+      }
+    };
+    window.addEventListener('vision_trigger_detected', handler);
+    return () => window.removeEventListener('vision_trigger_detected', handler);
+  }, [playMode]);
 
   // Placement indicator at the current hit-test surface point
   const indicatorPos = hoverMatrix
@@ -410,7 +513,12 @@ const MainScene: React.FC = () => {
 // ── Root App ─────────────────────────────────────────────────────────────────
 function App() {
   const uiLang = toUiLang(PLAYER_LANG);
-  const t = UI_TEXT[uiLang];
+  // Merge built-in dictionary with any Gemini-generated cached translations.
+  // For ja/en/es the cache will be empty so this is a no-op.
+  const cachedDynamic = loadCachedTranslations(PLAYER_LANG);
+  const t = cachedDynamic
+    ? { ...UI_TEXT[uiLang], ...cachedDynamic } as typeof UI_TEXT['en']
+    : UI_TEXT[uiLang];
   const { isSetupDone, isGenerating, generateCharacter } = useCharacterSetup();
   const { isStreaming, startStream, stopStream } = useAudioStreamer();
   const setCastingSpecial = useFSMStore(s => s.setCastingSpecial);
@@ -459,15 +567,10 @@ function App() {
   const [isLiveMicActive, setIsLiveMicActive] = useState(false);
   const [isMatchPaused, setIsMatchPaused] = useState(false);
   const [voiceAckText, setVoiceAckText] = useState('');
-  const [playMode, setPlayMode] = useState<PlayMode>(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_PLAY_MODE_KEY);
-      if (stored === 'training' || stored === 'walk' || stored === 'match') return stored;
-    } catch {
-      // noop
-    }
-    return 'match';
-  });
+  const { playMode, setPlayMode } = useFSMStore();
+  const switchMode = (mode: PlayMode) => {
+    setPlayMode(mode);
+  };
   const [trainingSession, setTrainingSession] = useState<ModeSession | null>(null);
   const [walkSession, setWalkSession] = useState<ModeSession | null>(null);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
@@ -490,11 +593,10 @@ function App() {
       return false;
     }
   });
-  const [selectedLanguage, setSelectedLanguage] = useState<string>(() => {
-    if (uiLang === 'ja') return 'ja-JP';
-    if (uiLang === 'es') return 'es-ES';
-    return 'en-US';
-  });
+  // Resolve the active BCP-47 code from LANG_OPTIONS (falls back to en-US).
+  const [selectedLanguage, setSelectedLanguage] = useState<string>(
+    LANG_OPTIONS.find(o => PLAYER_LANG.startsWith(o.code.substring(0, 2)))?.code ?? 'en-US'
+  );
   const [battleState, setBattleState] = useState({
     hp: 100,
     maxHp: 100,
@@ -504,6 +606,7 @@ function App() {
     specialReady: false,
     heatActive: false,
   });
+  const [showFusionCraft, setShowFusionCraft] = useState(false);
   const pendingLiveConnectRef = useRef(false);
   const castEndsAtRef = useRef<number>(0);
   const specialRetryRef = useRef(0);
@@ -536,7 +639,28 @@ function App() {
     } catch {
       // noop
     }
-    window.location.reload();
+    // For built-in languages (ja, en, es) → reload immediately.
+    // For dynamic languages → check cache first; if no cache, request Gemini translation.
+    const builtInPrefixes = ['ja', 'en', 'es'];
+    const prefix = langCode.substring(0, 2).toLowerCase();
+    const hasBuiltIn = builtInPrefixes.includes(prefix);
+    const existingCache = loadCachedTranslations(langCode);
+    if (hasBuiltIn || existingCache) {
+      window.location.reload();
+      return;
+    }
+    // Request Gemini to generate translations (gemini-flash-lite-latest on backend)
+    const option = LANG_OPTIONS.find(o => o.code === langCode);
+    const baseDict = UI_TEXT[option?.dictKey ?? 'en'];
+    wsService.sendEvent({
+      event: 'request_ui_translations',
+      user: PLAYER_ID,
+      payload: { lang: langCode, base_keys: baseDict as unknown as Record<string, string> },
+    });
+    // Show a loading subtitle while waiting for the response
+    window.dispatchEvent(new CustomEvent('show_subtitle', {
+      detail: { text: `Generating ${langCode} translations…` }
+    }));
   };
   useEffect(() => {
     try {
@@ -550,20 +674,6 @@ function App() {
     playMode === 'training' ? t.modeTraining :
     playMode === 'walk' ? t.modeWalk :
     t.modeMatch;
-
-  const switchMode = (nextMode: PlayMode) => {
-    setPlayMode(nextMode);
-    window.dispatchEvent(new CustomEvent('show_subtitle', {
-      detail: {
-        text:
-          nextMode === 'training'
-            ? `${t.mode}: ${t.modeTraining}`
-            : nextMode === 'walk'
-              ? `${t.mode}: ${t.modeWalk}`
-              : `${t.mode}: ${t.modeMatch}`,
-      },
-    }));
-  };
 
   const startTraining = () => {
     const session: ModeSession = {
@@ -668,6 +778,7 @@ function App() {
     wsService.sendEvent({
       event: 'walk_vision_trigger',
       user: PLAYER_ID,
+      target: PLAYER_ID,
       payload: {
         trigger: 'environment',
         context: 'manual_hud_trigger',
@@ -728,6 +839,15 @@ function App() {
     const payload = (evt as any)?.payload;
     const target = (evt as any)?.target as string | undefined;
     if (Array.isArray(payload)) return; // server-driven tactical panel payload
+
+    if (evt.event === 'hit_confirmed' && evt.user !== PLAYER_ID) {
+      const damage = Number((payload as any)?.damage ?? 0);
+      if (damage > 0) {
+        // Attacker Authority: The remote peer confirmed a hit on us.
+        useFSMStore.getState().takeDamage('local', damage);
+      }
+      return;
+    }
 
     if (payload && typeof payload === 'object') {
       if (payload.kind === 'arena_calibration') {
@@ -950,6 +1070,7 @@ function App() {
       if (payload.kind === 'reject_item') {
         const reason = String(payload.reason ?? 'not_my_style');
         const count = Number(payload.reject_count ?? 0);
+        useFSMStore.getState().setRejectItem();
         window.dispatchEvent(new CustomEvent('show_subtitle', {
           detail: { text: `Item rejected (${reason}) x${count}` }
         }));
@@ -967,15 +1088,37 @@ function App() {
       }
       if (payload.kind === 'fused_item') {
         const concept = typeof payload.concept === 'string' ? payload.concept : 'fused item';
-        window.dispatchEvent(new CustomEvent('show_subtitle', {
-          detail: { text: `Fusion Drop: ${concept}` }
-        }));
+        const action = typeof payload.action === 'string' ? payload.action : '';
+        const url = typeof payload.texture_url === 'string' ? payload.texture_url : '';
+        
+        if (action === 'equip' && url) {
+          // Update local DNA skin to instantly apply the new texture
+          const currentDna = useFSMStore.getState().robotDna;
+          setRobotDna({ ...currentDna, skinUrl: url });
+          window.dispatchEvent(new CustomEvent('show_subtitle', {
+            detail: { text: `Equipped Fusion Drop: ${concept}` }
+          }));
+        } else {
+          window.dispatchEvent(new CustomEvent('show_subtitle', {
+            detail: { text: `Fusion Drop: ${concept}` }
+          }));
+        }
         return;
       }
       if (payload.kind === 'intervention_rejected') {
         window.dispatchEvent(new CustomEvent('show_subtitle', {
           detail: { text: String(payload.message ?? 'Intervention rejected') }
         }));
+        return;
+      }
+      if (payload.kind === 'ui_translations' && (!target || target === PLAYER_ID)) {
+        const langCode = String(payload.lang ?? '');
+        const dict = payload.translations;
+        if (langCode && dict && typeof dict === 'object') {
+          saveCachedTranslations(langCode, dict as Record<string, string>);
+          // Reload so the cached translations are immediately applied
+          window.location.reload();
+        }
         return;
       }
       if (payload.kind === 'match_pause') {
@@ -1015,9 +1158,18 @@ function App() {
             pendingLiveConnectRef.current = false;
             const tokenName = String(payload.token_name ?? '');
             if (tokenName) {
+              // Inject robot tone as system instruction (Flow1 §4.3)
+              const robotTone = String(
+                useFSMStore.getState().robotMeta.tone ?? 'balanced'
+              );
+              const systemInstruction =
+                `You are an AR battle robot companion. Language: ${PLAYER_LANG}. ` +
+                `Persona tone: ${robotTone}. ` +
+                `Speak naturally in short phrases. Stay in character.`;
               geminiLiveService.connect({
                 tokenName,
                 model: String(payload.model ?? 'gemini-2.5-flash-native-audio-preview-12-2025'),
+                systemInstruction,
               }).catch(() => {});
             }
           }
@@ -1520,10 +1672,22 @@ function App() {
     }));
 
     // 3) Sync casting start so the opponent can render the same charge phase
+    const castPayload: any = { action: 'casting_special' };
+    if (playMode === 'training' && specialPhrase) {
+      // Flow2 §3.2 logic: Send event to trigger Articulation Judge Agent
+      wsService.sendEvent({
+        event: 'incantation_submitted',
+        user: PLAYER_ID,
+        payload: { phrase: specialPhrase }
+      });
+      castPayload.kind = 'incantation_request';
+      castPayload.phrase = specialPhrase;
+    }
+
     const castEvent = {
       event: 'buff_applied',
       user: PLAYER_ID,
-      payload: { action: 'casting_special' }
+      payload: castPayload
     } as const;
     if (!rtcService.send({ type: 'event', data: castEvent })) {
       wsService.sendEvent(castEvent);
@@ -1595,27 +1759,55 @@ function App() {
           <div className="language-gate-card">
             <h2>{t.chooseLanguage}</h2>
             <p>{t.chooseLanguageDesc}</p>
-            <div className="language-gate-actions">
-              <button
-                className="hud-btn hud-btn-steel"
-                onClick={() => applyLanguage('ja-JP', true)}
-              >
-                日本語
-              </button>
-              <button
-                className="hud-btn hud-btn-blue"
-                onClick={() => applyLanguage('en-US', true)}
-              >
-                English
-              </button>
-              <button
-                className="hud-btn hud-btn-teal"
-                onClick={() => applyLanguage('es-ES', true)}
-              >
-                Espanol
-              </button>
+            <div className="language-gate-grid">
+              {LANG_OPTIONS.map(opt => {
+                const isActive = selectedLanguage === opt.code;
+                return (
+                  <button
+                    key={opt.code}
+                    className={`hud-btn language-gate-lang-btn${isActive ? ' is-active' : ''}`}
+                    onClick={() => applyLanguage(opt.code, true)}
+                    aria-label={opt.label}
+                  >
+                    {isActive && <span className="language-gate-check" aria-hidden>✓</span>}
+                    {opt.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
+        </div>
+      )}
+
+      {playMode === 'walk' && (
+        <div className="hud-training-actions">
+          <button 
+            className="hud-btn-special" 
+            onClick={() => setShowFusionCraft(true)}
+            style={{ background: 'linear-gradient(135deg, #00C9FF 0%, #92FE9D 100%)' }}
+          >
+            Fusion Craft
+          </button>
+          <button className="hud-btn-special" onClick={sendWalkVisionTrigger}>
+            {t.sendWalkVision}
+          </button>
+        </div>
+      )}
+      {playMode === 'training' && !!trainingSession && specialPhrase && (
+        <div className="hud-twist-telop">
+          {t.twistTitle} {specialPhrase}
+        </div>
+      )}
+
+      {playMode === 'training' && !!trainingSession && (
+        <div className="hud-training-actions">
+          <button
+            className={`hud-btn hud-btn-special ${!battleState.specialReady ? 'is-disabled' : ''}`}
+            onClick={handleCastSpecial}
+            disabled={!battleState.specialReady}
+          >
+            {t.incantationStart}
+          </button>
         </div>
       )}
 
@@ -1704,6 +1896,11 @@ function App() {
           </button>
         </div>
       </header>
+
+      <FusionCraftModal 
+        isOpen={showFusionCraft} 
+        onClose={() => setShowFusionCraft(false)} 
+      />
 
       {/* HP Bars overlay */}
       <div className="hud-health-bars">

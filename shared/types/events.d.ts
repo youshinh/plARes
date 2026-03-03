@@ -22,7 +22,10 @@ export type EventType =
   | "dna_ab_feedback"
   | "proactive_line"
   | "reject_item"
-  | "bgm_ready";
+  | "bgm_ready"
+  | "request_ui_translations"
+  | "incantation_submitted"
+  | "hit_confirmed";
 
 export interface GameEvent {
   event: EventType;

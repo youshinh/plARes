@@ -341,7 +341,17 @@ export const RobotCharacter: React.FC = () => {
           const distToEnemy = pos.distanceTo(remotePos);
           if (distToEnemy <= hitStatePolicy.hitWindow.range) {
             action._hasHit = true;
-            useFSMStore.getState().takeDamage('enemy', hitStatePolicy.hitWindow.damage);
+            const hitPayload: WebRTCDataChannelPayload = {
+              type: 'event',
+              data: {
+                event: 'hit_confirmed',
+                user: PLAYER_ID,
+                payload: { damage: hitStatePolicy.hitWindow.damage },
+              } as unknown as any,
+            };
+            if (!rtcService.send(hitPayload)) {
+              wsService.sendEvent(hitPayload.data as any);
+            }
           }
         }
       }
@@ -380,7 +390,7 @@ export const RobotCharacter: React.FC = () => {
     useFSMStore.getState().setLocalRobotPosition(pos.clone());
 
     const now = performance.now();
-    if (now - lastSyncAtRef.current >= 100) {
+    if (now - lastSyncAtRef.current >= 50) {
       const vel = new THREE.Vector3().subVectors(pos, prevPosRef.current).divideScalar(Math.max(delta, 0.0001));
       const frameId = useArenaSyncStore.getState().localCalibration?.frameId;
       const syncData: SyncData = {
@@ -475,10 +485,31 @@ export const RobotCharacter: React.FC = () => {
     const whiteMaps = withMaps('white');
     const blueMaps = withMaps('blue');
     const darkMaps = withMaps('dark');
+    
+    // Dynamic skin texture loader
+    const [skinTex, setSkinTex] = React.useState<THREE.Texture | null>(null);
+    React.useEffect(() => {
+      let active = true;
+      if (robotDna.skinUrl) {
+        new THREE.TextureLoader().load(robotDna.skinUrl, (tex) => {
+          if (!active) return;
+          tex.colorSpace = THREE.SRGBColorSpace;
+          tex.flipY = false;
+          setSkinTex(tex);
+        });
+      } else {
+        setSkinTex(null);
+      }
+      return () => { active = false; };
+    }, [robotDna.skinUrl]);
+
     const mats = [
       buildHeroMat({
-        color: C.blue,
-        ...blueMaps,
+        color: skinTex ? 0xffffff : C.blue,
+        map: skinTex || blueMaps.map,
+        roughnessMap: blueMaps.roughnessMap,
+        metalnessMap: blueMaps.metalnessMap,
+        emissiveMap: blueMaps.emissiveMap,
         roughness: applyRough(0.34),
         metalness: applyMetal(0.58),
         emissive: new THREE.Color(C.blueL),
@@ -487,8 +518,11 @@ export const RobotCharacter: React.FC = () => {
         clearcoatRoughness: 0.34,
       }),
       buildHeroMat({
-        color: C.white,
-        ...whiteMaps,
+        color: skinTex ? 0xffffff : C.white,
+        map: skinTex || whiteMaps.map,
+        roughnessMap: whiteMaps.roughnessMap,
+        metalnessMap: whiteMaps.metalnessMap,
+        emissiveMap: whiteMaps.emissiveMap,
         roughness: applyRough(0.28),
         metalness: applyMetal(0.45),
         emissive: new THREE.Color(C.whiteB),
@@ -497,8 +531,11 @@ export const RobotCharacter: React.FC = () => {
         clearcoatRoughness: 0.2,
       }),
       buildHeroMat({
-        color: C.black,
-        ...darkMaps,
+        color: skinTex ? 0xffffff : C.black,
+        map: skinTex || darkMaps.map,
+        roughnessMap: darkMaps.roughnessMap,
+        metalnessMap: darkMaps.metalnessMap,
+        emissiveMap: darkMaps.emissiveMap,
         roughness: applyRough(0.56),
         metalness: applyMetal(0.62),
         emissive: new THREE.Color(C.blackM),

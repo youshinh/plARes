@@ -83,10 +83,13 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
   const groundBoundsRef = useRef(new THREE.Box3());
   const worldScaleRef = useRef(new THREE.Vector3(1, 1, 1));
   const occlusionMaterialsRef = useRef<Array<THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial>>([]);
+  const allMaterialsRef = useRef<THREE.Material[]>([]);
   const heightBoundsRef = useRef(new THREE.Box3());
   const lastHeightEmitAtRef = useRef(0);
   const lastSyncAtRef = useRef(0);
   const prevEnemyHpRef = useRef(100);
+  const lastSyncTimestampRef = useRef<number>(0);
+  const velocityRef = useRef<THREE.Vector3>(new THREE.Vector3());
 
   // AI State (Solo play)
   const aiStateRef = useRef<string>('IDLE');
@@ -102,8 +105,28 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
   useEffect(() => {
     const applySync = (sync: SyncData) => {
       if (sync.userId === PLAYER_ID) return;
+      if (sync.timestamp < lastSyncTimestampRef.current) return;
+      lastSyncTimestampRef.current = sync.timestamp;
+
       const mapped = useArenaSyncStore.getState().mapRemotePosition(sync.userId, sync.position);
       targetRef.current.set(mapped.x, mapped.y, mapped.z);
+
+      if (sync.velocity) {
+        const velTarget = {
+          x: sync.position.x + sync.velocity.x,
+          y: sync.position.y + sync.velocity.y,
+          z: sync.position.z + sync.velocity.z,
+        };
+        const mappedVelTarget = useArenaSyncStore.getState().mapRemotePosition(sync.userId, velTarget);
+        velocityRef.current.set(
+          mappedVelTarget.x - mapped.x,
+          mappedVelTarget.y - mapped.y,
+          mappedVelTarget.z - mapped.z
+        );
+      } else {
+        velocityRef.current.set(0, 0, 0);
+      }
+
       syncedStateRef.current = sync.action;
       lastSyncAtRef.current = performance.now();
       // Let local player track remote via FSM
@@ -136,6 +159,7 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
     let disposed = false;
     const createdMaterials: THREE.Material[] = [];
     occlusionMaterialsRef.current = [];
+    allMaterialsRef.current = [];
     const loader = new GLTFLoader();
 
     const finalBaseUrl = `/models/${opponentModelType}/Character_output.glb`;
@@ -216,6 +240,7 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
             m.needsUpdate = true;
             mesh.material = m;
             createdMaterials.push(m);
+            allMaterialsRef.current.push(m);
             // Patch for AR depth occlusion (T1-2)
             if (patchDepthOcclusionMaterial(m)) {
               occlusionMaterialsRef.current.push(m);
@@ -571,12 +596,24 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
         useFSMStore.getState().setRemoteRobotPosition(currentPos.clone());
         return;
       }
-      const before = currentPos.distanceTo(targetRef.current);
-      currentPos.lerp(targetRef.current, Math.min(1, delta * 8));
+
+      // Dead Reckoning: Extrapolate target position based on velocity
+      // Only predict up to 200ms ahead to prevent flying off on packet loss
+      const timeSinceSync = (performance.now() - lastSyncAtRef.current) / 1000;
+      const extrapolationTime = Math.min(timeSinceSync, 0.2); 
+      
+      const predictedTarget = targetRef.current.clone();
+      if (velocityRef.current.lengthSq() > 0.001) {
+        predictedTarget.addScaledVector(velocityRef.current, extrapolationTime);
+      }
+
+      const before = currentPos.distanceTo(predictedTarget);
+      currentPos.lerp(predictedTarget, Math.min(1, delta * 12));
+      
       if (localRobotPos) {
         setFacingYaw(group, currentPos, localRobotPos);
       } else {
-        setFacingYaw(group, currentPos, targetRef.current);
+        setFacingYaw(group, currentPos, predictedTarget);
       }
 
       const moving = before > 0.07;
@@ -625,6 +662,28 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
         lastHeightEmitAtRef.current = now;
       }
     }
+
+    // ── HOLOGRAM EFFECT ──
+    const isHologram = hasRemotePeer && matchAlignmentReady;
+    const time = window.performance.now() * 0.001;
+    allMaterialsRef.current.forEach(m => {
+      if (isHologram) {
+        if ('transparent' in m) (m as any).transparent = true;
+        if ('opacity' in m) (m as any).opacity = 0.72;
+        if ('emissive' in m) {
+          (m as any).emissive.setHex(0x4a9dff);
+          (m as any).emissiveIntensity = 0.8 + Math.sin(time * 5.0) * 0.2;
+        }
+      } else {
+        if ('transparent' in m) (m as any).transparent = false;
+        if ('opacity' in m) (m as any).opacity = 1.0;
+        if ('emissive' in m) {
+          (m as any).emissive.setHex(0x0f2b66);
+          (m as any).emissiveIntensity = 1.0;
+        }
+      }
+    });
+
   });
 
   return (
