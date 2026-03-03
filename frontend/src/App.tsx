@@ -584,6 +584,11 @@ function App() {
   const [scanState, setScanState] = useState<'idle' | 'searching' | 'tracking' | 'ready' | 'unsupported'>('idle');
   const [scanPointCount, setScanPointCount] = useState(0);
   const [isARSessionActive, setIsARSessionActive] = useState(false);
+  
+  useEffect(() => {
+    console.info(`[App] AR Session State changed: ${isARSessionActive}, Scan State: ${scanState}`);
+  }, [isARSessionActive, scanState]);
+  
   // Debug panel toggle (visible to all, toggled by header button)
   const [debugVisible, setDebugVisible] = useState(DEBUG_UI);
   const [showLanguageChooser] = useState<boolean>(() => {
@@ -636,8 +641,9 @@ function App() {
       if (markAsChosen) {
         localStorage.setItem(STORAGE_LANG_SELECTED_KEY, 'done');
       }
-    } catch {
-      // noop
+      console.info(`[App] Language applied: ${langCode} (chosen: ${markAsChosen})`);
+    } catch (err) {
+      console.warn('[App] Failed to save language choice', err);
     }
     // For built-in languages (ja, en, es) → reload immediately.
     // For dynamic languages → check cache first; if no cache, request Gemini translation.
@@ -645,7 +651,9 @@ function App() {
     const prefix = langCode.substring(0, 2).toLowerCase();
     const hasBuiltIn = builtInPrefixes.includes(prefix);
     const existingCache = loadCachedTranslations(langCode);
+    console.info(`[App] Checking translation for ${langCode} - BuiltIn: ${hasBuiltIn}, Cached: ${!!existingCache}`);
     if (hasBuiltIn || existingCache) {
+      console.info(`[App] Reloading to apply translations immediately`);
       window.location.reload();
       return;
     }
@@ -864,6 +872,9 @@ function App() {
         return;
       }
       if (payload.kind === 'profile_sync' && payload.profile && (!target || target === PLAYER_ID)) {
+        console.groupCollapsed('[App] Profile Sync Received');
+        console.dir(payload.profile);
+        console.groupEnd();
         const p = payload.profile as any;
         const logsRaw = Array.isArray(p.recent_match_logs) ? p.recent_match_logs : [];
         const totalMatches = Number(p.total_matches ?? 0);

@@ -465,6 +465,23 @@ export const RobotCharacter: React.FC = () => {
       : {};
   }, [surfaceMaps]);
 
+  // Dynamic skin texture loader
+  const [skinTex, setSkinTex] = React.useState<THREE.Texture | null>(null);
+  React.useEffect(() => {
+    let active = true;
+    if (robotDna.skinUrl) {
+      new THREE.TextureLoader().load(robotDna.skinUrl, (tex) => {
+        if (!active) return;
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.flipY = false;
+        setSkinTex(tex);
+      });
+    } else {
+      setSkinTex(null);
+    }
+    return () => { active = false; };
+  }, [robotDna.skinUrl]);
+
   React.useEffect(() => {
     if (!heroScene) return;
     const roughBias = finishTuning.roughnessBias;
@@ -485,23 +502,7 @@ export const RobotCharacter: React.FC = () => {
     const whiteMaps = withMaps('white');
     const blueMaps = withMaps('blue');
     const darkMaps = withMaps('dark');
-    
-    // Dynamic skin texture loader
-    const [skinTex, setSkinTex] = React.useState<THREE.Texture | null>(null);
-    React.useEffect(() => {
-      let active = true;
-      if (robotDna.skinUrl) {
-        new THREE.TextureLoader().load(robotDna.skinUrl, (tex) => {
-          if (!active) return;
-          tex.colorSpace = THREE.SRGBColorSpace;
-          tex.flipY = false;
-          setSkinTex(tex);
-        });
-      } else {
-        setSkinTex(null);
-      }
-      return () => { active = false; };
-    }, [robotDna.skinUrl]);
+
 
     const mats = [
       buildHeroMat({
