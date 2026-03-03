@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 
 interface ShareArenaModalProps {
@@ -15,6 +15,16 @@ export const ShareArenaModal: React.FC<ShareArenaModalProps> = ({
   onClose,
 }) => {
   const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && open) {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [open, onClose]);
 
   if (!open) return null;
 
@@ -70,8 +80,15 @@ export const ShareArenaModal: React.FC<ShareArenaModalProps> = ({
 
   return (
     <div className="hud-modal-overlay" onClick={onClose}>
-      <div className="hud-modal-content" style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
-        <h2>{t.title}</h2>
+      <div
+        className="hud-modal-content"
+        style={{ textAlign: 'center' }}
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="share-modal-title"
+      >
+        <h2 id="share-modal-title">{t.title}</h2>
         <p className="hud-dim">{t.desc}</p>
         
         <div style={{ background: '#fff', padding: '16px', borderRadius: '8px', display: 'inline-block', margin: '16px 0' }}>
