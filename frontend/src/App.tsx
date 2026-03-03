@@ -580,6 +580,14 @@ function App() {
   const [bgmUrl, setBgmUrl] = useState('');
   const bgmAudioRef = useRef<HTMLAudioElement | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  const overlayRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (overlayRef.current) {
+      store.setState({ domOverlayRoot: overlayRef.current });
+    }
+  }, []);
+
   // T1-4: scan state for AR plane detection guide
   const [scanState, setScanState] = useState<'idle' | 'searching' | 'tracking' | 'ready' | 'unsupported'>('idle');
   const [scanPointCount, setScanPointCount] = useState(0);
@@ -1773,7 +1781,7 @@ function App() {
       : (isArButtonDisabled ? t.arUnsupportedHint : t.enterAr);
 
   return (
-    <div className="arena-shell">
+    <div className="arena-shell" ref={overlayRef}>
       <div className="arena-atmosphere" aria-hidden />
 
       {appPhase === 'lang' && (

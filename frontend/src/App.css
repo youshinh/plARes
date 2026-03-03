@@ -573,11 +573,10 @@
 
 .tactics-panel {
   position: fixed;
-  top: 50%;
+  bottom: 120px;
   right: 6px;
-  transform: translateY(-50%);
   z-index: 25;
-  width: 136px;
+  width: 140px;
   padding: 8px;
   border-radius: var(--radius-lg);
   border: 1px solid var(--glass-border);
