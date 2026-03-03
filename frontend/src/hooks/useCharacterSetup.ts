@@ -178,7 +178,7 @@ export function useCharacterSetup() {
               }
               resolve(normalizeGenerationResult(result));
             }
-          } catch (e) {
+          } catch { // 'e' is removed as it was unused in the error message
             reject(new Error('Failed to parse generation result'));
           } finally {
             ws.close();

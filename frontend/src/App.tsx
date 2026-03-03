@@ -591,13 +591,24 @@ function App() {
   
   // Debug panel toggle (visible to all, toggled by header button)
   const [debugVisible, setDebugVisible] = useState(DEBUG_UI);
-  const [showLanguageChooser] = useState<boolean>(() => {
+  // Phase Management: 0=Lang, 1=Scan(Setup), 2=Summon(AR Init), 3=Main
+  const [appPhase, setAppPhase] = useState<'lang' | 'scan' | 'summon' | 'main'>(() => {
     try {
-      return !localStorage.getItem(STORAGE_LANG_SELECTED_KEY);
+      if (!localStorage.getItem(STORAGE_LANG_SELECTED_KEY)) return 'lang';
+      // We will let the effect below advance from 'scan' -> 'summon' -> 'main'
+      return 'scan';
     } catch {
-      return false;
+      return 'lang';
     }
   });
+
+  // Advance phase based on setup completion
+  useEffect(() => {
+    if (appPhase === 'scan' && isSetupDone) {
+      setAppPhase('summon');
+    }
+  }, [appPhase, isSetupDone]);
+
   // Resolve the active BCP-47 code from LANG_OPTIONS (falls back to en-US).
   const [selectedLanguage, setSelectedLanguage] = useState<string>(
     LANG_OPTIONS.find(o => PLAYER_LANG.startsWith(o.code.substring(0, 2)))?.code ?? 'en-US'
@@ -1765,7 +1776,7 @@ function App() {
     <div className="arena-shell">
       <div className="arena-atmosphere" aria-hidden />
 
-      {showLanguageChooser && (
+      {appPhase === 'lang' && (
         <div className="language-gate">
           <div className="language-gate-card">
             <h2>{t.chooseLanguage}</h2>
@@ -1822,13 +1833,45 @@ function App() {
         </div>
       )}
 
-      {!isSetupDone && (
+      {appPhase === 'scan' && (
         <FaceScanner
           onGenerate={generateCharacter}
           isGenerating={isGenerating}
         />
       )}
-      {CHARACTER_LAB_UI && profileInfo && (
+      
+      {appPhase === 'summon' && (
+        <div className="summon-overlay">
+          <h2>Phase 1.3: First Summoning</h2>
+          <p>Scan your real-world environment to summon your AI partner.</p>
+          <button 
+            id="btn-summon-ar"
+            className={`hud-btn hud-btn-special ${isArButtonDisabled ? 'is-disabled' : ''}`}
+            onClick={() => {
+              if (arSupportState === 'supported') {
+                handleEnterAr();
+              }
+              setAppPhase('main'); // Advance to main menu
+            }}
+            disabled={isArButtonDisabled}
+            title={arButtonTitle}
+            style={{ marginBottom: '1rem', background: 'linear-gradient(135deg, #FF9A9E 0%, #FECFEF 100%)', color: '#333' }}
+          >
+            {arSupportState === 'supported' ? t.enterAr : 'Proceed to Main Menu (AR Not Supported)'}
+          </button>
+          
+          {arSupportState === 'supported' && (
+            <button 
+              className="hud-btn hud-btn-carbon" 
+              onClick={() => setAppPhase('main')}
+            >
+              Skip AR Summoning
+            </button>
+          )}
+        </div>
+      )}
+
+      {CHARACTER_LAB_UI && profileInfo && appPhase === 'main' && (
         <CharacterLabPanel
           open={isLabOpen}
           onClose={() => setIsLabOpen(false)}
@@ -1843,255 +1886,259 @@ function App() {
         />
       )}
 
-      <header className="hud-top-left hud-animate">
-        <div className="hud-brand">
-          <div className="hud-brand-main">PLARES AR</div>
-          <div className="hud-brand-sub">{t.brandSub}</div>
-        </div>
-        <div className="hud-inline-actions">
+      {appPhase === 'main' && (
+        <>
+          <header className="hud-top-left hud-animate">
+            <div className="hud-brand">
+              <div className="hud-brand-main">PLARES AR</div>
+              <div className="hud-brand-sub">{t.brandSub}</div>
+            </div>
+            <div className="hud-inline-actions">
+              <button
+                id="btn-enter-ar"
+                className={`hud-btn hud-btn-steel hud-btn-mini ${isArButtonDisabled ? 'is-disabled' : ''}`}
+                onClick={handleEnterAr}
+                disabled={isArButtonDisabled}
+                title={arButtonTitle}
+              >
+                {arButtonLabel}
+              </button>
+              {debugVisible && (
+                <button
+                  id="btn-match-end"
+                  className="hud-btn hud-btn-danger hud-btn-mini"
+                  onClick={requestMatchEnd}
+                >
+                  {t.endMatch}
+                </button>
+              )}
+              <button
+                id="btn-arena-align"
+                className="hud-btn hud-btn-blue hud-btn-mini"
+                onClick={publishArenaCalibration}
+              >
+                {t.alignArena}
+              </button>
+              <button
+                id="btn-menu-toggle"
+                className="hud-btn hud-btn-carbon hud-btn-mini"
+                onClick={() => setIsProfileOpen(!isProfileOpen)}
+              >
+                {t.menu}
+              </button>
+              <button
+                id="btn-arena-share"
+                className="hud-btn hud-btn-teal hud-btn-mini"
+                onClick={() => setIsShareOpen(true)}
+              >
+                {t.share}
+              </button>
+              {CHARACTER_LAB_UI && (
+                <button
+                  id="btn-open-lab"
+                  className="hud-btn hud-btn-carbon hud-btn-mini"
+                  onClick={() => setIsLabOpen(true)}
+                >
+                  Lab
+                </button>
+              )}
+              <button
+                id="btn-debug-toggle"
+                className={`hud-btn hud-btn-mini ${debugVisible ? 'hud-btn-warn' : 'hud-btn-carbon'}`}
+                onClick={() => setDebugVisible(v => !v)}
+                title="Toggle debug panels"
+              >
+                {debugVisible ? '🛠 DEBUG ON' : '🛠 DEBUG'}
+              </button>
+            </div>
+          </header>
+
+          <FusionCraftModal 
+            isOpen={showFusionCraft} 
+            onClose={() => setShowFusionCraft(false)} 
+          />
+
+          {/* HP Bars overlay */}
+          <div className="hud-health-bars">
+            <div className="hud-hp-side is-local">
+              <div className="hud-hp-label">{t.hp}</div>
+              <div className="hud-hp-track">
+                <div
+                  className={`hud-hp-fill ${localHp < 30 ? 'critical' : ''}`}
+                  style={{ width: `${isSolo ? localHp : (battleState.maxHp > 0 ? (battleState.hp / battleState.maxHp) * 100 : 0)}%` }}
+                />
+              </div>
+            </div>
+            <div className="hud-hp-vs">VS</div>
+            <div className="hud-hp-side is-remote">
+              <div className="hud-hp-label">{t.enemyHp}</div>
+              <div className="hud-hp-track">
+                <div
+                  className={`hud-hp-fill ${enemyHp < 30 ? 'critical' : ''}`}
+                  style={{ width: `${isSolo ? enemyHp : (battleState.opponentMaxHp > 0 ? (battleState.opponentHp / battleState.opponentMaxHp) * 100 : 0)}%` }}
+                />
+              </div>
+            </div>
+          </div>
+
+          <aside className={`hud-profile hud-animate ${isProfileOpen ? 'is-open' : ''}`}>
+            <div className="hud-profile-title" onClick={() => setIsProfileOpen(!isProfileOpen)}>
+              {t.pilotTelemetry}
+            </div>
+            <div className="hud-profile-actions">
+              <div className={`hud-align-pill ${alignmentReady ? 'is-ready' : ''}`}>
+                {alignmentReady ? t.alignReady : t.alignPending}
+              </div>
+              <label className="hud-lang-wrap">
+                <span>{t.language}</span>
+                <select
+                  className="hud-lang-select"
+                  value={selectedLanguage}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setSelectedLanguage(next);
+                    applyLanguage(next, true);
+                  }}
+                >
+                  <option value="ja-JP">日本語</option>
+                  <option value="en-US">English</option>
+                  <option value="es-ES">Espanol</option>
+                </select>
+              </label>
+            </div>
+            <div className="hud-main-commands">
+              <button className="hud-btn hud-btn-carbon hud-btn-mini" onClick={requestProfileSync}>
+                {t.refreshMemory}
+              </button>
+              <button
+                className={`hud-btn hud-btn-mini ${isLiveConnected ? 'hud-btn-green' : 'hud-btn-teal'}`}
+                onClick={isLiveConnected ? disconnectLiveDirect : connectLiveDirect}
+              >
+                {isLiveConnected ? t.disconnectLive : t.connectLive}
+              </button>
+              <button
+                className={`hud-btn hud-btn-mini ${isLiveMicActive ? 'hud-btn-warn' : 'hud-btn-blue'}`}
+                onClick={toggleLiveMic}
+              >
+                {isLiveMicActive ? t.stopLiveMic : t.startLiveMic}
+              </button>
+              <button className="hud-btn hud-btn-carbon hud-btn-mini" onClick={sendLiveTextPing}>
+                {t.sendLiveText}
+              </button>
+            </div>
+            <div className="hud-main-commands">
+              <button
+                className={`hud-btn hud-btn-mini ${playMode === 'match' ? 'hud-btn-blue' : 'hud-btn-carbon'}`}
+                onClick={() => switchMode('match')}
+              >
+                {t.modeMatch}
+              </button>
+              <button
+                className={`hud-btn hud-btn-mini ${playMode === 'training' ? 'hud-btn-blue' : 'hud-btn-carbon'}`}
+                onClick={() => switchMode('training')}
+              >
+                {t.modeTraining}
+              </button>
+              <button
+                className={`hud-btn hud-btn-mini ${playMode === 'walk' ? 'hud-btn-blue' : 'hud-btn-carbon'}`}
+                onClick={() => switchMode('walk')}
+              >
+                {t.modeWalk}
+              </button>
+              <button
+                className="hud-btn hud-btn-steel hud-btn-mini"
+                onClick={playMode === 'walk' ? sendWalkVisionTrigger : requestProfileSync}
+              >
+                {playMode === 'walk' ? t.sendWalkVision : t.refreshMemory}
+              </button>
+              <button
+                className={`hud-btn hud-btn-mini ${playMode === 'training' ? 'hud-btn-teal' : 'hud-btn-carbon'}`}
+                onClick={trainingSession ? completeTraining : startTraining}
+              >
+                {trainingSession ? t.completeTraining : t.startTraining}
+              </button>
+              <button
+                className={`hud-btn hud-btn-mini ${playMode === 'walk' ? 'hud-btn-teal' : 'hud-btn-carbon'}`}
+                onClick={walkSession ? completeWalk : startWalk}
+              >
+                {walkSession ? t.completeWalk : t.startWalk}
+              </button>
+            </div>
+            <div className="hud-profile-grid">
+              <span>{t.mode}</span><strong>{modeLabel}</strong>
+              <span>AR</span><strong>{isARSessionActive ? `${scanState} (${scanPointCount})` : 'OFF'}</strong>
+              <span>{t.matches}</span><strong>{profileView.totalMatches}</strong>
+              <span>{t.training}</span><strong>{profileView.totalTrainingSessions}</strong>
+              <span>{t.walks}</span><strong>{profileView.totalWalkSessions}</strong>
+              <span>{t.tone}</span><strong>{profileView.tone}</strong>
+              <span>{t.sync}</span><strong>{profileView.syncRate.toFixed(2)}</strong>
+              <span>{t.store}</span><strong>{profileView.storageBackend}</strong>
+              <span>{t.hp}</span><strong>{`${battleState.hp}/${battleState.maxHp || '-'}`}</strong>
+              <span>{t.enemyHp}</span><strong>{`${battleState.opponentHp}/${battleState.opponentMaxHp || '-'}`}</strong>
+              <span>{t.heat}</span><strong>{battleState.heatActive ? 'ON' : 'OFF'}</strong>
+            </div>
+            <div className="hud-memory-line" title={profileView.memorySummary || ''}>
+              {profileView.memorySummary || t.noMemory}
+            </div>
+            {profileView.recentLogs.length > 0 && (
+              <div className="hud-block">
+                {profileView.recentLogs.map((log, idx) => (
+                  <div key={`${log.timestamp}-${idx}`} className="hud-log-line">
+                    {`${log.result} C:${log.criticalHits} M:${log.misses}`}
+                  </div>
+                ))}
+              </div>
+            )}
+            {debugVisible && (liveDebugInfo.tokenName || liveDebugInfo.interactionId || liveDebugInfo.interactionText || bgmUrl) && (
+              <div className="hud-block hud-dim" style={{ borderLeft: '2px solid #ff6b6b' }}>
+                <div style={{ fontSize: '0.6rem', color: '#ff6b6b', fontWeight: 700, marginBottom: 2 }}>🛠 DEBUG INFO</div>
+                {liveDebugInfo.tokenName && <div className="hud-truncate">{`Token: ${liveDebugInfo.tokenName}`}</div>}
+                {liveDebugInfo.resumeHandle && <div className="hud-truncate">{`Resume: ${liveDebugInfo.resumeHandle}`}</div>}
+                {liveDebugInfo.interactionId && <div className="hud-truncate">{`Interaction: ${liveDebugInfo.interactionId}`}</div>}
+                {liveDebugInfo.interactionText && <div className="hud-truncate">{liveDebugInfo.interactionText}</div>}
+                {bgmUrl && <div className="hud-truncate">{`BGM: ${bgmUrl}`}</div>}
+              </div>
+            )}
+          </aside>
+
+          {debugVisible && (
+            <div className="hud-right-rail hud-animate" style={{ borderLeft: '2px solid #ff6b6b' }}>
+              <div style={{ fontSize: '0.7rem', color: '#ff6b6b', fontWeight: 700, letterSpacing: '0.1em', marginBottom: 6 }}>🛠 DEBUG TOOLS</div>
+              <button id="btn-fusion-drop" className="hud-btn hud-btn-amber" onClick={requestFusionDrop}>
+                {t.dropFusion}
+              </button>
+              <button id="btn-live-token" className="hud-btn hud-btn-blue" onClick={requestLiveEphemeralToken}>
+                {t.issueLiveToken}
+              </button>
+              <button id="btn-interaction-turn" className="hud-btn hud-btn-steel" onClick={requestInteractionTurn}>
+                {t.testInteraction}
+              </button>
+            </div>
+          )}
+
           <button
-            id="btn-enter-ar"
-            className={`hud-btn hud-btn-steel hud-btn-mini ${isArButtonDisabled ? 'is-disabled' : ''}`}
-            onClick={handleEnterAr}
-            disabled={isArButtonDisabled}
-            title={arButtonTitle}
+            id="btn-cast-special"
+            className={`hud-btn hud-cast-btn ${(isStreaming || isMatchPaused || !battleState.specialReady || !matchAlignmentReady) ? 'is-disabled' : ''}`}
+            disabled={isStreaming || isMatchPaused || !battleState.specialReady || !matchAlignmentReady}
+            onClick={handleCastSpecial}
           >
-            {arButtonLabel}
+            {isMatchPaused
+              ? t.matchPaused
+              : (!matchAlignmentReady
+                ? t.alignPending
+                : (isStreaming ? t.casting : (battleState.specialReady ? t.castSpecial : `EX ${battleState.exGauge}/${EX_GAUGE.MAX}`)))}
           </button>
+
           {debugVisible && (
             <button
-              id="btn-match-end"
-              className="hud-btn hud-btn-danger hud-btn-mini"
-              onClick={requestMatchEnd}
+              id="btn-p2p-media"
+              className={`hud-btn hud-chip-btn ${isP2PMediaOn ? 'is-on' : 'is-off'}`}
+              onClick={toggleP2PMedia}
             >
-              {t.endMatch}
+              {isP2PMediaOn ? t.p2pOn : t.p2pOff}
             </button>
           )}
-          <button
-            id="btn-arena-align"
-            className="hud-btn hud-btn-blue hud-btn-mini"
-            onClick={publishArenaCalibration}
-          >
-            {t.alignArena}
-          </button>
-          <button
-            id="btn-menu-toggle"
-            className="hud-btn hud-btn-carbon hud-btn-mini"
-            onClick={() => setIsProfileOpen(!isProfileOpen)}
-          >
-            {t.menu}
-          </button>
-          <button
-            id="btn-arena-share"
-            className="hud-btn hud-btn-teal hud-btn-mini"
-            onClick={() => setIsShareOpen(true)}
-          >
-            {t.share}
-          </button>
-          {CHARACTER_LAB_UI && (
-            <button
-              id="btn-open-lab"
-              className="hud-btn hud-btn-carbon hud-btn-mini"
-              onClick={() => setIsLabOpen(true)}
-            >
-              Lab
-            </button>
-          )}
-          <button
-            id="btn-debug-toggle"
-            className={`hud-btn hud-btn-mini ${debugVisible ? 'hud-btn-warn' : 'hud-btn-carbon'}`}
-            onClick={() => setDebugVisible(v => !v)}
-            title="Toggle debug panels"
-          >
-            {debugVisible ? '🛠 DEBUG ON' : '🛠 DEBUG'}
-          </button>
-        </div>
-      </header>
-
-      <FusionCraftModal 
-        isOpen={showFusionCraft} 
-        onClose={() => setShowFusionCraft(false)} 
-      />
-
-      {/* HP Bars overlay */}
-      <div className="hud-health-bars">
-        <div className="hud-hp-side is-local">
-          <div className="hud-hp-label">{t.hp}</div>
-          <div className="hud-hp-track">
-            <div
-              className={`hud-hp-fill ${localHp < 30 ? 'critical' : ''}`}
-              style={{ width: `${isSolo ? localHp : (battleState.maxHp > 0 ? (battleState.hp / battleState.maxHp) * 100 : 0)}%` }}
-            />
-          </div>
-        </div>
-        <div className="hud-hp-vs">VS</div>
-        <div className="hud-hp-side is-remote">
-          <div className="hud-hp-label">{t.enemyHp}</div>
-          <div className="hud-hp-track">
-            <div
-              className={`hud-hp-fill ${enemyHp < 30 ? 'critical' : ''}`}
-              style={{ width: `${isSolo ? enemyHp : (battleState.opponentMaxHp > 0 ? (battleState.opponentHp / battleState.opponentMaxHp) * 100 : 0)}%` }}
-            />
-          </div>
-        </div>
-      </div>
-
-      <aside className={`hud-profile hud-animate ${isProfileOpen ? 'is-open' : ''}`}>
-        <div className="hud-profile-title" onClick={() => setIsProfileOpen(!isProfileOpen)}>
-          {t.pilotTelemetry}
-        </div>
-        <div className="hud-profile-actions">
-          <div className={`hud-align-pill ${alignmentReady ? 'is-ready' : ''}`}>
-            {alignmentReady ? t.alignReady : t.alignPending}
-          </div>
-          <label className="hud-lang-wrap">
-            <span>{t.language}</span>
-            <select
-              className="hud-lang-select"
-              value={selectedLanguage}
-              onChange={(e) => {
-                const next = e.target.value;
-                setSelectedLanguage(next);
-                applyLanguage(next, true);
-              }}
-            >
-              <option value="ja-JP">日本語</option>
-              <option value="en-US">English</option>
-              <option value="es-ES">Espanol</option>
-            </select>
-          </label>
-        </div>
-        <div className="hud-main-commands">
-          <button className="hud-btn hud-btn-carbon hud-btn-mini" onClick={requestProfileSync}>
-            {t.refreshMemory}
-          </button>
-          <button
-            className={`hud-btn hud-btn-mini ${isLiveConnected ? 'hud-btn-green' : 'hud-btn-teal'}`}
-            onClick={isLiveConnected ? disconnectLiveDirect : connectLiveDirect}
-          >
-            {isLiveConnected ? t.disconnectLive : t.connectLive}
-          </button>
-          <button
-            className={`hud-btn hud-btn-mini ${isLiveMicActive ? 'hud-btn-warn' : 'hud-btn-blue'}`}
-            onClick={toggleLiveMic}
-          >
-            {isLiveMicActive ? t.stopLiveMic : t.startLiveMic}
-          </button>
-          <button className="hud-btn hud-btn-carbon hud-btn-mini" onClick={sendLiveTextPing}>
-            {t.sendLiveText}
-          </button>
-        </div>
-        <div className="hud-main-commands">
-          <button
-            className={`hud-btn hud-btn-mini ${playMode === 'match' ? 'hud-btn-blue' : 'hud-btn-carbon'}`}
-            onClick={() => switchMode('match')}
-          >
-            {t.modeMatch}
-          </button>
-          <button
-            className={`hud-btn hud-btn-mini ${playMode === 'training' ? 'hud-btn-blue' : 'hud-btn-carbon'}`}
-            onClick={() => switchMode('training')}
-          >
-            {t.modeTraining}
-          </button>
-          <button
-            className={`hud-btn hud-btn-mini ${playMode === 'walk' ? 'hud-btn-blue' : 'hud-btn-carbon'}`}
-            onClick={() => switchMode('walk')}
-          >
-            {t.modeWalk}
-          </button>
-          <button
-            className="hud-btn hud-btn-steel hud-btn-mini"
-            onClick={playMode === 'walk' ? sendWalkVisionTrigger : requestProfileSync}
-          >
-            {playMode === 'walk' ? t.sendWalkVision : t.refreshMemory}
-          </button>
-          <button
-            className={`hud-btn hud-btn-mini ${playMode === 'training' ? 'hud-btn-teal' : 'hud-btn-carbon'}`}
-            onClick={trainingSession ? completeTraining : startTraining}
-          >
-            {trainingSession ? t.completeTraining : t.startTraining}
-          </button>
-          <button
-            className={`hud-btn hud-btn-mini ${playMode === 'walk' ? 'hud-btn-teal' : 'hud-btn-carbon'}`}
-            onClick={walkSession ? completeWalk : startWalk}
-          >
-            {walkSession ? t.completeWalk : t.startWalk}
-          </button>
-        </div>
-        <div className="hud-profile-grid">
-          <span>{t.mode}</span><strong>{modeLabel}</strong>
-          <span>AR</span><strong>{isARSessionActive ? `${scanState} (${scanPointCount})` : 'OFF'}</strong>
-          <span>{t.matches}</span><strong>{profileView.totalMatches}</strong>
-          <span>{t.training}</span><strong>{profileView.totalTrainingSessions}</strong>
-          <span>{t.walks}</span><strong>{profileView.totalWalkSessions}</strong>
-          <span>{t.tone}</span><strong>{profileView.tone}</strong>
-          <span>{t.sync}</span><strong>{profileView.syncRate.toFixed(2)}</strong>
-          <span>{t.store}</span><strong>{profileView.storageBackend}</strong>
-          <span>{t.hp}</span><strong>{`${battleState.hp}/${battleState.maxHp || '-'}`}</strong>
-          <span>{t.enemyHp}</span><strong>{`${battleState.opponentHp}/${battleState.opponentMaxHp || '-'}`}</strong>
-          <span>{t.heat}</span><strong>{battleState.heatActive ? 'ON' : 'OFF'}</strong>
-        </div>
-        <div className="hud-memory-line" title={profileView.memorySummary || ''}>
-          {profileView.memorySummary || t.noMemory}
-        </div>
-        {profileView.recentLogs.length > 0 && (
-          <div className="hud-block">
-            {profileView.recentLogs.map((log, idx) => (
-              <div key={`${log.timestamp}-${idx}`} className="hud-log-line">
-                {`${log.result} C:${log.criticalHits} M:${log.misses}`}
-              </div>
-            ))}
-          </div>
-        )}
-        {debugVisible && (liveDebugInfo.tokenName || liveDebugInfo.interactionId || liveDebugInfo.interactionText || bgmUrl) && (
-          <div className="hud-block hud-dim" style={{ borderLeft: '2px solid #ff6b6b' }}>
-            <div style={{ fontSize: '0.6rem', color: '#ff6b6b', fontWeight: 700, marginBottom: 2 }}>🛠 DEBUG INFO</div>
-            {liveDebugInfo.tokenName && <div className="hud-truncate">{`Token: ${liveDebugInfo.tokenName}`}</div>}
-            {liveDebugInfo.resumeHandle && <div className="hud-truncate">{`Resume: ${liveDebugInfo.resumeHandle}`}</div>}
-            {liveDebugInfo.interactionId && <div className="hud-truncate">{`Interaction: ${liveDebugInfo.interactionId}`}</div>}
-            {liveDebugInfo.interactionText && <div className="hud-truncate">{liveDebugInfo.interactionText}</div>}
-            {bgmUrl && <div className="hud-truncate">{`BGM: ${bgmUrl}`}</div>}
-          </div>
-        )}
-      </aside>
-
-      {debugVisible && (
-        <div className="hud-right-rail hud-animate" style={{ borderLeft: '2px solid #ff6b6b' }}>
-          <div style={{ fontSize: '0.7rem', color: '#ff6b6b', fontWeight: 700, letterSpacing: '0.1em', marginBottom: 6 }}>🛠 DEBUG TOOLS</div>
-          <button id="btn-fusion-drop" className="hud-btn hud-btn-amber" onClick={requestFusionDrop}>
-            {t.dropFusion}
-          </button>
-          <button id="btn-live-token" className="hud-btn hud-btn-blue" onClick={requestLiveEphemeralToken}>
-            {t.issueLiveToken}
-          </button>
-          <button id="btn-interaction-turn" className="hud-btn hud-btn-steel" onClick={requestInteractionTurn}>
-            {t.testInteraction}
-          </button>
-        </div>
-      )}
-
-      <button
-        id="btn-cast-special"
-        className={`hud-btn hud-cast-btn ${(isStreaming || isMatchPaused || !battleState.specialReady || !matchAlignmentReady) ? 'is-disabled' : ''}`}
-        disabled={isStreaming || isMatchPaused || !battleState.specialReady || !matchAlignmentReady}
-        onClick={handleCastSpecial}
-      >
-        {isMatchPaused
-          ? t.matchPaused
-          : (!matchAlignmentReady
-            ? t.alignPending
-            : (isStreaming ? t.casting : (battleState.specialReady ? t.castSpecial : `EX ${battleState.exGauge}/${EX_GAUGE.MAX}`)))}
-      </button>
-
-      {debugVisible && (
-        <button
-          id="btn-p2p-media"
-          className={`hud-btn hud-chip-btn ${isP2PMediaOn ? 'is-on' : 'is-off'}`}
-          onClick={toggleP2PMedia}
-        >
-          {isP2PMediaOn ? t.p2pOn : t.p2pOff}
-        </button>
+        </>
       )}
 
 
@@ -2118,16 +2165,26 @@ function App() {
         </XR>
       </Canvas>
 
-      <ServerDrivenPanel />
+      {appPhase === 'main' && (
+        <>
+          <ServerDrivenPanel />
+          <DynamicSubtitle />
+          <RemoteStreamView />
+        </>
+      )}
+      
       {debugVisible && <AnimationDebugPanel />}
-      <DynamicSubtitle />
+      
       {voiceAckText && (
         <div className="hud-voice-ack" aria-live="polite">
           {voiceAckText}
         </div>
       )}
-      {isARSessionActive && <ScanGuideOverlay scanState={scanState} pointCount={scanPointCount} />}
-      <RemoteStreamView />
+      
+      {(appPhase === 'summon' || appPhase === 'main') && isARSessionActive && (
+        <ScanGuideOverlay scanState={scanState} pointCount={scanPointCount} />
+      )}
+      
       <ShareArenaModal
         roomId={ROOM_ID}
         uiLang={uiLang}
