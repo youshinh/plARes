@@ -1846,15 +1846,15 @@ function App() {
           <p>Scan your real-world environment to summon your AI partner.</p>
           <button 
             id="btn-summon-ar"
-            className={`hud-btn hud-btn-special ${isArButtonDisabled ? 'is-disabled' : ''}`}
+            className={`hud-btn hud-btn-special ${arSupportState === 'checking' ? 'is-disabled' : ''}`}
             onClick={() => {
               if (arSupportState === 'supported') {
                 handleEnterAr();
               }
               setAppPhase('main'); // Advance to main menu
             }}
-            disabled={isArButtonDisabled}
-            title={arButtonTitle}
+            disabled={arSupportState === 'checking'}
+            title={arSupportState === 'checking' ? 'Checking AR support...' : ''}
             style={{ marginBottom: '1rem', background: 'linear-gradient(135deg, #FF9A9E 0%, #FECFEF 100%)', color: '#333' }}
           >
             {arSupportState === 'supported' ? t.enterAr : 'Proceed to Main Menu (AR Not Supported)'}
