@@ -1,0 +1,49 @@
+<<<<<<< SEARCH
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(shareHref);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // ignore
+    }
+  };
+
+  return (
+    <div className="hud-modal-overlay" onClick={onClose}>
+      <div className="hud-modal-content" style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+        <h2>{t.title}</h2>
+=======
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(shareHref);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // ignore
+    }
+  };
+
+  // 🎨 Palette: Add Escape key support for accessibility
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && open) {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [open, onClose]);
+
+  return (
+    <div className="hud-modal-overlay" onClick={onClose}>
+      <div
+        className="hud-modal-content"
+        style={{ textAlign: 'center' }}
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="share-arena-title"
+      >
+        <h2 id="share-arena-title">{t.title}</h2>
+>>>>>>> REPLACE

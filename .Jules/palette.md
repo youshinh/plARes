@@ -1,3 +1,7 @@
 ## 2024-05-24 - Interactive Elements using Non-Interactive Tags
 **Learning:** This application uses semantic structural tags (like `<h3>`) for interactive toggles in custom panels (e.g., `ServerDrivenPanel`). These elements often have `onClick` handlers but lack `role="button"`, `tabIndex`, and keyboard event handlers, making them completely inaccessible to keyboard and screen reader users. Additionally, custom buttons like `.hud-btn` lack standard focus-visible rings.
 **Action:** When adding or modifying custom panels and HUD elements, ensure any non-standard interactive element (like `<h3>` or `<div>`) is given `role="button"`, `tabIndex={0}`, an `onKeyDown` handler for 'Enter'/'Space', and appropriate ARIA attributes. Apply `:focus-visible` styling to custom button classes.
+
+## 2024-05-25 - Modal Overlays Without Keyboard Close Support
+**Learning:** The application uses fixed-position full-screen container `div`s as modal overlays (e.g. `ShareArenaModal`). These overlays often lack essential modal accessibility features, specifically they cannot be closed using the 'Escape' key, nor do they announce themselves correctly to screen readers as dialogue boxes.
+**Action:** When creating or fixing custom overlay modals, always implement an `onKeyDown` or `useEffect` listener to map the 'Escape' key to the `onClose` function. Additionally, add `role="dialog"` and `aria-modal="true"` to the outermost overlay container, mapping it to its title via `aria-labelledby`.
