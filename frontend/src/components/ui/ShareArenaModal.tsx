@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 
 interface ShareArenaModalProps {
@@ -16,8 +16,7 @@ export const ShareArenaModal: React.FC<ShareArenaModalProps> = ({
 }) => {
   const [copied, setCopied] = useState(false);
 
-  // 🎨 Palette: Add Escape key support for accessibility
-  React.useEffect(() => {
+  useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && open) {
         onClose();
@@ -87,9 +86,9 @@ export const ShareArenaModal: React.FC<ShareArenaModalProps> = ({
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
-        aria-labelledby="share-arena-title"
+        aria-labelledby="share-modal-title"
       >
-        <h2 id="share-arena-title">{t.title}</h2>
+        <h2 id="share-modal-title">{t.title}</h2>
         <p className="hud-dim">{t.desc}</p>
         
         <div style={{ background: '#fff', padding: '16px', borderRadius: '8px', display: 'inline-block', margin: '16px 0' }}>
