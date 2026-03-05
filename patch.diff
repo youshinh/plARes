@@ -1,0 +1,18 @@
+--- frontend/src/components/FaceScanner.tsx
++++ frontend/src/components/FaceScanner.tsx
+@@ -165,6 +165,7 @@
+             </div>
+             <textarea
+               style={styles.textarea}
++              aria-label="ロボットの性格を入力"
+               placeholder="例: 無口で忍耐強い重戦車型ロボット"
+               value={presetText}
+               onChange={(e) => setPresetText(e.target.value)}
+@@ -194,6 +195,7 @@
+             }}
+             onClick={handleGenerate}
+             disabled={isGenerating || (mode === 'camera' && !captured && !cameraError)}
++            aria-busy={isGenerating}
+           >
+             {isGenerating ? '⏳ 生成中…' : '🤖 ロボット召喚！'}
+           </button>

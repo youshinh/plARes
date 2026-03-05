@@ -1,3 +1,3 @@
-## 2024-05-24 - Interactive Elements using Non-Interactive Tags
-**Learning:** This application uses semantic structural tags (like `<h3>`) for interactive toggles in custom panels (e.g., `ServerDrivenPanel`). These elements often have `onClick` handlers but lack `role="button"`, `tabIndex`, and keyboard event handlers, making them completely inaccessible to keyboard and screen reader users. Additionally, custom buttons like `.hud-btn` lack standard focus-visible rings.
-**Action:** When adding or modifying custom panels and HUD elements, ensure any non-standard interactive element (like `<h3>` or `<div>`) is given `role="button"`, `tabIndex={0}`, an `onKeyDown` handler for 'Enter'/'Space', and appropriate ARIA attributes. Apply `:focus-visible` styling to custom button classes.
+## 2024-03-05 - Add basic ARIA labels and states to FaceScanner.tsx
+**Learning:** React form inputs (like `textarea` or `input[type="radio"]`) used for capturing user data without visible `<label>` tags should use `aria-label` to provide context for screen readers. Using `aria-busy` effectively announces loading states on submission buttons.
+**Action:** Next time, ensure all inputs without text labels have an explicit `aria-label`, and interactive elements with loading states utilize `aria-busy`.
