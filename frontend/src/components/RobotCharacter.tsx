@@ -347,36 +347,6 @@ export const RobotCharacter: React.FC = () => {
       }
     }
 
-    // Apply battle-state glow via emissive only – preserves each part's unique colour
-    const emissiveMap: Partial<Record<State, string>> = {
-      [State.HOVERING]:        '#000000',  // no glow during idle
-      [State.BASIC_ATTACK]:    '#661100',  // subtle red pulse
-      [State.EVADE_TO_COVER]:  '#002244',  // blue cold flash
-      [State.FLANKING_RIGHT]:  '#114422',  // green flash
-      [State.EMERGENCY_EVADE]: '#444400',  // yellow warning
-      [State.CASTING_SPECIAL]: '#441100',  // orange charge glow
-    };
-    const emissiveColor = emissiveMap[currentState] ?? '#000000';
-    const emissiveIntensity = currentState === State.HOVERING ? 0.0 : 0.55;
-
-    groupRef.current.traverse((child) => {
-      if ((child as THREE.Mesh).isMesh) {
-        const mat = (child as THREE.Mesh).material as THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial;
-        // Only touch emissive – leave visor glow controlled by DNA.
-        if (mat.emissive && mat.emissiveIntensity < 1.2) {
-          mat.emissive.set(emissiveColor);
-          mat.emissiveIntensity = emissiveIntensity;
-        }
-        if (typeof mat.roughness === 'number') {
-          const store = mat.userData as { baseRoughness?: number };
-          if (typeof store.baseRoughness !== 'number') {
-            store.baseRoughness = mat.roughness;
-          }
-          mat.roughness = Math.max(0.02, Math.min(0.98, store.baseRoughness + scarRoughnessBoost));
-        }
-      }
-    });
-
     useFSMStore.getState().setLocalRobotPosition(pos.clone());
 
     const now = performance.now();
@@ -406,6 +376,40 @@ export const RobotCharacter: React.FC = () => {
       lastSyncAtRef.current = now;
     }
   });
+
+  React.useEffect(() => {
+    if (!groupRef.current) return;
+
+    // Apply battle-state glow via emissive only – preserves each part's unique colour
+    const emissiveMap: Partial<Record<State, string>> = {
+      [State.HOVERING]:        '#000000',  // no glow during idle
+      [State.BASIC_ATTACK]:    '#661100',  // subtle red pulse
+      [State.EVADE_TO_COVER]:  '#002244',  // blue cold flash
+      [State.FLANKING_RIGHT]:  '#114422',  // green flash
+      [State.EMERGENCY_EVADE]: '#444400',  // yellow warning
+      [State.CASTING_SPECIAL]: '#441100',  // orange charge glow
+    };
+    const emissiveColor = emissiveMap[currentState] ?? '#000000';
+    const emissiveIntensity = currentState === State.HOVERING ? 0.0 : 0.55;
+
+    groupRef.current.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        const mat = (child as THREE.Mesh).material as THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial;
+        // Only touch emissive – leave visor glow controlled by DNA.
+        if (mat.emissive && mat.emissiveIntensity < 1.2) {
+          mat.emissive.set(emissiveColor);
+          mat.emissiveIntensity = emissiveIntensity;
+        }
+        if (typeof mat.roughness === 'number') {
+          const store = mat.userData as { baseRoughness?: number };
+          if (typeof store.baseRoughness !== 'number') {
+            store.baseRoughness = mat.roughness;
+          }
+          mat.roughness = Math.max(0.02, Math.min(0.98, store.baseRoughness + scarRoughnessBoost));
+        }
+      }
+    });
+  }, [currentState, scarRoughnessBoost, heroScene]);
 
   // ─── Colour palette (Plaresto style) ────────────────────────────────────
   const C = resolveRobotPalette(robotMeta.material, robotDna);

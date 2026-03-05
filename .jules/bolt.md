@@ -1,0 +1,3 @@
+## 2025-03-09 - Traversal Performance Bottleneck in React Three Fiber
+**Learning:** Found a major performance bottleneck where `group.traverse()` was being called inside a `useFrame` callback to update material emissive states based on component state (`currentState`). This causes an iteration over the entire scene graph 60 times a second, which burns CPU cycles needlessly when the state only changes occasionally.
+**Action:** Always move state-dependent scene graph mutations out of `useFrame` and into `useEffect` hooks with appropriate dependency arrays. This guarantees that operations like `traverse` run only when their specific dependent state changes rather than continuously on the render thread.
