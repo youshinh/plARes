@@ -697,11 +697,12 @@ def _issue_ephemeral_token_sync(requested: dict[str, Any], user_id: str, room_id
         )
         token = client.auth_tokens.create(config=config)
     except Exception as exc:
+        logger.error(f"auth_token_create_failed: {exc}", exc_info=True)
         return {
             "kind": "live_ephemeral_token",
             "ok": False,
             "error": "auth_token_create_failed",
-            "detail": str(exc),
+            "detail": "An unexpected error occurred while creating auth token.",
             "model": model,
             "response_modalities": modalities,
             "user_id": user_id,
@@ -793,11 +794,12 @@ def _run_interaction_sync(requested: dict[str, Any], user_id: str, room_id: str)
     try:
         interaction = client.interactions.create(**kwargs)
     except Exception as exc:
+        logger.error(f"interaction_create_failed: {exc}", exc_info=True)
         return {
             "kind": "interaction_response",
             "ok": False,
             "error": "interaction_create_failed",
-            "detail": str(exc),
+            "detail": "An unexpected error occurred while creating interaction.",
             "model": model,
             "user_id": user_id,
             "room_id": room_id,
@@ -3421,7 +3423,7 @@ async def websocket_router(websocket: Any, path: Optional[str] = None) -> None:
             error = {
                 "type": "error",
                 "message": "ADK live handler unavailable",
-                "detail": ADK_IMPORT_ERROR,
+                "detail": "Live handler component is not configured properly.",
             }
             await websocket.send(json.dumps(error))
             return
