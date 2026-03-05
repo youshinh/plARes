@@ -138,6 +138,11 @@ INTERACTIONS_MODEL = (
     or os.getenv("PLARES_LIGHT_MODEL")
     or "gemini-3-flash-preview"
 )
+# UI translation uses the lightest model available for cost efficiency.
+UI_TRANSLATION_MODEL = (
+    os.getenv("PLARES_UI_TRANSLATION_MODEL")
+    or "gemini-flash-lite-latest"
+)
 EPHEMERAL_DEFAULT_USES = int(os.getenv("PLARES_EPHEMERAL_USES", "3"))
 EPHEMERAL_EXPIRE_MINUTES = int(os.getenv("PLARES_EPHEMERAL_EXPIRE_MINUTES", "10"))
 EPHEMERAL_NEW_SESSION_MINUTES = int(os.getenv("PLARES_EPHEMERAL_NEW_SESSION_MINUTES", "60"))
@@ -1926,10 +1931,12 @@ def _update_persona_tone(
 async def _generate_fusion_texture(payload: dict[str, Any]) -> str:
     concept = str(payload.get("concept", "legendary weapon"))
     image_data = payload.get("reference_image")
-    if isinstance(image_data, str):
-        image_bytes = image_data.encode("utf-8")
-    else:
-        image_bytes = b""
+    image_bytes = b""
+    if isinstance(image_data, str) and image_data:
+        try:
+            image_bytes = base64.b64decode(image_data)
+        except Exception:
+            image_bytes = image_data.encode("utf-8")
 
     if reality_crafter is None:
         return f"https://praresar.storage/textures/fallback_{hash(concept)}.png"
@@ -2826,6 +2833,75 @@ async def handle_game_connection(websocket: Any, request_path: str) -> None:
                         )
 
                     if (
+                        event_data.get("event") == "request_ui_translations"
+                        and isinstance(payload_obj, dict)
+                    ):
+                        target_lang = str(payload_obj.get("lang", lang) or lang).strip()
+                        base_keys: dict = payload_obj.get("base_keys", {})
+                        if not isinstance(base_keys, dict) or not base_keys:
+                            continue
+                        translations: dict = {}
+                        client = _get_genai_client(INTERACTIONS_API_VERSION)
+                        if client is not None:
+                            try:
+                                keys_json = json.dumps(base_keys, ensure_ascii=False)
+                                prompt = (
+                                    f"You are a localization expert. Translate all values in this JSON dictionary to '{target_lang}'.\n"
+                                    "Rules:\n"
+                                    "- Keep the keys exactly as-is.\n"
+                                    "- Preserve any emoji, symbols, or special characters (⚡, etc.) in the values.\n"
+                                    "- Keep translations concise (UI labels/button text).\n"
+                                    "- Output ONLY the resulting JSON object, no markdown fences, no explanation.\n"
+                                    f"Input:\n{keys_json}"
+                                )
+                                model = _normalize_model_name(UI_TRANSLATION_MODEL, UI_TRANSLATION_MODEL)
+                                response = await asyncio.to_thread(
+                                    client.models.generate_content,
+                                    model=model,
+                                    contents=prompt,
+                                )
+                                raw = to_json_safe(response)
+                                fragments: list[str] = []
+                                _collect_text_fragments(raw, fragments)
+                                text = " ".join(dict.fromkeys(fragments)).strip()
+                                if text:
+                                    try:
+                                        parsed = _safe_json_loads(text)
+                                        if isinstance(parsed, dict):
+                                            translations = parsed
+                                    except Exception:
+                                        pass
+                            except Exception as exc:
+                                logger.warning(json.dumps({
+                                    "event": "ui_translations_error",
+                                    "lang": target_lang,
+                                    "error": str(exc),
+                                }))
+                        # Fallback: echo base_keys if Gemini unavailable or parse failed
+                        if not translations:
+                            translations = dict(base_keys)
+                        wrapped = {
+                            "type": "event",
+                            "data": {
+                                "event": "buff_applied",
+                                "user": "server",
+                                "target": user_id,
+                                "payload": {
+                                    "kind": "ui_translations",
+                                    "lang": target_lang,
+                                    "translations": translations,
+                                },
+                            },
+                        }
+                        await _broadcast_room(room_id, wrapped, target_user=user_id)
+                        logger.info(json.dumps({
+                            "event": "ui_translations_generated",
+                            "lang": target_lang,
+                            "key_count": len(translations),
+                        }))
+                        continue
+
+                    if (
                         event_data.get("event") == "request_ephemeral_token"
                         and isinstance(payload_obj, dict)
                     ):
@@ -2922,6 +2998,67 @@ async def handle_game_connection(websocket: Any, request_path: str) -> None:
                             _profile_sync_payload(target_user, profile),
                             target_user=target_user,
                         )
+                        continue
+
+                    if (
+                        event_data.get("event") == "incantation_submitted"
+                        and isinstance(payload_obj, dict)
+                    ):
+                        judge_result = await _run_articulation_judge(payload_obj, user_id, room_id)
+                        
+                        # Apply sync gain to user profile
+                        target_user = str(event_data.get("target", user_id) or user_id)
+                        target_lang = _room_user_lang(room_id, target_user, default=lang)
+                        
+                        current_meta = room_user_meta.get(room_id, {}).get(target_user, {})
+                        target_sync_rate = to_float(current_meta.get("sync_rate", sync_rate), sync_rate)
+                        
+                        profile = _load_user_profile(target_user, target_lang, target_sync_rate)
+                        
+                        if judge_result.get("ok"):
+                            gain = judge_result.get("sync_gain", 0.0)
+                            new_sync = clamp01(target_sync_rate + gain)
+                            profile["sync_rate"] = new_sync
+                            
+                            # Record training log
+                            logs = profile.get("training_logs", [])
+                            if not isinstance(logs, list): logs = []
+                            logs.append({
+                                "timestamp": datetime.now(timezone.utc).isoformat(),
+                                "phrase": judge_result.get("phrase"),
+                                "scores": {
+                                    "acc": judge_result.get("accuracy"),
+                                    "spd": judge_result.get("speed"),
+                                    "pas": judge_result.get("passion")
+                                },
+                                "gain": gain
+                            })
+                            profile["training_logs"] = logs[-50:]
+                            
+                            # Simple memory summary entry
+                            profile["ai_memory_summary"] = _append_memory_summary(
+                                str(profile.get("ai_memory_summary", "")),
+                                f"{datetime.now(timezone.utc).isoformat()} training: phrase='{judge_result.get('phrase')}', "
+                                f"verdict={judge_result.get('verdict')}, sync_gain={gain:.3f}"
+                            )
+                            
+                            _save_user_profile(profile)
+                            
+                            # Update room meta for immediate consistency
+                            if room_id in room_user_meta and target_user in room_user_meta[room_id]:
+                                room_user_meta[room_id][target_user]["sync_rate"] = new_sync
+                        
+                        wrapped = {
+                            "type": "event",
+                            "data": {
+                                "event": "buff_applied",
+                                "user": "server",
+                                "target": target_user,
+                                "payload": judge_result,
+                            },
+                        }
+                        await _broadcast_room(room_id, wrapped, target_user=target_user)
+                        _record_room_event(room_id, user_id, wrapped["data"])
                         continue
 
                     if (
@@ -3185,22 +3322,46 @@ async def handle_game_connection(websocket: Any, request_path: str) -> None:
                             continue
 
                         texture_url = await _generate_fusion_texture(payload_obj)
+                        target_id = str(event_data.get("target", user_id) or user_id)
+                        concept = str(payload_obj.get("concept", "legendary item"))
+                        target_lang = _room_user_lang(room_id, target_id, default="ja-JP")
+                        target_sync_rate = _clamp01(_to_float(room_user_meta.get(room_id, {}).get(target_id, {}).get("sync_rate", 0.5), 0.5))
+
                         generated = {
                             "event": "item_dropped",
                             "user": "server",
-                            "target": event_data.get("target"),
+                            "target": target_id,
                             "payload": {
                                 "kind": "fused_item",
                                 "requested_by": user_id,
-                                "concept": str(payload_obj.get("concept", "legendary item")),
+                                "concept": concept,
                                 "texture_url": texture_url,
-                                "effect_caps": {
-                                    "max_hp_ratio": SPECTATOR_MAX_HP_RATIO,
-                                },
+                                "action": "equip",
                             },
                         }
-                        wrapped = {"type": "event", "data": generated}
-                        await _broadcast_room(room_id, wrapped)
+                        await _broadcast_room(room_id, generated)
+                        
+                        # Persist to inventory (Doc §2.3)
+                        profile = _load_user_profile(target_id, target_lang, target_sync_rate)
+                        inventory = profile.get("inventory", [])
+                        if not isinstance(inventory, list): inventory = []
+                        inventory.append({
+                            "id": f"fused_{int(time.time())}",
+                            "name": f"Fused: {concept}",
+                            "url": texture_url,
+                            "type": "skin",
+                            "timestamp": datetime.now(timezone.utc).isoformat()
+                        })
+                        profile["inventory"] = inventory[-20:] # Keep last 20
+                        _save_user_profile(target_id, profile)
+                        
+                        # Sync profile to frontend
+                        await _broadcast_room(
+                            room_id,
+                            _profile_sync_payload(target_id, profile),
+                            target_user=target_id,
+                        )
+
                         _record_room_event(room_id, user_id, generated)
                         continue
 

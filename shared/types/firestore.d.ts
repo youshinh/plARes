@@ -32,6 +32,9 @@ export interface CharacterDNA {
   glowIntensity: number;
   evolutionStage: number;
   battlePatina: "clean" | "worn" | "scarred" | "legend";
+  materialType?: string;
+  emblemUrl?: string;
+  skinUrl?: string;
 }
 
 export interface RobotStatus {

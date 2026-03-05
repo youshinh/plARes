@@ -174,6 +174,12 @@ export const COMBAT_STATE_POLICY: Record<string, CombatStatePolicy> = {
     motion: { kind: 'retreat_from_target', speed: 3.0 },
     autoExitToHover: true,
   },
+  REJECT_ITEM: {
+    animation: { clip: 'Running', loopOnce: true, speed: -1.1 }, // backwards evasion
+    duration: 1.5,
+    motion: { kind: 'retreat_from_target', speed: 4.0 },
+    lockMovement: true,
+  },
   DAMAGE: {
     animation: { clip: 'HeavyWalk', loopOnce: true, speed: 1.0 }, // baseline speed
     duration: 0.5,

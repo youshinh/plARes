@@ -158,11 +158,16 @@ export const useVoiceController = () => {
       };
 
       recognition.onerror = (event: SpeechRecognitionErrorLike) => {
-        // 'not-allowed' means mic permission was denied; don't retry endlessly.
-        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+        // 'not-allowed' or 'aborted' usually means mic permission was denied or interrupted.
+        // Don't retry endlessly.
+        if (
+          event.error === 'not-allowed' || 
+          event.error === 'service-not-allowed' ||
+          event.error === 'aborted'
+        ) {
           deniedRetryCountRef.current += 1;
-          if (deniedRetryCountRef.current >= 3) {
-            console.warn('[VoiceController] Mic permission denied repeatedly – voice control disabled.');
+          if (deniedRetryCountRef.current >= 3 || event.error === 'aborted') {
+            console.warn(`[VoiceController] Mic permission denied/aborted (${event.error}) – voice control disabled.`);
             stoppedRef.current = true;
             return;
           }

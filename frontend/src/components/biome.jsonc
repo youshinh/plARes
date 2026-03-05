@@ -1,9 +1,0 @@
-// Antigravity 設定例
-{
-  "lsp": {
-    "biome": {
-      "command": ["biome", "lsp-proxy"],
-      "root_markers": ["biome.jsonc", "biome.json"]
-    }
-  }
-}

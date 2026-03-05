@@ -66,7 +66,7 @@ export class GeminiLiveService {
     return this.resumeHandle;
   }
 
-  async connect(params: { tokenName: string; model?: string }) {
+  async connect(params: { tokenName: string; model?: string; systemInstruction?: string }) {
     if (this.session) return;
     this.tokenName = params.tokenName;
     this.model = normalizeModel(params.model ?? this.model);
@@ -80,6 +80,7 @@ export class GeminiLiveService {
         model: this.model,
         config: {
           responseModalities: [Modality.AUDIO],
+          systemInstruction: params.systemInstruction || undefined,
           sessionResumption: {
             handle: this.resumeHandle || undefined,
           },

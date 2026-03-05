@@ -3,6 +3,8 @@ import * as THREE from 'three';
 import type { CharacterDNA } from '../../../shared/types/firestore';
 import { DEFAULT_CHARACTER_DNA, normalizeCharacterDNA } from '../utils/characterDNA';
 
+export type PlayMode = 'hub' | 'match' | 'training' | 'walk';
+
 export enum State {
   HOVERING = 'HOVERING',
   BASIC_ATTACK = 'BASIC_ATTACK',
@@ -32,6 +34,7 @@ export enum State {
   BEAM_CHARGE = 'BEAM_CHARGE',
   HEAVY_WALK = 'HEAVY_WALK',
   STAGGER_WALK = 'STAGGER_WALK',
+  REJECT_ITEM = 'REJECT_ITEM',
 }
 
 interface RobotStats {
@@ -57,6 +60,8 @@ interface FSMState {
   updateBasicMovement: (position: THREE.Vector3) => void;
   clearEvadeTimeout: () => void;
   clearTargetState: () => void;
+  // ── Item Rejection ──
+  setRejectItem: () => void;
   // ── Robot stats from character generation pipeline ──
   robotStats: RobotStats;
   robotMeta: RobotMeta;
@@ -80,7 +85,9 @@ interface FSMState {
   setModelType: (type: 'A' | 'B') => void;
   debugSetState: (nextState: State) => void;
   debugSetHp: (target: 'local' | 'enemy', value: number) => void;
-  // ── T1-3: Priority tracking for debug panel ──
+  // ── Mode Management ──
+  playMode: PlayMode;
+  setPlayMode: (mode: PlayMode) => void;
   prioritySource: 'P1' | 'P2' | 'P3' | 'debug' | 'system';
   transitionLog: Array<{ ts: number; from: State; to: State; source: string }>;
 }
@@ -98,6 +105,9 @@ export const useFSMStore = create<FSMState>((set, get) => ({
 
   localHp: 100,
   enemyHp: 100,
+
+  playMode: 'hub',
+  setPlayMode: (mode) => set({ playMode: mode }),
 
   modelType: 'A',
   prioritySource: 'system' as const,
@@ -198,6 +208,26 @@ export const useFSMStore = create<FSMState>((set, get) => ({
     const { evadeTimeout } = get();
     if (evadeTimeout) clearTimeout(evadeTimeout);
     set({ evadeTimeout: null });
+  },
+
+  // ── Item Rejection (P2 priority equivalent) ──
+  setRejectItem: () => {
+    const state = get();
+    if (
+      state.currentState === State.FAINT ||
+      state.currentState === State.CELEBRATE ||
+      state.currentState === State.EMERGENCY_EVADE ||
+      state.currentState === State.CASTING_SPECIAL
+    ) {
+      return;
+    }
+    get().clearEvadeTimeout();
+    const prev = state.currentState;
+    const log = [...state.transitionLog, { ts: Date.now(), from: prev, to: State.REJECT_ITEM, source: 'item_rejection' }].slice(-10);
+    const timer = setTimeout(() => {
+      set((s) => s.currentState === State.REJECT_ITEM ? { currentState: State.HOVERING, targetPosition: null, evadeTimeout: null } : { evadeTimeout: null });
+    }, 1500);
+    set({ currentState: State.REJECT_ITEM, targetPosition: null, evadeTimeout: timer, prioritySource: 'P2', transitionLog: log });
   },
 
   // Priority 1: Emergency Evade from Voice Control

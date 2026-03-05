@@ -12,6 +12,7 @@ import { RemoteStreamView } from './components/ui/RemoteStreamView';
 import { CharacterLabPanel } from './components/ui/CharacterLabPanel';
 import { ShareArenaModal } from './components/ui/ShareArenaModal';
 import { ScanGuideOverlay } from './components/ui/ScanGuideOverlay';
+import { FusionCraftModal } from './components/ui/FusionCraftModal';
 import { useVoiceController } from './hooks/useVoiceController';
 import { useWebXRScanner } from './hooks/useWebXRScanner';
 import { useAICommandListener } from './hooks/useAICommandListener';
@@ -44,6 +45,7 @@ const CHARACTER_LAB_UI = import.meta.env.VITE_ENABLE_CHARACTER_LAB !== 'false';
 const STORAGE_LANG_KEY = 'plares_lang';
 const STORAGE_LANG_SELECTED_KEY = 'plares_lang_selected';
 const STORAGE_PLAY_MODE_KEY = 'plares_play_mode';
+const STORAGE_ROUTE_PROGRESS_KEY = 'plares_route_progress';
 const IS_ANDROID_CHROME = (() => {
   if (typeof navigator === 'undefined') return false;
   const ua = navigator.userAgent || '';
@@ -52,19 +54,75 @@ const IS_ANDROID_CHROME = (() => {
 const SHADOWS_ENABLED = !IS_ANDROID_CHROME;
 const xrResizeGuardInstalled = new WeakSet<THREE.WebGLRenderer>();
 
-type UiLang = 'ja' | 'en' | 'es';
-type PlayMode = 'match' | 'training' | 'walk';
+// ── Multi-language configuration ─────────────────────────────────────────────
+// To add a new language: add one entry to LANG_OPTIONS with its BCP-47 code.
+// If the language is NOT in UI_TEXT, translations will be auto-generated via
+// Gemini (gemini-flash-lite-latest) on first selection and cached in
+// localStorage so subsequent loads are instant.
+export type LangOption = {
+  /** BCP-47 code sent to backend, e.g. "fr-FR" */
+  code: string;
+  /** Native script label shown in the picker */
+  label: string;
+  /** ISO 639-1 key used to look up UI_TEXT */
+  dictKey: 'ja' | 'en' | 'es';
+};
 
-type ModeSession = {
-  id: string;
-  startedAt: string;
+type UiLang = 'ja' | 'en' | 'es';
+
+// ── Supported languages ───────────────────────────────────────────────────────
+// Add new rows here; the picker will show them automatically.
+// dictKey determines which built-in dictionary is the base for Gemini translation.
+export const LANG_OPTIONS: LangOption[] = [
+  { code: 'ja-JP', label: '日本語', dictKey: 'ja' },
+  { code: 'en-US', label: 'English', dictKey: 'en' },
+  { code: 'es-ES', label: 'Español', dictKey: 'es' },
+  { code: 'zh-CN', label: '中文（简体）', dictKey: 'en' },
+  { code: 'ko-KR', label: '한국어', dictKey: 'en' },
+  { code: 'fr-FR', label: 'Français', dictKey: 'en' },
+  { code: 'de-DE', label: 'Deutsch', dictKey: 'en' },
+  { code: 'pt-BR', label: 'Português', dictKey: 'en' },
+];
+
+/** BCP-47 prefix → dict key (for built-in ja/en/es) */
+const BUILTIN_LANG_MAP: Record<string, UiLang> = {
+  ja: 'ja',
+  es: 'es',
 };
 
 const toUiLang = (raw: string): UiLang => {
   const value = (raw || '').toLowerCase();
-  if (value.startsWith('ja')) return 'ja';
-  if (value.startsWith('es')) return 'es';
-  return 'en';
+  const prefix = value.substring(0, 2);
+  return BUILTIN_LANG_MAP[prefix] ?? 'en';
+};
+
+// ── Dynamic translation cache (localStorage) ──────────────────────────────────
+const STORAGE_TRANSLATED_PREFIX = 'plares_ui_trans_';
+
+const loadCachedTranslations = (bcp47: string): Record<string, string> | null => {
+  try {
+    const raw = localStorage.getItem(STORAGE_TRANSLATED_PREFIX + bcp47);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return typeof parsed === 'object' && parsed !== null ? parsed : null;
+  } catch {
+    return null;
+  }
+};
+
+const saveCachedTranslations = (bcp47: string, dict: Record<string, string>): void => {
+  try {
+    localStorage.setItem(STORAGE_TRANSLATED_PREFIX + bcp47, JSON.stringify(dict));
+  } catch {
+    // storage quota; noop
+  }
+};
+
+type PlayMode = 'hub' | 'match' | 'training' | 'walk';
+
+type ModeSession = {
+  id: string;
+  startedAt: string;
 };
 
 const toFiniteNumber = (value: unknown, fallback: number): number => {
@@ -190,9 +248,33 @@ const UI_TEXT: Record<UiLang, Record<string, string>> = {
     alignShared: '位置合わせ基準を共有しました',
     alignPeerSynced: '相手の位置合わせ情報を受信',
     mode: 'モード',
+    modeHub: 'ハブ',
     modeMatch: '試合',
     modeTraining: '修行',
     modeWalk: '散歩',
+    flowHubTitle: 'フローハブ',
+    flowHubDesc: 'バトルへ急がず、育成と共創の流れに沿って次の行動を選びましょう。',
+    flowPhase1Done: 'Phase 1 完了: 初回召喚済み',
+    flowPhase2Title: 'Phase 2: 日常の共創',
+    flowPhase2Desc: '散歩で環境認識を育てる / 修行で詠唱精度を高める',
+    flowPhase3Title: 'Phase 3: 実戦',
+    flowPhase3Desc: '位置合わせ後に対戦開始。即応はローカル、戦術はAIで上書き。',
+    flowPhase4Title: 'Phase 4: 成長と進化',
+    flowPhase4Desc: '記憶サマリーと戦歴の反映状況を確認',
+    flowStartBattle: '対戦開始',
+    flowReturnHub: 'ハブに戻る',
+    flowOpenMemory: '記憶を確認',
+    battleOnlyHint: 'この操作は対戦モードで有効です',
+    routeGuideTitle: '初回おすすめルート',
+    routeGuideDesc: '散歩 → 修行 → 対戦 の順で進むと、機体の理解とシンクロが安定します。',
+    routeStepWalk: '散歩を1回完了',
+    routeStepTraining: '修行を1回完了',
+    routeStepBattle: '対戦を1回開始',
+    routeStatusTodo: '未着手',
+    routeStatusDoing: '進行中',
+    routeStatusDone: '完了',
+    routeCtaNext: '次の推奨アクション',
+    routeCtaComplete: '推奨ルート達成',
     startTraining: '修行開始',
     completeTraining: '修行完了',
     startWalk: '散歩開始',
@@ -253,9 +335,35 @@ const UI_TEXT: Record<UiLang, Record<string, string>> = {
     alignShared: 'Shared arena alignment marker.',
     alignPeerSynced: 'Opponent alignment data received.',
     mode: 'Mode',
+    modeHub: 'Hub',
     modeMatch: 'Match',
     modeTraining: 'Training',
     modeWalk: 'Walk',
+    flowHubTitle: 'Flow Hub',
+    flowHubDesc: 'Choose the next step in the intended loop instead of jumping straight into battle.',
+    flowPhase1Done: 'Phase 1 complete: first summon finished',
+    flowPhase2Title: 'Phase 2: Daily Co-creation',
+    flowPhase2Desc: 'Use Walk for environment bonding or Training for incantation accuracy.',
+    flowPhase3Title: 'Phase 3: Battle',
+    flowPhase3Desc: 'Start a match after alignment. Local reflexes + AI tactical overrides.',
+    flowPhase4Title: 'Phase 4: Growth & Evolution',
+    flowPhase4Desc: 'Review memory summary and progression feedback.',
+    flowStartBattle: 'Start Battle',
+    flowReturnHub: 'Back to Hub',
+    flowOpenMemory: 'Open Memory',
+    battleOnlyHint: 'This action is available only in match mode.',
+    routeGuideTitle: 'Recommended First Route',
+    routeGuideDesc: 'Follow Walk → Training → Battle once to build stable sync and context.',
+    routeStepWalk: 'Complete Walk once',
+    routeStepTraining: 'Complete Training once',
+    routeStepBattle: 'Start Battle once',
+    routeStatusTodo: 'Todo',
+    routeStatusDoing: 'In Progress',
+    routeStatusDone: 'Done',
+    routeCtaNext: 'Recommended Next Action',
+    routeCtaComplete: 'Route Completed',
+    incantationStart: 'Start Incantation ⚡',
+    twistTitle: 'Tongue Twister:',
     startTraining: 'Start Training',
     completeTraining: 'Complete Training',
     startWalk: 'Start Walk',
@@ -316,9 +424,35 @@ const UI_TEXT: Record<UiLang, Record<string, string>> = {
     alignShared: 'Marcador de alineacion compartido.',
     alignPeerSynced: 'Datos de alineacion del rival recibidos.',
     mode: 'Modo',
+    modeHub: 'Hub',
     modeMatch: 'Partida',
     modeTraining: 'Entreno',
     modeWalk: 'Paseo',
+    flowHubTitle: 'Hub de Flujo',
+    flowHubDesc: 'Elige el siguiente paso del bucle de juego en lugar de entrar directo al combate.',
+    flowPhase1Done: 'Fase 1 completa: primera invocacion finalizada',
+    flowPhase2Title: 'Fase 2: Co-creacion diaria',
+    flowPhase2Desc: 'Paseo para contexto ambiental o Entreno para mejorar la invocacion.',
+    flowPhase3Title: 'Fase 3: Batalla',
+    flowPhase3Desc: 'Inicia combate despues de alinear arena. Reflejos locales + tactica AI.',
+    flowPhase4Title: 'Fase 4: Crecimiento y evolucion',
+    flowPhase4Desc: 'Revisa memoria y progreso acumulado.',
+    flowStartBattle: 'Iniciar Batalla',
+    flowReturnHub: 'Volver al Hub',
+    flowOpenMemory: 'Ver Memoria',
+    battleOnlyHint: 'Esta accion solo esta disponible en modo batalla.',
+    routeGuideTitle: 'Ruta inicial recomendada',
+    routeGuideDesc: 'Sigue Paseo → Entreno → Batalla una vez para mejorar sincronia y contexto.',
+    routeStepWalk: 'Completar Paseo una vez',
+    routeStepTraining: 'Completar Entreno una vez',
+    routeStepBattle: 'Iniciar Batalla una vez',
+    routeStatusTodo: 'Pendiente',
+    routeStatusDoing: 'En curso',
+    routeStatusDone: 'Completado',
+    routeCtaNext: 'Siguiente accion recomendada',
+    routeCtaComplete: 'Ruta completada',
+    incantationStart: 'Iniciar Encantamiento ⚡',
+    twistTitle: 'Trabalenguas:',
     startTraining: 'Iniciar Entreno',
     completeTraining: 'Completar Entreno',
     startWalk: 'Iniciar Paseo',
@@ -360,10 +494,52 @@ const MainScene: React.FC = () => {
     const handler = async (e: Event) => {
       const points = (e as CustomEvent<THREE.Vector3[]>).detail;
       await navMesh.buildFromPoints(points);
+      
+      // Send local navmesh to remote peer
+      if (rtcService.isOpen()) {
+        const plainPoints = points.map(p => ({ x: p.x, y: p.y, z: p.z }));
+        rtcService.sendNavMesh(plainPoints);
+      }
     };
     window.addEventListener('navmesh_ready', handler);
     return () => window.removeEventListener('navmesh_ready', handler);
   }, []);
+
+  // Listen for remote NavMesh ready event (received via WebRTC)
+  useEffect(() => {
+    const handler = async (e: Event) => {
+      const pointsData = (e as CustomEvent<{x: number, y: number, z: number}[]>).detail;
+      if (Array.isArray(pointsData)) {
+        console.info('[NavMesh] Received remote navmesh points, building local navmesh...');
+        const points = pointsData.map(p => new THREE.Vector3(p.x, p.y, p.z));
+        await navMesh.buildFromPoints(points);
+        window.dispatchEvent(
+          new CustomEvent('show_subtitle', { detail: { text: 'Remote NavMesh loaded' } })
+        );
+      }
+    };
+    window.addEventListener('remote_navmesh_ready', handler);
+    return () => window.removeEventListener('remote_navmesh_ready', handler);
+  }, []);
+
+  // Listen for automated environment detection from useWebXRScanner
+  const playMode = useFSMStore(s => s.playMode);
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { trigger, context } = (e as CustomEvent).detail;
+      if (playMode === 'walk') {
+        console.info(`[Vision] Auto-trigger detected: ${trigger} (${context})`);
+        wsService.sendEvent({
+          event: 'walk_vision_trigger',
+          user: PLAYER_ID,
+          target: PLAYER_ID,
+          payload: { trigger, context: `auto_${context}` }
+        });
+      }
+    };
+    window.addEventListener('vision_trigger_detected', handler);
+    return () => window.removeEventListener('vision_trigger_detected', handler);
+  }, [playMode]);
 
   // Placement indicator at the current hit-test surface point
   const indicatorPos = hoverMatrix
@@ -410,7 +586,12 @@ const MainScene: React.FC = () => {
 // ── Root App ─────────────────────────────────────────────────────────────────
 function App() {
   const uiLang = toUiLang(PLAYER_LANG);
-  const t = UI_TEXT[uiLang];
+  // Merge built-in dictionary with any Gemini-generated cached translations.
+  // For ja/en/es the cache will be empty so this is a no-op.
+  const cachedDynamic = loadCachedTranslations(PLAYER_LANG);
+  const t = cachedDynamic
+    ? { ...UI_TEXT[uiLang], ...cachedDynamic } as typeof UI_TEXT['en']
+    : UI_TEXT[uiLang];
   const { isSetupDone, isGenerating, generateCharacter } = useCharacterSetup();
   const { isStreaming, startStream, stopStream } = useAudioStreamer();
   const setCastingSpecial = useFSMStore(s => s.setCastingSpecial);
@@ -459,17 +640,38 @@ function App() {
   const [isLiveMicActive, setIsLiveMicActive] = useState(false);
   const [isMatchPaused, setIsMatchPaused] = useState(false);
   const [voiceAckText, setVoiceAckText] = useState('');
-  const [playMode, setPlayMode] = useState<PlayMode>(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_PLAY_MODE_KEY);
-      if (stored === 'training' || stored === 'walk' || stored === 'match') return stored;
-    } catch {
-      // noop
-    }
-    return 'match';
-  });
+  const { playMode, setPlayMode } = useFSMStore();
+  const switchMode = (mode: PlayMode) => {
+    setPlayMode(mode);
+  };
+  const returnToHub = () => {
+    switchMode('hub');
+  };
+  const enterBattleMode = () => {
+    setTrainingSession(null);
+    setWalkSession(null);
+    setLocalRouteProgress(prev => ({ ...prev, battle: prev.battle + 1 }));
+    switchMode('match');
+    window.dispatchEvent(new CustomEvent('show_subtitle', {
+      detail: { text: t.flowStartBattle },
+    }));
+  };
   const [trainingSession, setTrainingSession] = useState<ModeSession | null>(null);
   const [walkSession, setWalkSession] = useState<ModeSession | null>(null);
+  const [localRouteProgress, setLocalRouteProgress] = useState<{ walk: number; training: number; battle: number }>(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_ROUTE_PROGRESS_KEY);
+      if (!raw) return { walk: 0, training: 0, battle: 0 };
+      const parsed = JSON.parse(raw) as Partial<{ walk: number; training: number; battle: number }>;
+      return {
+        walk: Math.max(0, Number(parsed.walk ?? 0)),
+        training: Math.max(0, Number(parsed.training ?? 0)),
+        battle: Math.max(0, Number(parsed.battle ?? 0)),
+      };
+    } catch {
+      return { walk: 0, training: 0, battle: 0 };
+    }
+  });
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isShareOpen, setIsShareOpen] = useState(false);
   const [isLabOpen, setIsLabOpen] = useState(false);
@@ -477,24 +679,47 @@ function App() {
   const [bgmUrl, setBgmUrl] = useState('');
   const bgmAudioRef = useRef<HTMLAudioElement | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  const overlayRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (overlayRef.current) {
+      store.setState({ domOverlayRoot: overlayRef.current });
+    }
+  }, []);
+
   // T1-4: scan state for AR plane detection guide
   const [scanState, setScanState] = useState<'idle' | 'searching' | 'tracking' | 'ready' | 'unsupported'>('idle');
   const [scanPointCount, setScanPointCount] = useState(0);
   const [isARSessionActive, setIsARSessionActive] = useState(false);
+  
+  useEffect(() => {
+    console.info(`[App] AR Session State changed: ${isARSessionActive}, Scan State: ${scanState}`);
+  }, [isARSessionActive, scanState]);
+  
   // Debug panel toggle (visible to all, toggled by header button)
   const [debugVisible, setDebugVisible] = useState(DEBUG_UI);
-  const [showLanguageChooser] = useState<boolean>(() => {
+  // Phase Management: 0=Lang, 1=Scan(Setup), 2=Summon(AR Init), 3=Main
+  const [appPhase, setAppPhase] = useState<'lang' | 'scan' | 'summon' | 'main'>(() => {
     try {
-      return !localStorage.getItem(STORAGE_LANG_SELECTED_KEY);
+      if (!localStorage.getItem(STORAGE_LANG_SELECTED_KEY)) return 'lang';
+      // We will let the effect below advance from 'scan' -> 'summon' -> 'main'
+      return 'scan';
     } catch {
-      return false;
+      return 'lang';
     }
   });
-  const [selectedLanguage, setSelectedLanguage] = useState<string>(() => {
-    if (uiLang === 'ja') return 'ja-JP';
-    if (uiLang === 'es') return 'es-ES';
-    return 'en-US';
-  });
+
+  // Advance phase based on setup completion
+  useEffect(() => {
+    if (appPhase === 'scan' && isSetupDone) {
+      setAppPhase('summon');
+    }
+  }, [appPhase, isSetupDone]);
+
+  // Resolve the active BCP-47 code from LANG_OPTIONS (falls back to en-US).
+  const [selectedLanguage, setSelectedLanguage] = useState<string>(
+    LANG_OPTIONS.find(o => PLAYER_LANG.startsWith(o.code.substring(0, 2)))?.code ?? 'en-US'
+  );
   const [battleState, setBattleState] = useState({
     hp: 100,
     maxHp: 100,
@@ -504,6 +729,7 @@ function App() {
     specialReady: false,
     heatActive: false,
   });
+  const [showFusionCraft, setShowFusionCraft] = useState(false);
   const pendingLiveConnectRef = useRef(false);
   const castEndsAtRef = useRef<number>(0);
   const specialRetryRef = useRef(0);
@@ -526,6 +752,34 @@ function App() {
       misses: number;
     }>,
   };
+  const walkProgress = Math.max(profileView.totalWalkSessions, localRouteProgress.walk);
+  const trainingProgress = Math.max(profileView.totalTrainingSessions, localRouteProgress.training);
+  const battleProgress = Math.max(profileView.totalMatches, localRouteProgress.battle);
+  const hasWalkMilestone = walkProgress > 0;
+  const hasTrainingMilestone = trainingProgress > 0;
+  const hasBattleMilestone = battleProgress > 0;
+  const routeNextStep: 'walk' | 'training' | 'match' | 'complete' =
+    !hasWalkMilestone ? 'walk' :
+    !hasTrainingMilestone ? 'training' :
+    !hasBattleMilestone ? 'match' :
+    'complete';
+  const routeStatus = (step: 'walk' | 'training' | 'match'): 'todo' | 'doing' | 'done' => {
+    if (step === 'walk') {
+      if (walkSession) return 'doing';
+      return hasWalkMilestone ? 'done' : 'todo';
+    }
+    if (step === 'training') {
+      if (trainingSession) return 'doing';
+      return hasTrainingMilestone ? 'done' : 'todo';
+    }
+    if (playMode === 'match') return 'doing';
+    return hasBattleMilestone ? 'done' : 'todo';
+  };
+  const routeStatusLabel = (status: 'todo' | 'doing' | 'done') => (
+    status === 'done' ? t.routeStatusDone :
+    status === 'doing' ? t.routeStatusDoing :
+    t.routeStatusTodo
+  );
 
   const applyLanguage = (langCode: string, markAsChosen: boolean) => {
     try {
@@ -533,10 +787,34 @@ function App() {
       if (markAsChosen) {
         localStorage.setItem(STORAGE_LANG_SELECTED_KEY, 'done');
       }
-    } catch {
-      // noop
+      console.info(`[App] Language applied: ${langCode} (chosen: ${markAsChosen})`);
+    } catch (err) {
+      console.warn('[App] Failed to save language choice', err);
     }
-    window.location.reload();
+    // For built-in languages (ja, en, es) → reload immediately.
+    // For dynamic languages → check cache first; if no cache, request Gemini translation.
+    const builtInPrefixes = ['ja', 'en', 'es'];
+    const prefix = langCode.substring(0, 2).toLowerCase();
+    const hasBuiltIn = builtInPrefixes.includes(prefix);
+    const existingCache = loadCachedTranslations(langCode);
+    console.info(`[App] Checking translation for ${langCode} - BuiltIn: ${hasBuiltIn}, Cached: ${!!existingCache}`);
+    if (hasBuiltIn || existingCache) {
+      console.info(`[App] Reloading to apply translations immediately`);
+      window.location.reload();
+      return;
+    }
+    // Request Gemini to generate translations (gemini-flash-lite-latest on backend)
+    const option = LANG_OPTIONS.find(o => o.code === langCode);
+    const baseDict = UI_TEXT[option?.dictKey ?? 'en'];
+    wsService.sendEvent({
+      event: 'request_ui_translations',
+      user: PLAYER_ID,
+      payload: { lang: langCode, base_keys: baseDict as unknown as Record<string, string> },
+    });
+    // Show a loading subtitle while waiting for the response
+    window.dispatchEvent(new CustomEvent('show_subtitle', {
+      detail: { text: `Generating ${langCode} translations…` }
+    }));
   };
   useEffect(() => {
     try {
@@ -545,27 +823,22 @@ function App() {
       // noop
     }
   }, [playMode]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_ROUTE_PROGRESS_KEY, JSON.stringify(localRouteProgress));
+    } catch {
+      // noop
+    }
+  }, [localRouteProgress]);
 
   const modeLabel =
+    playMode === 'hub' ? t.modeHub :
     playMode === 'training' ? t.modeTraining :
     playMode === 'walk' ? t.modeWalk :
     t.modeMatch;
 
-  const switchMode = (nextMode: PlayMode) => {
-    setPlayMode(nextMode);
-    window.dispatchEvent(new CustomEvent('show_subtitle', {
-      detail: {
-        text:
-          nextMode === 'training'
-            ? `${t.mode}: ${t.modeTraining}`
-            : nextMode === 'walk'
-              ? `${t.mode}: ${t.modeWalk}`
-              : `${t.mode}: ${t.modeMatch}`,
-      },
-    }));
-  };
-
   const startTraining = () => {
+    setWalkSession(null);
     const session: ModeSession = {
       id: createModeSessionId('training'),
       startedAt: new Date().toISOString(),
@@ -608,14 +881,16 @@ function App() {
         syncRateAfter: profileView.syncRate,
       },
     });
+    setLocalRouteProgress(prev => ({ ...prev, training: prev.training + 1 }));
     setTrainingSession(null);
-    switchMode('match');
+    switchMode('hub');
     window.dispatchEvent(new CustomEvent('show_subtitle', {
       detail: { text: t.completeTraining },
     }));
   };
 
   const startWalk = () => {
+    setTrainingSession(null);
     const session: ModeSession = {
       id: createModeSessionId('walk'),
       startedAt: new Date().toISOString(),
@@ -651,10 +926,28 @@ function App() {
         syncRateAfter: profileView.syncRate,
       },
     });
+    setLocalRouteProgress(prev => ({ ...prev, walk: prev.walk + 1 }));
     setWalkSession(null);
-    switchMode('match');
+    switchMode('hub');
     window.dispatchEvent(new CustomEvent('show_subtitle', {
       detail: { text: t.completeWalk },
+    }));
+  };
+  const triggerRecommendedRouteStep = () => {
+    if (routeNextStep === 'walk') {
+      startWalk();
+      return;
+    }
+    if (routeNextStep === 'training') {
+      startTraining();
+      return;
+    }
+    if (routeNextStep === 'match') {
+      enterBattleMode();
+      return;
+    }
+    window.dispatchEvent(new CustomEvent('show_subtitle', {
+      detail: { text: t.routeCtaComplete },
     }));
   };
 
@@ -668,6 +961,7 @@ function App() {
     wsService.sendEvent({
       event: 'walk_vision_trigger',
       user: PLAYER_ID,
+      target: PLAYER_ID,
       payload: {
         trigger: 'environment',
         context: 'manual_hud_trigger',
@@ -729,6 +1023,15 @@ function App() {
     const target = (evt as any)?.target as string | undefined;
     if (Array.isArray(payload)) return; // server-driven tactical panel payload
 
+    if (evt.event === 'hit_confirmed' && evt.user !== PLAYER_ID) {
+      const damage = Number((payload as any)?.damage ?? 0);
+      if (damage > 0) {
+        // Attacker Authority: The remote peer confirmed a hit on us.
+        useFSMStore.getState().takeDamage('local', damage);
+      }
+      return;
+    }
+
     if (payload && typeof payload === 'object') {
       if (payload.kind === 'arena_calibration') {
         const sender = String((evt as any)?.user ?? '');
@@ -744,6 +1047,9 @@ function App() {
         return;
       }
       if (payload.kind === 'profile_sync' && payload.profile && (!target || target === PLAYER_ID)) {
+        console.groupCollapsed('[App] Profile Sync Received');
+        console.dir(payload.profile);
+        console.groupEnd();
         const p = payload.profile as any;
         const logsRaw = Array.isArray(p.recent_match_logs) ? p.recent_match_logs : [];
         const totalMatches = Number(p.total_matches ?? 0);
@@ -950,6 +1256,7 @@ function App() {
       if (payload.kind === 'reject_item') {
         const reason = String(payload.reason ?? 'not_my_style');
         const count = Number(payload.reject_count ?? 0);
+        useFSMStore.getState().setRejectItem();
         window.dispatchEvent(new CustomEvent('show_subtitle', {
           detail: { text: `Item rejected (${reason}) x${count}` }
         }));
@@ -967,15 +1274,37 @@ function App() {
       }
       if (payload.kind === 'fused_item') {
         const concept = typeof payload.concept === 'string' ? payload.concept : 'fused item';
-        window.dispatchEvent(new CustomEvent('show_subtitle', {
-          detail: { text: `Fusion Drop: ${concept}` }
-        }));
+        const action = typeof payload.action === 'string' ? payload.action : '';
+        const url = typeof payload.texture_url === 'string' ? payload.texture_url : '';
+        
+        if (action === 'equip' && url) {
+          // Update local DNA skin to instantly apply the new texture
+          const currentDna = useFSMStore.getState().robotDna;
+          setRobotDna({ ...currentDna, skinUrl: url });
+          window.dispatchEvent(new CustomEvent('show_subtitle', {
+            detail: { text: `Equipped Fusion Drop: ${concept}` }
+          }));
+        } else {
+          window.dispatchEvent(new CustomEvent('show_subtitle', {
+            detail: { text: `Fusion Drop: ${concept}` }
+          }));
+        }
         return;
       }
       if (payload.kind === 'intervention_rejected') {
         window.dispatchEvent(new CustomEvent('show_subtitle', {
           detail: { text: String(payload.message ?? 'Intervention rejected') }
         }));
+        return;
+      }
+      if (payload.kind === 'ui_translations' && (!target || target === PLAYER_ID)) {
+        const langCode = String(payload.lang ?? '');
+        const dict = payload.translations;
+        if (langCode && dict && typeof dict === 'object') {
+          saveCachedTranslations(langCode, dict as Record<string, string>);
+          // Reload so the cached translations are immediately applied
+          window.location.reload();
+        }
         return;
       }
       if (payload.kind === 'match_pause') {
@@ -1015,9 +1344,18 @@ function App() {
             pendingLiveConnectRef.current = false;
             const tokenName = String(payload.token_name ?? '');
             if (tokenName) {
+              // Inject robot tone as system instruction (Flow1 §4.3)
+              const robotTone = String(
+                useFSMStore.getState().robotMeta.tone ?? 'balanced'
+              );
+              const systemInstruction =
+                `You are an AR battle robot companion. Language: ${PLAYER_LANG}. ` +
+                `Persona tone: ${robotTone}. ` +
+                `Speak naturally in short phrases. Stay in character.`;
               geminiLiveService.connect({
                 tokenName,
                 model: String(payload.model ?? 'gemini-2.5-flash-native-audio-preview-12-2025'),
+                systemInstruction,
               }).catch(() => {});
             }
           }
@@ -1482,14 +1820,20 @@ function App() {
   }, []);
 
   const handleCastSpecial = async () => {
-    if (!matchAlignmentReady) {
+    if (playMode === 'hub' || playMode === 'walk') {
+      window.dispatchEvent(new CustomEvent('show_subtitle', {
+        detail: { text: t.battleOnlyHint }
+      }));
+      return;
+    }
+    if (playMode === 'match' && !matchAlignmentReady) {
       console.info('[Special] blocked: arena alignment pending');
       window.dispatchEvent(new CustomEvent('show_subtitle', {
         detail: { text: t.alignPending }
       }));
       return;
     }
-    if (isMatchPaused) {
+    if (playMode === 'match' && isMatchPaused) {
       console.info('[Special] blocked: match is paused');
       window.dispatchEvent(new CustomEvent('show_subtitle', {
         detail: { text: '試合が一時停止中です' }
@@ -1520,10 +1864,22 @@ function App() {
     }));
 
     // 3) Sync casting start so the opponent can render the same charge phase
+    const castPayload: any = { action: 'casting_special' };
+    if (playMode === 'training' && specialPhrase) {
+      // Flow2 §3.2 logic: Send event to trigger Articulation Judge Agent
+      wsService.sendEvent({
+        event: 'incantation_submitted',
+        user: PLAYER_ID,
+        payload: { phrase: specialPhrase }
+      });
+      castPayload.kind = 'incantation_request';
+      castPayload.phrase = specialPhrase;
+    }
+
     const castEvent = {
       event: 'buff_applied',
       user: PLAYER_ID,
-      payload: { action: 'casting_special' }
+      payload: castPayload
     } as const;
     if (!rtcService.send({ type: 'event', data: castEvent })) {
       wsService.sendEvent(castEvent);
@@ -1585,47 +1941,114 @@ function App() {
     arSupportState === 'checking'
       ? 'Checking AR support...'
       : (isArButtonDisabled ? t.arUnsupportedHint : t.enterAr);
+  const isMainPhase = appPhase === 'main';
+  const isHubMode = playMode === 'hub';
+  const showBattleHud = isMainPhase && playMode === 'match';
 
   return (
-    <div className="arena-shell">
+    <div className="arena-shell" ref={overlayRef}>
       <div className="arena-atmosphere" aria-hidden />
 
-      {showLanguageChooser && (
+      {appPhase === 'lang' && (
         <div className="language-gate">
           <div className="language-gate-card">
             <h2>{t.chooseLanguage}</h2>
             <p>{t.chooseLanguageDesc}</p>
-            <div className="language-gate-actions">
-              <button
-                className="hud-btn hud-btn-steel"
-                onClick={() => applyLanguage('ja-JP', true)}
-              >
-                日本語
-              </button>
-              <button
-                className="hud-btn hud-btn-blue"
-                onClick={() => applyLanguage('en-US', true)}
-              >
-                English
-              </button>
-              <button
-                className="hud-btn hud-btn-teal"
-                onClick={() => applyLanguage('es-ES', true)}
-              >
-                Espanol
-              </button>
+            <div className="language-gate-grid">
+              {LANG_OPTIONS.map(opt => {
+                const isActive = selectedLanguage === opt.code;
+                return (
+                  <button
+                    key={opt.code}
+                    className={`hud-btn language-gate-lang-btn${isActive ? ' is-active' : ''}`}
+                    onClick={() => applyLanguage(opt.code, true)}
+                    aria-label={opt.label}
+                  >
+                    {isActive && <span className="language-gate-check" aria-hidden>✓</span>}
+                    {opt.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>
       )}
 
-      {!isSetupDone && (
+      {isMainPhase && playMode === 'walk' && (
+        <div className="hud-training-actions">
+          <button 
+            className="hud-btn-special" 
+            onClick={() => setShowFusionCraft(true)}
+            style={{ background: 'linear-gradient(135deg, #00C9FF 0%, #92FE9D 100%)' }}
+          >
+            Fusion Craft
+          </button>
+          <button className="hud-btn-special" onClick={sendWalkVisionTrigger}>
+            {t.sendWalkVision}
+          </button>
+        </div>
+      )}
+      {isMainPhase && playMode === 'training' && !!trainingSession && specialPhrase && (
+        <div className="hud-twist-telop">
+          {t.twistTitle} {specialPhrase}
+        </div>
+      )}
+
+      {isMainPhase && playMode === 'training' && !!trainingSession && (
+        <div className="hud-training-actions">
+          <button
+            className={`hud-btn hud-btn-special ${!battleState.specialReady ? 'is-disabled' : ''}`}
+            onClick={handleCastSpecial}
+            disabled={!battleState.specialReady}
+          >
+            {t.incantationStart}
+          </button>
+        </div>
+      )}
+
+      {appPhase === 'scan' && (
         <FaceScanner
           onGenerate={generateCharacter}
           isGenerating={isGenerating}
         />
       )}
-      {CHARACTER_LAB_UI && profileInfo && (
+      
+      {appPhase === 'summon' && (
+        <div className="summon-overlay">
+          <h2>Phase 1.3: First Summoning</h2>
+          <p>Scan your real-world environment to summon your AI partner.</p>
+          <button 
+            id="btn-summon-ar"
+            className={`hud-btn hud-btn-special ${arSupportState === 'checking' ? 'is-disabled' : ''}`}
+            onClick={() => {
+              if (arSupportState === 'supported') {
+                handleEnterAr();
+              }
+              switchMode('hub');
+              setAppPhase('main'); // Advance to flow hub
+            }}
+            disabled={arSupportState === 'checking'}
+            title={arSupportState === 'checking' ? 'Checking AR support...' : ''}
+            style={{ marginBottom: '1rem', background: 'linear-gradient(135deg, #FF9A9E 0%, #FECFEF 100%)', color: '#333' }}
+          >
+            {arSupportState === 'supported' ? t.enterAr : 'Proceed to Main Menu (AR Not Supported)'}
+          </button>
+          
+          {arSupportState === 'supported' && (
+            <button 
+              className="hud-btn hud-btn-carbon" 
+              onClick={() => {
+                switchMode('hub');
+                setAppPhase('main');
+              }}
+            >
+              Skip AR Summoning
+            </button>
+          )}
+        </div>
+      )}
+
+      {CHARACTER_LAB_UI && profileInfo && appPhase === 'main' && (
         <CharacterLabPanel
           open={isLabOpen}
           onClose={() => setIsLabOpen(false)}
@@ -1640,250 +2063,345 @@ function App() {
         />
       )}
 
-      <header className="hud-top-left hud-animate">
-        <div className="hud-brand">
-          <div className="hud-brand-main">PLARES AR</div>
-          <div className="hud-brand-sub">{t.brandSub}</div>
-        </div>
-        <div className="hud-inline-actions">
-          <button
-            id="btn-enter-ar"
-            className={`hud-btn hud-btn-steel hud-btn-mini ${isArButtonDisabled ? 'is-disabled' : ''}`}
-            onClick={handleEnterAr}
-            disabled={isArButtonDisabled}
-            title={arButtonTitle}
-          >
-            {arButtonLabel}
-          </button>
+      {appPhase === 'main' && (
+        <>
+          <header className="hud-top-left hud-animate">
+            <div className="hud-brand">
+              <div className="hud-brand-main">PLARES AR</div>
+              <div className="hud-brand-sub">{t.brandSub}</div>
+            </div>
+            <div className="hud-inline-actions">
+              <button
+                id="btn-enter-ar"
+                className={`hud-btn hud-btn-steel hud-btn-mini ${isArButtonDisabled ? 'is-disabled' : ''}`}
+                onClick={handleEnterAr}
+                disabled={isArButtonDisabled}
+                title={arButtonTitle}
+              >
+                {arButtonLabel}
+              </button>
+              {debugVisible && playMode === 'match' && (
+                <button
+                  id="btn-match-end"
+                  className="hud-btn hud-btn-danger hud-btn-mini"
+                  onClick={requestMatchEnd}
+                >
+                  {t.endMatch}
+                </button>
+              )}
+              {playMode === 'match' && (
+                <button
+                  id="btn-arena-align"
+                  className="hud-btn hud-btn-blue hud-btn-mini"
+                  onClick={publishArenaCalibration}
+                >
+                  {t.alignArena}
+                </button>
+              )}
+              <button
+                id="btn-menu-toggle"
+                className="hud-btn hud-btn-carbon hud-btn-mini"
+                onClick={() => setIsProfileOpen(!isProfileOpen)}
+              >
+                {t.menu}
+              </button>
+              {playMode === 'match' && (
+                <button
+                  id="btn-arena-share"
+                  className="hud-btn hud-btn-teal hud-btn-mini"
+                  onClick={() => setIsShareOpen(true)}
+                >
+                  {t.share}
+                </button>
+              )}
+              {CHARACTER_LAB_UI && (
+                <button
+                  id="btn-open-lab"
+                  className="hud-btn hud-btn-carbon hud-btn-mini"
+                  onClick={() => setIsLabOpen(true)}
+                >
+                  Lab
+                </button>
+              )}
+              <button
+                id="btn-debug-toggle"
+                className={`hud-btn hud-btn-mini ${debugVisible ? 'hud-btn-warn' : 'hud-btn-carbon'}`}
+                onClick={() => setDebugVisible(v => !v)}
+                title="Toggle debug panels"
+              >
+                {debugVisible ? '🛠 DEBUG ON' : '🛠 DEBUG'}
+              </button>
+            </div>
+          </header>
+
+          {isHubMode && (
+            <section className="flow-hub hud-animate" aria-label={t.flowHubTitle}>
+              <div className="flow-hub-header">
+                <h2>{t.flowHubTitle}</h2>
+                <p>{t.flowHubDesc}</p>
+                <div className="flow-hub-pill">{t.flowPhase1Done}</div>
+              </div>
+              <div className="flow-route-guide">
+                <div className="flow-route-title">{t.routeGuideTitle}</div>
+                <p className="flow-route-desc">{t.routeGuideDesc}</p>
+                <ol className="flow-route-list">
+                  {([
+                    ['walk', t.routeStepWalk],
+                    ['training', t.routeStepTraining],
+                    ['match', t.routeStepBattle],
+                  ] as const).map(([step, label]) => {
+                    const status = routeStatus(step);
+                    return (
+                      <li key={step} className={`flow-route-item is-${status}`}>
+                        <span className="flow-route-step">{label}</span>
+                        <span className={`flow-route-badge is-${status}`}>{routeStatusLabel(status)}</span>
+                      </li>
+                    );
+                  })}
+                </ol>
+                <button
+                  className="hud-btn hud-btn-blue hud-btn-mini"
+                  onClick={triggerRecommendedRouteStep}
+                  disabled={routeNextStep === 'complete'}
+                >
+                  {routeNextStep === 'complete'
+                    ? t.routeCtaComplete
+                    : `${t.routeCtaNext}: ${routeNextStep === 'walk'
+                      ? t.startWalk
+                      : routeNextStep === 'training'
+                        ? t.startTraining
+                        : t.flowStartBattle}`}
+                </button>
+              </div>
+              <div className="flow-hub-grid">
+                <article className="flow-hub-card">
+                  <h3>{t.flowPhase2Title}</h3>
+                  <p>{t.flowPhase2Desc}</p>
+                  <div className="flow-hub-actions">
+                    <button className="hud-btn hud-btn-teal hud-btn-mini" onClick={startWalk}>
+                      {t.startWalk}
+                    </button>
+                    <button className="hud-btn hud-btn-blue hud-btn-mini" onClick={startTraining}>
+                      {t.startTraining}
+                    </button>
+                  </div>
+                </article>
+
+                <article className="flow-hub-card">
+                  <h3>{t.flowPhase3Title}</h3>
+                  <p>{t.flowPhase3Desc}</p>
+                  <div className="flow-hub-actions">
+                    <button className="hud-btn hud-btn-warn hud-btn-mini" onClick={enterBattleMode}>
+                      {t.flowStartBattle}
+                    </button>
+                  </div>
+                </article>
+
+                <article className="flow-hub-card">
+                  <h3>{t.flowPhase4Title}</h3>
+                  <p>{t.flowPhase4Desc}</p>
+                  <div className="flow-hub-memory" title={profileView.memorySummary || ''}>
+                    {profileView.memorySummary || t.noMemory}
+                  </div>
+                  <div className="flow-hub-actions">
+                    <button
+                      className="hud-btn hud-btn-carbon hud-btn-mini"
+                      onClick={() => {
+                        requestProfileSync();
+                        setIsProfileOpen(true);
+                      }}
+                    >
+                      {t.flowOpenMemory}
+                    </button>
+                  </div>
+                </article>
+              </div>
+            </section>
+          )}
+
+          <FusionCraftModal 
+            isOpen={showFusionCraft} 
+            onClose={() => setShowFusionCraft(false)} 
+          />
+
+          {showBattleHud && (
+            <div className="hud-health-bars">
+              <div className="hud-hp-side is-local">
+                <div className="hud-hp-label">{t.hp}</div>
+                <div className="hud-hp-track">
+                  <div
+                    className={`hud-hp-fill ${localHp < 30 ? 'critical' : ''}`}
+                    style={{ width: `${isSolo ? localHp : (battleState.maxHp > 0 ? (battleState.hp / battleState.maxHp) * 100 : 0)}%` }}
+                  />
+                </div>
+              </div>
+              <div className="hud-hp-vs">VS</div>
+              <div className="hud-hp-side is-remote">
+                <div className="hud-hp-label">{t.enemyHp}</div>
+                <div className="hud-hp-track">
+                  <div
+                    className={`hud-hp-fill ${enemyHp < 30 ? 'critical' : ''}`}
+                    style={{ width: `${isSolo ? enemyHp : (battleState.opponentMaxHp > 0 ? (battleState.opponentHp / battleState.opponentMaxHp) * 100 : 0)}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          <aside className={`hud-profile hud-animate ${isProfileOpen ? 'is-open' : ''}`}>
+            <div className="hud-profile-title" onClick={() => setIsProfileOpen(!isProfileOpen)}>
+              {t.pilotTelemetry}
+            </div>
+            <div className="hud-profile-actions">
+              <div className={`hud-align-pill ${alignmentReady ? 'is-ready' : ''}`}>
+                {alignmentReady ? t.alignReady : t.alignPending}
+              </div>
+              <label className="hud-lang-wrap">
+                <span>{t.language}</span>
+                <select
+                  className="hud-lang-select"
+                  value={selectedLanguage}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setSelectedLanguage(next);
+                    applyLanguage(next, true);
+                  }}
+                >
+                  <option value="ja-JP">日本語</option>
+                  <option value="en-US">English</option>
+                  <option value="es-ES">Espanol</option>
+                </select>
+              </label>
+            </div>
+            <div className="hud-main-commands">
+              <button className="hud-btn hud-btn-carbon hud-btn-mini" onClick={requestProfileSync}>
+                {t.refreshMemory}
+              </button>
+              <button
+                className={`hud-btn hud-btn-mini ${isLiveConnected ? 'hud-btn-green' : 'hud-btn-teal'}`}
+                onClick={isLiveConnected ? disconnectLiveDirect : connectLiveDirect}
+              >
+                {isLiveConnected ? t.disconnectLive : t.connectLive}
+              </button>
+              <button
+                className={`hud-btn hud-btn-mini ${isLiveMicActive ? 'hud-btn-warn' : 'hud-btn-blue'}`}
+                onClick={toggleLiveMic}
+              >
+                {isLiveMicActive ? t.stopLiveMic : t.startLiveMic}
+              </button>
+              <button className="hud-btn hud-btn-carbon hud-btn-mini" onClick={sendLiveTextPing}>
+                {t.sendLiveText}
+              </button>
+            </div>
+            <div className="hud-main-commands">
+              <button
+                className={`hud-btn hud-btn-mini ${playMode === 'hub' ? 'hud-btn-blue' : 'hud-btn-carbon'}`}
+                onClick={returnToHub}
+              >
+                {t.modeHub}
+              </button>
+              <button
+                className={`hud-btn hud-btn-mini ${playMode === 'match' ? 'hud-btn-warn' : 'hud-btn-carbon'}`}
+                onClick={playMode === 'match' ? returnToHub : enterBattleMode}
+              >
+                {playMode === 'match' ? t.flowReturnHub : t.flowStartBattle}
+              </button>
+              <button
+                className={`hud-btn hud-btn-mini ${playMode === 'training' ? 'hud-btn-teal' : 'hud-btn-carbon'}`}
+                onClick={trainingSession ? completeTraining : startTraining}
+              >
+                {trainingSession ? t.completeTraining : t.startTraining}
+              </button>
+              <button
+                className={`hud-btn hud-btn-mini ${playMode === 'walk' ? 'hud-btn-teal' : 'hud-btn-carbon'}`}
+                onClick={walkSession ? completeWalk : startWalk}
+              >
+                {walkSession ? t.completeWalk : t.startWalk}
+              </button>
+              <button
+                className="hud-btn hud-btn-steel hud-btn-mini"
+                onClick={playMode === 'walk' ? sendWalkVisionTrigger : requestProfileSync}
+              >
+                {playMode === 'walk' ? t.sendWalkVision : t.refreshMemory}
+              </button>
+            </div>
+            <div className="hud-profile-grid">
+              <span>{t.mode}</span><strong>{modeLabel}</strong>
+              <span>AR</span><strong>{isARSessionActive ? `${scanState} (${scanPointCount})` : 'OFF'}</strong>
+              <span>{t.matches}</span><strong>{profileView.totalMatches}</strong>
+              <span>{t.training}</span><strong>{profileView.totalTrainingSessions}</strong>
+              <span>{t.walks}</span><strong>{profileView.totalWalkSessions}</strong>
+              <span>{t.tone}</span><strong>{profileView.tone}</strong>
+              <span>{t.sync}</span><strong>{profileView.syncRate.toFixed(2)}</strong>
+              <span>{t.store}</span><strong>{profileView.storageBackend}</strong>
+              <span>{t.hp}</span><strong>{`${battleState.hp}/${battleState.maxHp || '-'}`}</strong>
+              <span>{t.enemyHp}</span><strong>{`${battleState.opponentHp}/${battleState.opponentMaxHp || '-'}`}</strong>
+              <span>{t.heat}</span><strong>{battleState.heatActive ? 'ON' : 'OFF'}</strong>
+            </div>
+            <div className="hud-memory-line" title={profileView.memorySummary || ''}>
+              {profileView.memorySummary || t.noMemory}
+            </div>
+            {profileView.recentLogs.length > 0 && (
+              <div className="hud-block">
+                {profileView.recentLogs.map((log, idx) => (
+                  <div key={`${log.timestamp}-${idx}`} className="hud-log-line">
+                    {`${log.result} C:${log.criticalHits} M:${log.misses}`}
+                  </div>
+                ))}
+              </div>
+            )}
+            {debugVisible && (liveDebugInfo.tokenName || liveDebugInfo.interactionId || liveDebugInfo.interactionText || bgmUrl) && (
+              <div className="hud-block hud-dim" style={{ borderLeft: '2px solid #ff6b6b' }}>
+                <div style={{ fontSize: '0.6rem', color: '#ff6b6b', fontWeight: 700, marginBottom: 2 }}>🛠 DEBUG INFO</div>
+                {liveDebugInfo.tokenName && <div className="hud-truncate">{`Token: ${liveDebugInfo.tokenName}`}</div>}
+                {liveDebugInfo.resumeHandle && <div className="hud-truncate">{`Resume: ${liveDebugInfo.resumeHandle}`}</div>}
+                {liveDebugInfo.interactionId && <div className="hud-truncate">{`Interaction: ${liveDebugInfo.interactionId}`}</div>}
+                {liveDebugInfo.interactionText && <div className="hud-truncate">{liveDebugInfo.interactionText}</div>}
+                {bgmUrl && <div className="hud-truncate">{`BGM: ${bgmUrl}`}</div>}
+              </div>
+            )}
+          </aside>
+
+          {debugVisible && (
+            <div className="hud-right-rail hud-animate" style={{ borderLeft: '2px solid #ff6b6b' }}>
+              <div style={{ fontSize: '0.7rem', color: '#ff6b6b', fontWeight: 700, letterSpacing: '0.1em', marginBottom: 6 }}>🛠 DEBUG TOOLS</div>
+              <button id="btn-fusion-drop" className="hud-btn hud-btn-amber" onClick={requestFusionDrop}>
+                {t.dropFusion}
+              </button>
+              <button id="btn-live-token" className="hud-btn hud-btn-blue" onClick={requestLiveEphemeralToken}>
+                {t.issueLiveToken}
+              </button>
+              <button id="btn-interaction-turn" className="hud-btn hud-btn-steel" onClick={requestInteractionTurn}>
+                {t.testInteraction}
+              </button>
+            </div>
+          )}
+
+          {showBattleHud && (
+            <button
+              id="btn-cast-special"
+              className={`hud-btn hud-cast-btn ${(isStreaming || isMatchPaused || !battleState.specialReady || !matchAlignmentReady) ? 'is-disabled' : ''}`}
+              disabled={isStreaming || isMatchPaused || !battleState.specialReady || !matchAlignmentReady}
+              onClick={handleCastSpecial}
+            >
+              {isMatchPaused
+                ? t.matchPaused
+                : (!matchAlignmentReady
+                  ? t.alignPending
+                  : (isStreaming ? t.casting : (battleState.specialReady ? t.castSpecial : `EX ${battleState.exGauge}/${EX_GAUGE.MAX}`)))}
+            </button>
+          )}
+
           {debugVisible && (
             <button
-              id="btn-match-end"
-              className="hud-btn hud-btn-danger hud-btn-mini"
-              onClick={requestMatchEnd}
+              id="btn-p2p-media"
+              className={`hud-btn hud-chip-btn ${isP2PMediaOn ? 'is-on' : 'is-off'}`}
+              onClick={toggleP2PMedia}
             >
-              {t.endMatch}
+              {isP2PMediaOn ? t.p2pOn : t.p2pOff}
             </button>
           )}
-          <button
-            id="btn-arena-align"
-            className="hud-btn hud-btn-blue hud-btn-mini"
-            onClick={publishArenaCalibration}
-          >
-            {t.alignArena}
-          </button>
-          <button
-            id="btn-menu-toggle"
-            className="hud-btn hud-btn-carbon hud-btn-mini"
-            onClick={() => setIsProfileOpen(!isProfileOpen)}
-          >
-            {t.menu}
-          </button>
-          <button
-            id="btn-arena-share"
-            className="hud-btn hud-btn-teal hud-btn-mini"
-            onClick={() => setIsShareOpen(true)}
-          >
-            {t.share}
-          </button>
-          {CHARACTER_LAB_UI && (
-            <button
-              id="btn-open-lab"
-              className="hud-btn hud-btn-carbon hud-btn-mini"
-              onClick={() => setIsLabOpen(true)}
-            >
-              Lab
-            </button>
-          )}
-          <button
-            id="btn-debug-toggle"
-            className={`hud-btn hud-btn-mini ${debugVisible ? 'hud-btn-warn' : 'hud-btn-carbon'}`}
-            onClick={() => setDebugVisible(v => !v)}
-            title="Toggle debug panels"
-          >
-            {debugVisible ? '🛠 DEBUG ON' : '🛠 DEBUG'}
-          </button>
-        </div>
-      </header>
-
-      {/* HP Bars overlay */}
-      <div className="hud-health-bars">
-        <div className="hud-hp-side is-local">
-          <div className="hud-hp-label">{t.hp}</div>
-          <div className="hud-hp-track">
-            <div
-              className={`hud-hp-fill ${localHp < 30 ? 'critical' : ''}`}
-              style={{ width: `${isSolo ? localHp : (battleState.maxHp > 0 ? (battleState.hp / battleState.maxHp) * 100 : 0)}%` }}
-            />
-          </div>
-        </div>
-        <div className="hud-hp-vs">VS</div>
-        <div className="hud-hp-side is-remote">
-          <div className="hud-hp-label">{t.enemyHp}</div>
-          <div className="hud-hp-track">
-            <div
-              className={`hud-hp-fill ${enemyHp < 30 ? 'critical' : ''}`}
-              style={{ width: `${isSolo ? enemyHp : (battleState.opponentMaxHp > 0 ? (battleState.opponentHp / battleState.opponentMaxHp) * 100 : 0)}%` }}
-            />
-          </div>
-        </div>
-      </div>
-
-      <aside className={`hud-profile hud-animate ${isProfileOpen ? 'is-open' : ''}`}>
-        <div className="hud-profile-title" onClick={() => setIsProfileOpen(!isProfileOpen)}>
-          {t.pilotTelemetry}
-        </div>
-        <div className="hud-profile-actions">
-          <div className={`hud-align-pill ${alignmentReady ? 'is-ready' : ''}`}>
-            {alignmentReady ? t.alignReady : t.alignPending}
-          </div>
-          <label className="hud-lang-wrap">
-            <span>{t.language}</span>
-            <select
-              className="hud-lang-select"
-              value={selectedLanguage}
-              onChange={(e) => {
-                const next = e.target.value;
-                setSelectedLanguage(next);
-                applyLanguage(next, true);
-              }}
-            >
-              <option value="ja-JP">日本語</option>
-              <option value="en-US">English</option>
-              <option value="es-ES">Espanol</option>
-            </select>
-          </label>
-        </div>
-        <div className="hud-main-commands">
-          <button className="hud-btn hud-btn-carbon hud-btn-mini" onClick={requestProfileSync}>
-            {t.refreshMemory}
-          </button>
-          <button
-            className={`hud-btn hud-btn-mini ${isLiveConnected ? 'hud-btn-green' : 'hud-btn-teal'}`}
-            onClick={isLiveConnected ? disconnectLiveDirect : connectLiveDirect}
-          >
-            {isLiveConnected ? t.disconnectLive : t.connectLive}
-          </button>
-          <button
-            className={`hud-btn hud-btn-mini ${isLiveMicActive ? 'hud-btn-warn' : 'hud-btn-blue'}`}
-            onClick={toggleLiveMic}
-          >
-            {isLiveMicActive ? t.stopLiveMic : t.startLiveMic}
-          </button>
-          <button className="hud-btn hud-btn-carbon hud-btn-mini" onClick={sendLiveTextPing}>
-            {t.sendLiveText}
-          </button>
-        </div>
-        <div className="hud-main-commands">
-          <button
-            className={`hud-btn hud-btn-mini ${playMode === 'match' ? 'hud-btn-blue' : 'hud-btn-carbon'}`}
-            onClick={() => switchMode('match')}
-          >
-            {t.modeMatch}
-          </button>
-          <button
-            className={`hud-btn hud-btn-mini ${playMode === 'training' ? 'hud-btn-blue' : 'hud-btn-carbon'}`}
-            onClick={() => switchMode('training')}
-          >
-            {t.modeTraining}
-          </button>
-          <button
-            className={`hud-btn hud-btn-mini ${playMode === 'walk' ? 'hud-btn-blue' : 'hud-btn-carbon'}`}
-            onClick={() => switchMode('walk')}
-          >
-            {t.modeWalk}
-          </button>
-          <button
-            className="hud-btn hud-btn-steel hud-btn-mini"
-            onClick={playMode === 'walk' ? sendWalkVisionTrigger : requestProfileSync}
-          >
-            {playMode === 'walk' ? t.sendWalkVision : t.refreshMemory}
-          </button>
-          <button
-            className={`hud-btn hud-btn-mini ${playMode === 'training' ? 'hud-btn-teal' : 'hud-btn-carbon'}`}
-            onClick={trainingSession ? completeTraining : startTraining}
-          >
-            {trainingSession ? t.completeTraining : t.startTraining}
-          </button>
-          <button
-            className={`hud-btn hud-btn-mini ${playMode === 'walk' ? 'hud-btn-teal' : 'hud-btn-carbon'}`}
-            onClick={walkSession ? completeWalk : startWalk}
-          >
-            {walkSession ? t.completeWalk : t.startWalk}
-          </button>
-        </div>
-        <div className="hud-profile-grid">
-          <span>{t.mode}</span><strong>{modeLabel}</strong>
-          <span>AR</span><strong>{isARSessionActive ? `${scanState} (${scanPointCount})` : 'OFF'}</strong>
-          <span>{t.matches}</span><strong>{profileView.totalMatches}</strong>
-          <span>{t.training}</span><strong>{profileView.totalTrainingSessions}</strong>
-          <span>{t.walks}</span><strong>{profileView.totalWalkSessions}</strong>
-          <span>{t.tone}</span><strong>{profileView.tone}</strong>
-          <span>{t.sync}</span><strong>{profileView.syncRate.toFixed(2)}</strong>
-          <span>{t.store}</span><strong>{profileView.storageBackend}</strong>
-          <span>{t.hp}</span><strong>{`${battleState.hp}/${battleState.maxHp || '-'}`}</strong>
-          <span>{t.enemyHp}</span><strong>{`${battleState.opponentHp}/${battleState.opponentMaxHp || '-'}`}</strong>
-          <span>{t.heat}</span><strong>{battleState.heatActive ? 'ON' : 'OFF'}</strong>
-        </div>
-        <div className="hud-memory-line" title={profileView.memorySummary || ''}>
-          {profileView.memorySummary || t.noMemory}
-        </div>
-        {profileView.recentLogs.length > 0 && (
-          <div className="hud-block">
-            {profileView.recentLogs.map((log, idx) => (
-              <div key={`${log.timestamp}-${idx}`} className="hud-log-line">
-                {`${log.result} C:${log.criticalHits} M:${log.misses}`}
-              </div>
-            ))}
-          </div>
-        )}
-        {debugVisible && (liveDebugInfo.tokenName || liveDebugInfo.interactionId || liveDebugInfo.interactionText || bgmUrl) && (
-          <div className="hud-block hud-dim" style={{ borderLeft: '2px solid #ff6b6b' }}>
-            <div style={{ fontSize: '0.6rem', color: '#ff6b6b', fontWeight: 700, marginBottom: 2 }}>🛠 DEBUG INFO</div>
-            {liveDebugInfo.tokenName && <div className="hud-truncate">{`Token: ${liveDebugInfo.tokenName}`}</div>}
-            {liveDebugInfo.resumeHandle && <div className="hud-truncate">{`Resume: ${liveDebugInfo.resumeHandle}`}</div>}
-            {liveDebugInfo.interactionId && <div className="hud-truncate">{`Interaction: ${liveDebugInfo.interactionId}`}</div>}
-            {liveDebugInfo.interactionText && <div className="hud-truncate">{liveDebugInfo.interactionText}</div>}
-            {bgmUrl && <div className="hud-truncate">{`BGM: ${bgmUrl}`}</div>}
-          </div>
-        )}
-      </aside>
-
-      {debugVisible && (
-        <div className="hud-right-rail hud-animate" style={{ borderLeft: '2px solid #ff6b6b' }}>
-          <div style={{ fontSize: '0.7rem', color: '#ff6b6b', fontWeight: 700, letterSpacing: '0.1em', marginBottom: 6 }}>🛠 DEBUG TOOLS</div>
-          <button id="btn-fusion-drop" className="hud-btn hud-btn-amber" onClick={requestFusionDrop}>
-            {t.dropFusion}
-          </button>
-          <button id="btn-live-token" className="hud-btn hud-btn-blue" onClick={requestLiveEphemeralToken}>
-            {t.issueLiveToken}
-          </button>
-          <button id="btn-interaction-turn" className="hud-btn hud-btn-steel" onClick={requestInteractionTurn}>
-            {t.testInteraction}
-          </button>
-        </div>
-      )}
-
-      <button
-        id="btn-cast-special"
-        className={`hud-btn hud-cast-btn ${(isStreaming || isMatchPaused || !battleState.specialReady || !matchAlignmentReady) ? 'is-disabled' : ''}`}
-        disabled={isStreaming || isMatchPaused || !battleState.specialReady || !matchAlignmentReady}
-        onClick={handleCastSpecial}
-      >
-        {isMatchPaused
-          ? t.matchPaused
-          : (!matchAlignmentReady
-            ? t.alignPending
-            : (isStreaming ? t.casting : (battleState.specialReady ? t.castSpecial : `EX ${battleState.exGauge}/${EX_GAUGE.MAX}`)))}
-      </button>
-
-      {debugVisible && (
-        <button
-          id="btn-p2p-media"
-          className={`hud-btn hud-chip-btn ${isP2PMediaOn ? 'is-on' : 'is-off'}`}
-          onClick={toggleP2PMedia}
-        >
-          {isP2PMediaOn ? t.p2pOn : t.p2pOff}
-        </button>
+        </>
       )}
 
 
@@ -1910,16 +2428,26 @@ function App() {
         </XR>
       </Canvas>
 
-      <ServerDrivenPanel />
+      {appPhase === 'main' && (
+        <>
+          {showBattleHud && <ServerDrivenPanel />}
+          <DynamicSubtitle />
+          {showBattleHud && <RemoteStreamView />}
+        </>
+      )}
+      
       {debugVisible && <AnimationDebugPanel />}
-      <DynamicSubtitle />
+      
       {voiceAckText && (
         <div className="hud-voice-ack" aria-live="polite">
           {voiceAckText}
         </div>
       )}
-      {isARSessionActive && <ScanGuideOverlay scanState={scanState} pointCount={scanPointCount} />}
-      <RemoteStreamView />
+      
+      {(appPhase === 'summon' || appPhase === 'main') && isARSessionActive && (
+        <ScanGuideOverlay scanState={scanState} pointCount={scanPointCount} />
+      )}
+      
       <ShareArenaModal
         roomId={ROOM_ID}
         uiLang={uiLang}

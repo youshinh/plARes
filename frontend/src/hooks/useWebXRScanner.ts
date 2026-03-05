@@ -103,6 +103,24 @@ export const useWebXRScanner = () => {
     scanState: 'idle',
   });
 
+  const lastVisionTriggerAtRef = useRef<number>(0);
+  const lastDepthCheckAtRef = useRef<number>(0);
+
+  // ── P2P NavMesh Receive ───────────────────────────────────────────────────
+  useEffect(() => {
+    const onP2P = (event: Event) => {
+      const payload = (event as CustomEvent<any>).detail;
+      if (payload?.type === 'navmesh') {
+        console.log('[XR] Received remote navmesh data:', payload.data);
+        window.dispatchEvent(
+          new CustomEvent('remote_navmesh_ready', { detail: payload.data })
+        );
+      }
+    };
+    window.addEventListener('webrtc_payload', onP2P as EventListener);
+    return () => window.removeEventListener('webrtc_payload', onP2P as EventListener);
+  }, []);
+
   // ── Session Initialisation ─────────────────────────────────────────────────
   useEffect(() => {
     if (!session) {
@@ -244,6 +262,7 @@ export const useWebXRScanner = () => {
     if (!poseSpace) return;
     const viewerPose = frame.getViewerPose(poseSpace);
     if (!viewerPose) return;
+    const now = performance.now();
     const primaryView = viewerPose?.views[0];
     let viewerYaw = 0;
     if (primaryView) {
@@ -260,6 +279,22 @@ export const useWebXRScanner = () => {
         const tooClose = prev.pointCloud.some(p => p.distanceTo(pos) < 0.05);
         const nextCloud = tooClose ? prev.pointCloud : [...prev.pointCloud, pos];
 
+        // --- Environment Detection (Doc §2.2 Automation) ---
+        if (now - lastVisionTriggerAtRef.current > 10000) { // 10s cooldown
+          // Extract normal from matrix (column 1 is Y-axis in local space)
+          const elements = matrix.elements;
+          const normal = new THREE.Vector3(elements[4], elements[5], elements[6]).normalize();
+          const up = new THREE.Vector3(0, 1, 0);
+          const dot = normal.dot(up);
+
+          if (dot < 0.85) { // ~31 degrees slope or uneven surface
+            lastVisionTriggerAtRef.current = now;
+            window.dispatchEvent(new CustomEvent('vision_trigger_detected', {
+              detail: { trigger: 'uneven_surface', context: `slope_dot_${dot.toFixed(2)}` }
+            }));
+          }
+        }
+
         // Trigger NavMesh rebuild once threshold is reached
         if (!tooClose && nextCloud.length === MIN_NAVMESH_POINTS) {
           console.log('[XR] Enough points for NavMesh build – dispatching navmesh_ready');
@@ -268,7 +303,6 @@ export const useWebXRScanner = () => {
           );
         }
 
-        const now = performance.now();
         const last = lastPublishedSampleRef.current;
         const movedEnough = !last || Math.hypot(pos.x - last.x, pos.y - last.y, pos.z - last.z) > 0.03;
         const yawChangedEnough = !last || Math.abs(viewerYaw - last.yaw) > 0.05;
@@ -416,6 +450,25 @@ export const useWebXRScanner = () => {
                   ? 255
                   : 1;
             depthRawToMetersRef.current = rawValueToMeters * sampleToRawFactor;
+
+            // --- Darkness Detection (Doc §2.2) ---
+            if (now - lastDepthCheckAtRef.current > 5000) { // check every 5s
+              lastDepthCheckAtRef.current = now;
+              // Simple heuristic: if we have depth data, check a few samples for 'too dark' 
+              // (In real WebXR this is hard with just depth, but we can simulate/trigger)
+              const data = copiedData as any;
+              let darkSamples = 0;
+              for (let i = 0; i < 100; i++) {
+                const idx = Math.floor(Math.random() * data.length);
+                if (data[idx] === 0) darkSamples++; // 0 often means invalid/too close/too dark
+              }
+              if (darkSamples > 80 && now - lastVisionTriggerAtRef.current > 10000) {
+                 lastVisionTriggerAtRef.current = now;
+                 window.dispatchEvent(new CustomEvent('vision_trigger_detected', {
+                   detail: { trigger: 'darkness', context: 'depth_data_missing' }
+                 }));
+              }
+            }
           }
         }
       }
