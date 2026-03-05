@@ -14,7 +14,7 @@ This specification defines the system flow and implementation requirements for t
 
 ### **2. Stroll Mode (Outings, Exploration, Crafting)**
 
-A mode for walking through real space together, interacting with AI, and generating items. It fully utilizes the Multimodal Bidi-streaming (bidirectional streaming) of the Live API.
+A mode for walking through real space together, interacting with AI, and generating items. It fully utilizes the Multimodal Bidi-streaming (bidirectional streaming) of the Gemini Live API (`gemini-2.5-flash-native-audio-preview-12-2025`).
 
 #### **2.1 Autonomous Movement via WebXR (Local Processing)**
 
@@ -29,7 +29,7 @@ The frontend foundation for naturally walking around the real world while elimin
 A system where the AI looks at the real landscape and talks to the player spontaneously.
 
 1. **Streaming Start**: Thin out the smartphone's rear camera footage to 1-2 fps and continuously feed it into the `LiveRequestQueue` managed by the backend ADK (Agent Development Kit).
-2. **Context Recognition**: Gemini Live API (Vision model) monitors the footage. Trigger an event when a specific object is detected based on the numerical value of the user's `personality.adlibSkill` (wit).
+2. **Context Recognition**: Gemini Live API (`gemini-2.5-flash-native-audio-preview-12-2025`) monitors the footage. Trigger an event when a specific object is detected based on the numerical value of the user's `personality.adlibSkill` (wit).
 3. **Utterance Example (Recognition of DIY Woodwork)**:
    - _User Background_: Works for a lumber manufacturer and is good at DIY.
    - _AI Reaction_: Vision detects handmade wooden stairs, flooring, or DIY projects in the room.
@@ -41,7 +41,7 @@ A system for 3D-digitizing daily items and saving them to the inventory.
 
 1. **Multimodal Input**: The user takes a photo of a real-world item (e.g., "Fried Spring Roll" for dinner). Enters a prompt into the text box, such as "Make this a legendary holy sword that fires lasers," and sends it.
 2. **8-Image Mix (Image Fusion)**:
-   - Call the backend's Nano Banana Pro (Gemini 2.0 Flash Image) API.
+   - Call the backend's Nano Banana Pro (`gemini-3.1-flash-image-preview`) API.
    - Fuse the crispy "texture/shape" of the spring roll with the "concept" of a holy sword to dynamically generate a new 3D texture (or 2.5D billboard image) in 1-2 seconds.
 3. **Data Persistence**: The generated asset URL is saved in `users/{userId}/inventory` in Firestore and can be dynamically attached to the machine's right-hand bone, etc., via `mesh.add()` in the customization screen.
 
@@ -62,7 +62,7 @@ Frontend processing to keep API costs at zero.
 The core system that judges the accuracy of the special move incantation and increases the sync rate.
 
 1. **Incantation Trigger**: A random tongue twister prompt (e.g., "Super Hot Fried Spring Roll Strike!") is displayed as a telop on the screen.
-2. **Native Audio Transmission**: Stream the player's uttered voice (16kHz PCM waveform data) raw to Gemini 2.0 Pro without going through STT (text-to-speech).
+2. **Native Audio Transmission**: Stream the player's uttered voice (16kHz PCM waveform data) raw to `gemini-2.5-flash-native-audio-preview-12-2025` without going through STT (text-to-speech).
 3. **3-Axis Evaluation Logic**: The backend's "Articulation Judgment Agent" calculates scores (0.0 to 1.0) on three axes:
    - **Accuracy**: Whether it was pronounced according to the specified text.
    - **Speed**: Time until the completion of the incantation.
@@ -81,6 +81,6 @@ Implementation to prevent the player from noticing the API communication lag (1-
 
 At the timing when the stroll or training mode ends, make these experiences part of the AI's "flesh and blood."
 
-1. The backend Python server passes event logs within the session (e.g., made a spring roll sword, high spirit score in incantation) to Gemini to summarize them.
+1. The backend Python server passes event logs within the session (e.g., made a spring roll sword, high spirit score in incantation) to `gemini-3.1-pro-preview` to summarize them.
 2. The summarized text is merged and updated into `aiMemorySummary`, a long-term memory document in Firestore.
 3. This completes the foundation for the machine to make utterances based on the context, such as "Let's put in the same spirit as that previous training!" in the next match (Phase 3) or next stroll.

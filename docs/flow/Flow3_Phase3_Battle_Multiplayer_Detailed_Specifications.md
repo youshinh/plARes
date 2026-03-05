@@ -21,7 +21,7 @@ The space synchronization flow in matches across a network (e.g., Osaka home vs.
 1. **Signaling**: Match the host and guest using Firebase.
 2. **Separation of Communication Paths**:
    - WebRTC Data Channel (UDP/P2P): For synchronizing coordinates, HP/AP, and basic actions (10-30ms delay goal).
-   - WebSocket: For streaming and sending/receiving JSON commands with the backend ADK (Gemini Live API).
+   - WebSocket: For streaming and sending/receiving JSON commands with the backend ADK (Gemini Live API: `gemini-2.5-flash-native-audio-preview-12-2025`).
 
 #### **2.2 Virtual Arena Superimposition (Terrain Synchronization)**
 
@@ -48,7 +48,7 @@ Movement during normal times when there are no instructions from the cloud.
 Instructions via the "Tactical Options" pulldown displayed at the bottom right of the screen (see images 680, 698) or changes in tactics based on AI's autonomous judgment.
 
 - **UI Operation**: The player taps a panel like "Retreat to an obstacle" or "Move to the right side." Or instructs via a live microphone.
-- **Backend Processing**: Gemini 2.0 Pro interprets the battle situation and instructions, and issues Function Calling (JSON) like `{"action": "flank_right"}` via WebSocket.
+- **Backend Processing**: `gemini-3-flash-preview` interprets the battle situation and instructions, and issues Function Calling (JSON) like `{"action": "flank_right"}` via WebSocket.
 - **State Overwrite**: When the frontend receives the JSON, it cancels the basic autonomous loop and forcibly overwrites the target coordinates (Target) to something like the "right side of the enemy" (`State.FLANKING_RIGHT`).
 
 #### **3.3 [Priority 1 (High)] Emergency Avoidance by Local Voice Detection (Highest Priority)**
@@ -66,11 +66,11 @@ Special move activation flow when the EX Gauge (such as 100/100 at the bottom of
 
 1. **Activation Trigger**: When the player taps the special move button, a difficult tongue twister (prompt) like "Super Hot Fried Spring Roll Strike!" is displayed as a telop on the screen.
 2. **Immediate Animation**: Without waiting for the completion of API communication, the frontend immediately starts an "incantation animation where the machine accumulates an aura (approx. 3 seconds)" and displays "Incanting..." (see image 662) at the bottom of the screen.
-3. **Native Audio Transmission**: The player's raw audio waveform (16kHz PCM) is streamed to Gemini 2.0 Pro.
+3. **Native Audio Transmission**: The player's raw audio waveform (16kHz PCM) is streamed to `gemini-2.5-flash-native-audio-preview-12-2025`.
 
 #### **4.2 Articulation/Spirit Judgment and Application of Results**
 
-1. **Backend Evaluation**: Gemini immediately evaluates the voice on three axes: "Accuracy," "Speed," and "Spirit (voice tremor and loudness)," and returns the critical rate (Score JSON).
+1. **Backend Evaluation**: `gemini-2.5-flash-native-audio-preview-12-2025` immediately evaluates the voice on three axes: "Accuracy," "Speed," and "Spirit (voice tremor and loudness)," and returns the critical rate (Score JSON).
 2. **Branch Processing**: Evaluate the received score at the timing of the animation end hook (`onAnimationEnd`).
    - **Success**: Unleashes a massive damage attack with flashy particle effects.
    - **Failure**: Ends in a dud with the machine stumbling, or takes self-destruct damage.
@@ -89,6 +89,6 @@ A system where a third party who is not playing (e.g., daughters watching in the
 The machine does not just pick up items; it makes a judgment by weighing its own "Personality (Tone)" parameter against the "chaos level" of the item.
 
 - **Item Acceptance**: If the machine has high talk skill (charm) or a straightforward personality, it happily equips the spring roll wand (`equip_item`) and gains a status buff.
-- **Item Rejection**: If the initial setting was a Tone like "Stoic and prideful Samurai," the Gemini agent issues `{"action": "reject_item"}` JSON.
-- **Rejection Action and Commentary**: The machine brushes off (or kicks away) the item and proactively (spontaneously) complains via the Live API's TTS: "Hey Master! I can't fight with such a sticky spring roll! My pride won't allow it!" while continuing the battle.
+- **Item Rejection**: If the initial setting was a Tone like "Stoic and prideful Samurai," the `gemini-3-flash-preview` agent issues `{"action": "reject_item"}` JSON.
+- **Rejection Action and Commentary**: The machine brushes off (or kicks away) the item and proactively (spontaneously) complains via Gemini Live API voice output (`gemini-2.5-flash-native-audio-preview-12-2025`): "Hey Master! I can't fight with such a sticky spring roll! My pride won't allow it!" while continuing the battle.
 - **Evolution of Personality**: This experience of "refusing a weird item" is accumulated in the `aiMemorySummary` in Firestore, and by being repeated, the machine's personality dynamically changes to something like a "distrustful, delinquent character."

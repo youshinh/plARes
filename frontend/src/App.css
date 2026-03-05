@@ -882,6 +882,189 @@
 }
 
 /* =============================================================
+   FLOW HUB — onboarding-to-mode bridge
+   ============================================================= */
+
+.flow-hub {
+  position: fixed;
+  top: calc(72px + env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(94vw, 980px);
+  max-height: min(62vh, 560px);
+  overflow: auto;
+  z-index: 24;
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--glass-border-strong);
+  background: linear-gradient(
+    150deg,
+    hsl(218 28% 8% / 0.95),
+    hsl(218 24% 12% / 0.92)
+  );
+  box-shadow: var(--shadow-lg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  padding: 14px;
+}
+
+.flow-hub-header h2 {
+  margin: 0;
+  font-family: "Saira Semi Condensed", "Barlow Condensed", sans-serif;
+  font-size: clamp(24px, 5vw, 34px);
+  letter-spacing: 0.05em;
+}
+
+.flow-hub-header p {
+  margin: 8px 0 0;
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.flow-hub-pill {
+  display: inline-flex;
+  margin-top: 10px;
+  border-radius: var(--radius-full);
+  border: 1px solid hsl(145 55% 45% / 0.5);
+  background: hsl(145 50% 12% / 0.72);
+  color: hsl(145 75% 83%);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 700;
+  padding: 6px 10px;
+}
+
+.flow-route-guide {
+  margin-top: 12px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--glass-border);
+  background: hsl(218 30% 9% / 0.78);
+  padding: 10px;
+}
+
+.flow-route-title {
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-primary);
+  font-weight: 700;
+}
+
+.flow-route-desc {
+  margin: 6px 0 0;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.flow-route-list {
+  margin: 8px 0 10px;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+
+.flow-route-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--glass-border);
+  background: hsl(218 24% 11% / 0.76);
+  padding: 7px 8px;
+}
+
+.flow-route-item.is-done {
+  border-color: hsl(145 55% 45% / 0.5);
+  background: hsl(145 40% 11% / 0.66);
+}
+
+.flow-route-item.is-doing {
+  border-color: hsl(39 72% 56% / 0.5);
+  background: hsl(35 42% 12% / 0.66);
+}
+
+.flow-route-step {
+  font-size: 12px;
+  color: var(--color-text-primary);
+}
+
+.flow-route-badge {
+  border-radius: var(--radius-full);
+  border: 1px solid var(--glass-border);
+  padding: 3px 7px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.flow-route-badge.is-done {
+  border-color: hsl(145 55% 45% / 0.5);
+  color: hsl(145 75% 82%);
+}
+
+.flow-route-badge.is-doing {
+  border-color: hsl(39 72% 56% / 0.5);
+  color: hsl(39 92% 80%);
+}
+
+.flow-hub-grid {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.flow-hub-card {
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--glass-border);
+  background: hsl(218 28% 10% / 0.82);
+  padding: 12px;
+}
+
+.flow-hub-card h3 {
+  margin: 0;
+  font-size: 14px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-primary);
+}
+
+.flow-hub-card p {
+  margin: 6px 0 0;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.flow-hub-actions {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.flow-hub-memory {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--glass-border);
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (min-width: 860px) {
+  .flow-hub-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* =============================================================
    LANGUAGE GATE
    ============================================================= */
 

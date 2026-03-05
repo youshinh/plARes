@@ -20,11 +20,11 @@ Backend processing that compresses and saves the vast amount of communication da
 
 1. **Match End Trigger**: The moment a match ends, the backend (Python server) lists hundreds of lines of action logs (movement, hits, audio command waveform evaluation, etc.) held in memory.
 2. **Highlight Extraction (Gemini API)**:
-   - Pass the logs to Gemini 2.0 Pro and instruct it to "Extract highlights from this match, changes in player's panic or spirit, and impressive events into JSON."
+   - Pass the logs to `gemini-3.1-pro-preview` and instruct it to "Extract highlights from this match, changes in player's panic or spirit, and impressive events into JSON."
    - _Extraction Example_: `{"key_event": "Desperate struggle in Toyonaka Arena", "player_sentiment": "Panic subsided at the end, recorded spirit score 0.9", "critical_damage": "Concentrated fire on the right arm"}`
 3. **Persistence in Firestore**:
    - Add the extracted highlight as a new document to the `users/{userId}/matchLogs` collection.
-   - Simultaneously, have Gemini rewrite the `aiMemorySummary` document, the machine's long-term memory summary, and update it once.
+   - Simultaneously, have `gemini-3.1-pro-preview` rewrite the `aiMemorySummary` document, the machine's long-term memory summary, and update it once.
 
 ### **3. Procedural Texture that Carves Battle History (Visual Evolution)**
 
@@ -37,7 +37,7 @@ A system where the AI generates and overwrites a texture exclusive to that machi
 
 #### **3.2 Texture Generation via Real-World Fusion (8-Image Mix)**
 
-1. **API Call**: Call the image fusion API of Nano Banana Pro (Gemini 2.0 Flash Image).
+1. **API Call**: Call the image fusion API of Nano Banana Pro (`gemini-3.1-flash-image-preview`).
 2. **Construction of Multimodal Prompt**:
    - **Base Image**: Current machine texture image (e.g., "Beautiful solid wood texture" initially set by the player utilizing knowledge as a lumber manufacturer).
    - **Additional Image**: Images of items dropped by spectators (daughters) in past matches (e.g., image of a "Spring Roll").
@@ -53,11 +53,11 @@ An emotional UX design where the AI autonomously reflects on the past during a r
 
 #### **4.1 Autonomous Memory Search via MCP (Model Context Protocol)**
 
-1. **Vision-based Environmental Recognition**: During Stroll Mode, the Live API monitors the smartphone camera footage. It detects specific contexts such as a "sunset" or "familiar handmade wooden furniture (DIY work)."
+1. **Vision-based Environmental Recognition**: During Stroll Mode, Gemini Live API (`gemini-2.5-flash-native-audio-preview-12-2025`) monitors the smartphone camera footage. It detects specific contexts such as a "sunset" or "familiar handmade wooden furniture (DIY work)."
 2. **MCP Server Integration**:
    - The AI uses its assigned Managed MCP servers for Firestore permissions to autonomously search its own `aiMemorySummary`.
 3. **Binding of Context and Proactive Audio (Spontaneous Utterance)**:
-   - The AI links the "current landscape in front of it" with "past memories" and speaks to the player in a quiet tone (`tone: "subtle_reflection"`) via Gemini TTS.
+   - The AI links the "current landscape in front of it" with "past memories" and speaks to the player in a quiet tone (`tone: "subtle_reflection"`) via `gemini-2.5-flash-preview-tts`.
    - _Utterance Example_: "...Master. The grain of this self-made wooden table is beautiful. By the way, back when we fought at Grandpa's house in Toyonaka the other day, you were so panicked that your voice cracked (laughs). ...But at that time, you finally gathered your courage and nailed the incantation. We've become a bit of a good duo, haven't we?"
 
 ### **5. Entertainment Expansion of Milestones (Veo / Lyria Integration)**

@@ -45,6 +45,7 @@ const CHARACTER_LAB_UI = import.meta.env.VITE_ENABLE_CHARACTER_LAB !== 'false';
 const STORAGE_LANG_KEY = 'plares_lang';
 const STORAGE_LANG_SELECTED_KEY = 'plares_lang_selected';
 const STORAGE_PLAY_MODE_KEY = 'plares_play_mode';
+const STORAGE_ROUTE_PROGRESS_KEY = 'plares_route_progress';
 const IS_ANDROID_CHROME = (() => {
   if (typeof navigator === 'undefined') return false;
   const ua = navigator.userAgent || '';
@@ -117,7 +118,7 @@ const saveCachedTranslations = (bcp47: string, dict: Record<string, string>): vo
   }
 };
 
-type PlayMode = 'match' | 'training' | 'walk';
+type PlayMode = 'hub' | 'match' | 'training' | 'walk';
 
 type ModeSession = {
   id: string;
@@ -247,9 +248,33 @@ const UI_TEXT: Record<UiLang, Record<string, string>> = {
     alignShared: '位置合わせ基準を共有しました',
     alignPeerSynced: '相手の位置合わせ情報を受信',
     mode: 'モード',
+    modeHub: 'ハブ',
     modeMatch: '試合',
     modeTraining: '修行',
     modeWalk: '散歩',
+    flowHubTitle: 'フローハブ',
+    flowHubDesc: 'バトルへ急がず、育成と共創の流れに沿って次の行動を選びましょう。',
+    flowPhase1Done: 'Phase 1 完了: 初回召喚済み',
+    flowPhase2Title: 'Phase 2: 日常の共創',
+    flowPhase2Desc: '散歩で環境認識を育てる / 修行で詠唱精度を高める',
+    flowPhase3Title: 'Phase 3: 実戦',
+    flowPhase3Desc: '位置合わせ後に対戦開始。即応はローカル、戦術はAIで上書き。',
+    flowPhase4Title: 'Phase 4: 成長と進化',
+    flowPhase4Desc: '記憶サマリーと戦歴の反映状況を確認',
+    flowStartBattle: '対戦開始',
+    flowReturnHub: 'ハブに戻る',
+    flowOpenMemory: '記憶を確認',
+    battleOnlyHint: 'この操作は対戦モードで有効です',
+    routeGuideTitle: '初回おすすめルート',
+    routeGuideDesc: '散歩 → 修行 → 対戦 の順で進むと、機体の理解とシンクロが安定します。',
+    routeStepWalk: '散歩を1回完了',
+    routeStepTraining: '修行を1回完了',
+    routeStepBattle: '対戦を1回開始',
+    routeStatusTodo: '未着手',
+    routeStatusDoing: '進行中',
+    routeStatusDone: '完了',
+    routeCtaNext: '次の推奨アクション',
+    routeCtaComplete: '推奨ルート達成',
     startTraining: '修行開始',
     completeTraining: '修行完了',
     startWalk: '散歩開始',
@@ -310,9 +335,33 @@ const UI_TEXT: Record<UiLang, Record<string, string>> = {
     alignShared: 'Shared arena alignment marker.',
     alignPeerSynced: 'Opponent alignment data received.',
     mode: 'Mode',
+    modeHub: 'Hub',
     modeMatch: 'Match',
     modeTraining: 'Training',
     modeWalk: 'Walk',
+    flowHubTitle: 'Flow Hub',
+    flowHubDesc: 'Choose the next step in the intended loop instead of jumping straight into battle.',
+    flowPhase1Done: 'Phase 1 complete: first summon finished',
+    flowPhase2Title: 'Phase 2: Daily Co-creation',
+    flowPhase2Desc: 'Use Walk for environment bonding or Training for incantation accuracy.',
+    flowPhase3Title: 'Phase 3: Battle',
+    flowPhase3Desc: 'Start a match after alignment. Local reflexes + AI tactical overrides.',
+    flowPhase4Title: 'Phase 4: Growth & Evolution',
+    flowPhase4Desc: 'Review memory summary and progression feedback.',
+    flowStartBattle: 'Start Battle',
+    flowReturnHub: 'Back to Hub',
+    flowOpenMemory: 'Open Memory',
+    battleOnlyHint: 'This action is available only in match mode.',
+    routeGuideTitle: 'Recommended First Route',
+    routeGuideDesc: 'Follow Walk → Training → Battle once to build stable sync and context.',
+    routeStepWalk: 'Complete Walk once',
+    routeStepTraining: 'Complete Training once',
+    routeStepBattle: 'Start Battle once',
+    routeStatusTodo: 'Todo',
+    routeStatusDoing: 'In Progress',
+    routeStatusDone: 'Done',
+    routeCtaNext: 'Recommended Next Action',
+    routeCtaComplete: 'Route Completed',
     incantationStart: 'Start Incantation ⚡',
     twistTitle: 'Tongue Twister:',
     startTraining: 'Start Training',
@@ -375,9 +424,33 @@ const UI_TEXT: Record<UiLang, Record<string, string>> = {
     alignShared: 'Marcador de alineacion compartido.',
     alignPeerSynced: 'Datos de alineacion del rival recibidos.',
     mode: 'Modo',
+    modeHub: 'Hub',
     modeMatch: 'Partida',
     modeTraining: 'Entreno',
     modeWalk: 'Paseo',
+    flowHubTitle: 'Hub de Flujo',
+    flowHubDesc: 'Elige el siguiente paso del bucle de juego en lugar de entrar directo al combate.',
+    flowPhase1Done: 'Fase 1 completa: primera invocacion finalizada',
+    flowPhase2Title: 'Fase 2: Co-creacion diaria',
+    flowPhase2Desc: 'Paseo para contexto ambiental o Entreno para mejorar la invocacion.',
+    flowPhase3Title: 'Fase 3: Batalla',
+    flowPhase3Desc: 'Inicia combate despues de alinear arena. Reflejos locales + tactica AI.',
+    flowPhase4Title: 'Fase 4: Crecimiento y evolucion',
+    flowPhase4Desc: 'Revisa memoria y progreso acumulado.',
+    flowStartBattle: 'Iniciar Batalla',
+    flowReturnHub: 'Volver al Hub',
+    flowOpenMemory: 'Ver Memoria',
+    battleOnlyHint: 'Esta accion solo esta disponible en modo batalla.',
+    routeGuideTitle: 'Ruta inicial recomendada',
+    routeGuideDesc: 'Sigue Paseo → Entreno → Batalla una vez para mejorar sincronia y contexto.',
+    routeStepWalk: 'Completar Paseo una vez',
+    routeStepTraining: 'Completar Entreno una vez',
+    routeStepBattle: 'Iniciar Batalla una vez',
+    routeStatusTodo: 'Pendiente',
+    routeStatusDoing: 'En curso',
+    routeStatusDone: 'Completado',
+    routeCtaNext: 'Siguiente accion recomendada',
+    routeCtaComplete: 'Ruta completada',
     incantationStart: 'Iniciar Encantamiento ⚡',
     twistTitle: 'Trabalenguas:',
     startTraining: 'Iniciar Entreno',
@@ -571,8 +644,34 @@ function App() {
   const switchMode = (mode: PlayMode) => {
     setPlayMode(mode);
   };
+  const returnToHub = () => {
+    switchMode('hub');
+  };
+  const enterBattleMode = () => {
+    setTrainingSession(null);
+    setWalkSession(null);
+    setLocalRouteProgress(prev => ({ ...prev, battle: prev.battle + 1 }));
+    switchMode('match');
+    window.dispatchEvent(new CustomEvent('show_subtitle', {
+      detail: { text: t.flowStartBattle },
+    }));
+  };
   const [trainingSession, setTrainingSession] = useState<ModeSession | null>(null);
   const [walkSession, setWalkSession] = useState<ModeSession | null>(null);
+  const [localRouteProgress, setLocalRouteProgress] = useState<{ walk: number; training: number; battle: number }>(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_ROUTE_PROGRESS_KEY);
+      if (!raw) return { walk: 0, training: 0, battle: 0 };
+      const parsed = JSON.parse(raw) as Partial<{ walk: number; training: number; battle: number }>;
+      return {
+        walk: Math.max(0, Number(parsed.walk ?? 0)),
+        training: Math.max(0, Number(parsed.training ?? 0)),
+        battle: Math.max(0, Number(parsed.battle ?? 0)),
+      };
+    } catch {
+      return { walk: 0, training: 0, battle: 0 };
+    }
+  });
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isShareOpen, setIsShareOpen] = useState(false);
   const [isLabOpen, setIsLabOpen] = useState(false);
@@ -653,6 +752,34 @@ function App() {
       misses: number;
     }>,
   };
+  const walkProgress = Math.max(profileView.totalWalkSessions, localRouteProgress.walk);
+  const trainingProgress = Math.max(profileView.totalTrainingSessions, localRouteProgress.training);
+  const battleProgress = Math.max(profileView.totalMatches, localRouteProgress.battle);
+  const hasWalkMilestone = walkProgress > 0;
+  const hasTrainingMilestone = trainingProgress > 0;
+  const hasBattleMilestone = battleProgress > 0;
+  const routeNextStep: 'walk' | 'training' | 'match' | 'complete' =
+    !hasWalkMilestone ? 'walk' :
+    !hasTrainingMilestone ? 'training' :
+    !hasBattleMilestone ? 'match' :
+    'complete';
+  const routeStatus = (step: 'walk' | 'training' | 'match'): 'todo' | 'doing' | 'done' => {
+    if (step === 'walk') {
+      if (walkSession) return 'doing';
+      return hasWalkMilestone ? 'done' : 'todo';
+    }
+    if (step === 'training') {
+      if (trainingSession) return 'doing';
+      return hasTrainingMilestone ? 'done' : 'todo';
+    }
+    if (playMode === 'match') return 'doing';
+    return hasBattleMilestone ? 'done' : 'todo';
+  };
+  const routeStatusLabel = (status: 'todo' | 'doing' | 'done') => (
+    status === 'done' ? t.routeStatusDone :
+    status === 'doing' ? t.routeStatusDoing :
+    t.routeStatusTodo
+  );
 
   const applyLanguage = (langCode: string, markAsChosen: boolean) => {
     try {
@@ -696,13 +823,22 @@ function App() {
       // noop
     }
   }, [playMode]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_ROUTE_PROGRESS_KEY, JSON.stringify(localRouteProgress));
+    } catch {
+      // noop
+    }
+  }, [localRouteProgress]);
 
   const modeLabel =
+    playMode === 'hub' ? t.modeHub :
     playMode === 'training' ? t.modeTraining :
     playMode === 'walk' ? t.modeWalk :
     t.modeMatch;
 
   const startTraining = () => {
+    setWalkSession(null);
     const session: ModeSession = {
       id: createModeSessionId('training'),
       startedAt: new Date().toISOString(),
@@ -745,14 +881,16 @@ function App() {
         syncRateAfter: profileView.syncRate,
       },
     });
+    setLocalRouteProgress(prev => ({ ...prev, training: prev.training + 1 }));
     setTrainingSession(null);
-    switchMode('match');
+    switchMode('hub');
     window.dispatchEvent(new CustomEvent('show_subtitle', {
       detail: { text: t.completeTraining },
     }));
   };
 
   const startWalk = () => {
+    setTrainingSession(null);
     const session: ModeSession = {
       id: createModeSessionId('walk'),
       startedAt: new Date().toISOString(),
@@ -788,10 +926,28 @@ function App() {
         syncRateAfter: profileView.syncRate,
       },
     });
+    setLocalRouteProgress(prev => ({ ...prev, walk: prev.walk + 1 }));
     setWalkSession(null);
-    switchMode('match');
+    switchMode('hub');
     window.dispatchEvent(new CustomEvent('show_subtitle', {
       detail: { text: t.completeWalk },
+    }));
+  };
+  const triggerRecommendedRouteStep = () => {
+    if (routeNextStep === 'walk') {
+      startWalk();
+      return;
+    }
+    if (routeNextStep === 'training') {
+      startTraining();
+      return;
+    }
+    if (routeNextStep === 'match') {
+      enterBattleMode();
+      return;
+    }
+    window.dispatchEvent(new CustomEvent('show_subtitle', {
+      detail: { text: t.routeCtaComplete },
     }));
   };
 
@@ -1664,14 +1820,20 @@ function App() {
   }, []);
 
   const handleCastSpecial = async () => {
-    if (!matchAlignmentReady) {
+    if (playMode === 'hub' || playMode === 'walk') {
+      window.dispatchEvent(new CustomEvent('show_subtitle', {
+        detail: { text: t.battleOnlyHint }
+      }));
+      return;
+    }
+    if (playMode === 'match' && !matchAlignmentReady) {
       console.info('[Special] blocked: arena alignment pending');
       window.dispatchEvent(new CustomEvent('show_subtitle', {
         detail: { text: t.alignPending }
       }));
       return;
     }
-    if (isMatchPaused) {
+    if (playMode === 'match' && isMatchPaused) {
       console.info('[Special] blocked: match is paused');
       window.dispatchEvent(new CustomEvent('show_subtitle', {
         detail: { text: '試合が一時停止中です' }
@@ -1779,6 +1941,9 @@ function App() {
     arSupportState === 'checking'
       ? 'Checking AR support...'
       : (isArButtonDisabled ? t.arUnsupportedHint : t.enterAr);
+  const isMainPhase = appPhase === 'main';
+  const isHubMode = playMode === 'hub';
+  const showBattleHud = isMainPhase && playMode === 'match';
 
   return (
     <div className="arena-shell" ref={overlayRef}>
@@ -1809,7 +1974,7 @@ function App() {
         </div>
       )}
 
-      {playMode === 'walk' && (
+      {isMainPhase && playMode === 'walk' && (
         <div className="hud-training-actions">
           <button 
             className="hud-btn-special" 
@@ -1823,13 +1988,13 @@ function App() {
           </button>
         </div>
       )}
-      {playMode === 'training' && !!trainingSession && specialPhrase && (
+      {isMainPhase && playMode === 'training' && !!trainingSession && specialPhrase && (
         <div className="hud-twist-telop">
           {t.twistTitle} {specialPhrase}
         </div>
       )}
 
-      {playMode === 'training' && !!trainingSession && (
+      {isMainPhase && playMode === 'training' && !!trainingSession && (
         <div className="hud-training-actions">
           <button
             className={`hud-btn hud-btn-special ${!battleState.specialReady ? 'is-disabled' : ''}`}
@@ -1859,7 +2024,8 @@ function App() {
               if (arSupportState === 'supported') {
                 handleEnterAr();
               }
-              setAppPhase('main'); // Advance to main menu
+              switchMode('hub');
+              setAppPhase('main'); // Advance to flow hub
             }}
             disabled={arSupportState === 'checking'}
             title={arSupportState === 'checking' ? 'Checking AR support...' : ''}
@@ -1871,7 +2037,10 @@ function App() {
           {arSupportState === 'supported' && (
             <button 
               className="hud-btn hud-btn-carbon" 
-              onClick={() => setAppPhase('main')}
+              onClick={() => {
+                switchMode('hub');
+                setAppPhase('main');
+              }}
             >
               Skip AR Summoning
             </button>
@@ -1911,7 +2080,7 @@ function App() {
               >
                 {arButtonLabel}
               </button>
-              {debugVisible && (
+              {debugVisible && playMode === 'match' && (
                 <button
                   id="btn-match-end"
                   className="hud-btn hud-btn-danger hud-btn-mini"
@@ -1920,13 +2089,15 @@ function App() {
                   {t.endMatch}
                 </button>
               )}
-              <button
-                id="btn-arena-align"
-                className="hud-btn hud-btn-blue hud-btn-mini"
-                onClick={publishArenaCalibration}
-              >
-                {t.alignArena}
-              </button>
+              {playMode === 'match' && (
+                <button
+                  id="btn-arena-align"
+                  className="hud-btn hud-btn-blue hud-btn-mini"
+                  onClick={publishArenaCalibration}
+                >
+                  {t.alignArena}
+                </button>
+              )}
               <button
                 id="btn-menu-toggle"
                 className="hud-btn hud-btn-carbon hud-btn-mini"
@@ -1934,13 +2105,15 @@ function App() {
               >
                 {t.menu}
               </button>
-              <button
-                id="btn-arena-share"
-                className="hud-btn hud-btn-teal hud-btn-mini"
-                onClick={() => setIsShareOpen(true)}
-              >
-                {t.share}
-              </button>
+              {playMode === 'match' && (
+                <button
+                  id="btn-arena-share"
+                  className="hud-btn hud-btn-teal hud-btn-mini"
+                  onClick={() => setIsShareOpen(true)}
+                >
+                  {t.share}
+                </button>
+              )}
               {CHARACTER_LAB_UI && (
                 <button
                   id="btn-open-lab"
@@ -1961,33 +2134,119 @@ function App() {
             </div>
           </header>
 
+          {isHubMode && (
+            <section className="flow-hub hud-animate" aria-label={t.flowHubTitle}>
+              <div className="flow-hub-header">
+                <h2>{t.flowHubTitle}</h2>
+                <p>{t.flowHubDesc}</p>
+                <div className="flow-hub-pill">{t.flowPhase1Done}</div>
+              </div>
+              <div className="flow-route-guide">
+                <div className="flow-route-title">{t.routeGuideTitle}</div>
+                <p className="flow-route-desc">{t.routeGuideDesc}</p>
+                <ol className="flow-route-list">
+                  {([
+                    ['walk', t.routeStepWalk],
+                    ['training', t.routeStepTraining],
+                    ['match', t.routeStepBattle],
+                  ] as const).map(([step, label]) => {
+                    const status = routeStatus(step);
+                    return (
+                      <li key={step} className={`flow-route-item is-${status}`}>
+                        <span className="flow-route-step">{label}</span>
+                        <span className={`flow-route-badge is-${status}`}>{routeStatusLabel(status)}</span>
+                      </li>
+                    );
+                  })}
+                </ol>
+                <button
+                  className="hud-btn hud-btn-blue hud-btn-mini"
+                  onClick={triggerRecommendedRouteStep}
+                  disabled={routeNextStep === 'complete'}
+                >
+                  {routeNextStep === 'complete'
+                    ? t.routeCtaComplete
+                    : `${t.routeCtaNext}: ${routeNextStep === 'walk'
+                      ? t.startWalk
+                      : routeNextStep === 'training'
+                        ? t.startTraining
+                        : t.flowStartBattle}`}
+                </button>
+              </div>
+              <div className="flow-hub-grid">
+                <article className="flow-hub-card">
+                  <h3>{t.flowPhase2Title}</h3>
+                  <p>{t.flowPhase2Desc}</p>
+                  <div className="flow-hub-actions">
+                    <button className="hud-btn hud-btn-teal hud-btn-mini" onClick={startWalk}>
+                      {t.startWalk}
+                    </button>
+                    <button className="hud-btn hud-btn-blue hud-btn-mini" onClick={startTraining}>
+                      {t.startTraining}
+                    </button>
+                  </div>
+                </article>
+
+                <article className="flow-hub-card">
+                  <h3>{t.flowPhase3Title}</h3>
+                  <p>{t.flowPhase3Desc}</p>
+                  <div className="flow-hub-actions">
+                    <button className="hud-btn hud-btn-warn hud-btn-mini" onClick={enterBattleMode}>
+                      {t.flowStartBattle}
+                    </button>
+                  </div>
+                </article>
+
+                <article className="flow-hub-card">
+                  <h3>{t.flowPhase4Title}</h3>
+                  <p>{t.flowPhase4Desc}</p>
+                  <div className="flow-hub-memory" title={profileView.memorySummary || ''}>
+                    {profileView.memorySummary || t.noMemory}
+                  </div>
+                  <div className="flow-hub-actions">
+                    <button
+                      className="hud-btn hud-btn-carbon hud-btn-mini"
+                      onClick={() => {
+                        requestProfileSync();
+                        setIsProfileOpen(true);
+                      }}
+                    >
+                      {t.flowOpenMemory}
+                    </button>
+                  </div>
+                </article>
+              </div>
+            </section>
+          )}
+
           <FusionCraftModal 
             isOpen={showFusionCraft} 
             onClose={() => setShowFusionCraft(false)} 
           />
 
-          {/* HP Bars overlay */}
-          <div className="hud-health-bars">
-            <div className="hud-hp-side is-local">
-              <div className="hud-hp-label">{t.hp}</div>
-              <div className="hud-hp-track">
-                <div
-                  className={`hud-hp-fill ${localHp < 30 ? 'critical' : ''}`}
-                  style={{ width: `${isSolo ? localHp : (battleState.maxHp > 0 ? (battleState.hp / battleState.maxHp) * 100 : 0)}%` }}
-                />
+          {showBattleHud && (
+            <div className="hud-health-bars">
+              <div className="hud-hp-side is-local">
+                <div className="hud-hp-label">{t.hp}</div>
+                <div className="hud-hp-track">
+                  <div
+                    className={`hud-hp-fill ${localHp < 30 ? 'critical' : ''}`}
+                    style={{ width: `${isSolo ? localHp : (battleState.maxHp > 0 ? (battleState.hp / battleState.maxHp) * 100 : 0)}%` }}
+                  />
+                </div>
+              </div>
+              <div className="hud-hp-vs">VS</div>
+              <div className="hud-hp-side is-remote">
+                <div className="hud-hp-label">{t.enemyHp}</div>
+                <div className="hud-hp-track">
+                  <div
+                    className={`hud-hp-fill ${enemyHp < 30 ? 'critical' : ''}`}
+                    style={{ width: `${isSolo ? enemyHp : (battleState.opponentMaxHp > 0 ? (battleState.opponentHp / battleState.opponentMaxHp) * 100 : 0)}%` }}
+                  />
+                </div>
               </div>
             </div>
-            <div className="hud-hp-vs">VS</div>
-            <div className="hud-hp-side is-remote">
-              <div className="hud-hp-label">{t.enemyHp}</div>
-              <div className="hud-hp-track">
-                <div
-                  className={`hud-hp-fill ${enemyHp < 30 ? 'critical' : ''}`}
-                  style={{ width: `${isSolo ? enemyHp : (battleState.opponentMaxHp > 0 ? (battleState.opponentHp / battleState.opponentMaxHp) * 100 : 0)}%` }}
-                />
-              </div>
-            </div>
-          </div>
+          )}
 
           <aside className={`hud-profile hud-animate ${isProfileOpen ? 'is-open' : ''}`}>
             <div className="hud-profile-title" onClick={() => setIsProfileOpen(!isProfileOpen)}>
@@ -2036,28 +2295,16 @@ function App() {
             </div>
             <div className="hud-main-commands">
               <button
-                className={`hud-btn hud-btn-mini ${playMode === 'match' ? 'hud-btn-blue' : 'hud-btn-carbon'}`}
-                onClick={() => switchMode('match')}
+                className={`hud-btn hud-btn-mini ${playMode === 'hub' ? 'hud-btn-blue' : 'hud-btn-carbon'}`}
+                onClick={returnToHub}
               >
-                {t.modeMatch}
+                {t.modeHub}
               </button>
               <button
-                className={`hud-btn hud-btn-mini ${playMode === 'training' ? 'hud-btn-blue' : 'hud-btn-carbon'}`}
-                onClick={() => switchMode('training')}
+                className={`hud-btn hud-btn-mini ${playMode === 'match' ? 'hud-btn-warn' : 'hud-btn-carbon'}`}
+                onClick={playMode === 'match' ? returnToHub : enterBattleMode}
               >
-                {t.modeTraining}
-              </button>
-              <button
-                className={`hud-btn hud-btn-mini ${playMode === 'walk' ? 'hud-btn-blue' : 'hud-btn-carbon'}`}
-                onClick={() => switchMode('walk')}
-              >
-                {t.modeWalk}
-              </button>
-              <button
-                className="hud-btn hud-btn-steel hud-btn-mini"
-                onClick={playMode === 'walk' ? sendWalkVisionTrigger : requestProfileSync}
-              >
-                {playMode === 'walk' ? t.sendWalkVision : t.refreshMemory}
+                {playMode === 'match' ? t.flowReturnHub : t.flowStartBattle}
               </button>
               <button
                 className={`hud-btn hud-btn-mini ${playMode === 'training' ? 'hud-btn-teal' : 'hud-btn-carbon'}`}
@@ -2070,6 +2317,12 @@ function App() {
                 onClick={walkSession ? completeWalk : startWalk}
               >
                 {walkSession ? t.completeWalk : t.startWalk}
+              </button>
+              <button
+                className="hud-btn hud-btn-steel hud-btn-mini"
+                onClick={playMode === 'walk' ? sendWalkVisionTrigger : requestProfileSync}
+              >
+                {playMode === 'walk' ? t.sendWalkVision : t.refreshMemory}
               </button>
             </div>
             <div className="hud-profile-grid">
@@ -2124,18 +2377,20 @@ function App() {
             </div>
           )}
 
-          <button
-            id="btn-cast-special"
-            className={`hud-btn hud-cast-btn ${(isStreaming || isMatchPaused || !battleState.specialReady || !matchAlignmentReady) ? 'is-disabled' : ''}`}
-            disabled={isStreaming || isMatchPaused || !battleState.specialReady || !matchAlignmentReady}
-            onClick={handleCastSpecial}
-          >
-            {isMatchPaused
-              ? t.matchPaused
-              : (!matchAlignmentReady
-                ? t.alignPending
-                : (isStreaming ? t.casting : (battleState.specialReady ? t.castSpecial : `EX ${battleState.exGauge}/${EX_GAUGE.MAX}`)))}
-          </button>
+          {showBattleHud && (
+            <button
+              id="btn-cast-special"
+              className={`hud-btn hud-cast-btn ${(isStreaming || isMatchPaused || !battleState.specialReady || !matchAlignmentReady) ? 'is-disabled' : ''}`}
+              disabled={isStreaming || isMatchPaused || !battleState.specialReady || !matchAlignmentReady}
+              onClick={handleCastSpecial}
+            >
+              {isMatchPaused
+                ? t.matchPaused
+                : (!matchAlignmentReady
+                  ? t.alignPending
+                  : (isStreaming ? t.casting : (battleState.specialReady ? t.castSpecial : `EX ${battleState.exGauge}/${EX_GAUGE.MAX}`)))}
+            </button>
+          )}
 
           {debugVisible && (
             <button
@@ -2175,9 +2430,9 @@ function App() {
 
       {appPhase === 'main' && (
         <>
-          <ServerDrivenPanel />
+          {showBattleHud && <ServerDrivenPanel />}
           <DynamicSubtitle />
-          <RemoteStreamView />
+          {showBattleHud && <RemoteStreamView />}
         </>
       )}
       

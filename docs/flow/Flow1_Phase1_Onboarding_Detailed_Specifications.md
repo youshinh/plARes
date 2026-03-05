@@ -32,7 +32,7 @@ Based on the UI mockups of images (693, 694, 695), define the screen transition 
 
 ### **3. Machine Multimodal Generation Engine (Backend Processing)**
 
-Triggered by the user's action (Capture or Skip), the backend's Gemini 2.0 Pro (Vision model) determines the machine's initial status and personality.
+Triggered by the user's action (Capture or Skip), the backend's `gemini-3.1-pro-preview` (Vision model) determines the machine's initial status and personality.
 
 #### **3.1 Camera Capture Route (Main Route)**
 
@@ -82,10 +82,10 @@ Immediately after the machine's data is created in Firestore, the transition to 
 
 #### **4.3 Live API Connection and First Contact**
 
-1. The moment the machine lands, the backend ADK establishes a bidirectional streaming (WebSocket) connection with the Gemini Live API.
+1. The moment the machine lands, the backend ADK establishes a bidirectional streaming (WebSocket) connection with the Gemini Live API (`gemini-2.5-flash-native-audio-preview-12-2025`).
 2. **Initial Context Injection**: Inject the previously generated `tone` (personality) into the system prompt as the first payload upon connection.
 3. **First Contact (Spontaneous Utterance)**: The machine looks up at the player (camera) and gives the first greeting.
    - _Example (when Tone is "Passionate man")_: "Master, sorry to keep you waiting! I can feel your aura loud and clear. Looking forward to working with you from today!"
-   - This voice is streamed as a raw audio waveform (Native Audio) and emitted from the machine without lag.
+   - This voice is streamed as a raw audio waveform (Native Audio) through `gemini-2.5-flash-native-audio-preview-12-2025` and emitted from the machine without lag.
 
 At this moment, onboarding is complete, and the machine transitions to a state of waiting for player instructions (basic autonomous loop: `State.HOVERING`). Preparation for Phase 2 (Daily Co-creation) or Phase 3 (Battle) is complete.

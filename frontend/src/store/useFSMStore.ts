@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import type { CharacterDNA } from '../../../shared/types/firestore';
 import { DEFAULT_CHARACTER_DNA, normalizeCharacterDNA } from '../utils/characterDNA';
 
-export type PlayMode = 'match' | 'training' | 'walk';
+export type PlayMode = 'hub' | 'match' | 'training' | 'walk';
 
 export enum State {
   HOVERING = 'HOVERING',
@@ -106,7 +106,7 @@ export const useFSMStore = create<FSMState>((set, get) => ({
   localHp: 100,
   enemyHp: 100,
 
-  playMode: 'match',
+  playMode: 'hub',
   setPlayMode: (mode) => set({ playMode: mode }),
 
   modelType: 'A',

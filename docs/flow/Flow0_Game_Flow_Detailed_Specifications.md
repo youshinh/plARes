@@ -2,7 +2,7 @@
 
 [日本語版 (JP)](jp/Flow0_プラレスAR_ゲームフロー詳細仕様書.md)
 
-This specification defines the core game cycle for "plARes," an AI agent-driven AR game that merges real-world space (WebXR) with Large Language Models (Gemini 2.0 Pro / Live API), divided into four phases.
+This specification defines the core game cycle for "plARes," an AI agent-driven AR game that merges real-world space (WebXR) with approved Gemini models (`gemini-3.1-pro-preview`, `gemini-3-flash-preview`, `gemini-2.5-flash-native-audio-preview-12-2025`, and `gemini-3.1-flash-image-preview`), divided into four phases.
 
 ## **Phase 1: Onboarding (Birth of the Machine and Pilot Contract)**
 
@@ -15,7 +15,7 @@ This phase involves more than just avatar creation; it generates a "one-of-a-kin
 
 ### **1.2 Multimodal Generation of the Machine**
 
-- **Camera Scan**: The player scans their face and expressions using the front camera. Gemini 2.0 Pro's Vision model analyzes the "aura and skeletal structure" to determine initial status (Power, Speed, etc.) and the main color.
+- **Camera Scan**: The player scans their face and expressions using the front camera. `gemini-3.1-pro-preview`'s Vision model analyzes the "aura and skeletal structure" to determine initial status (Power, Speed, etc.) and the main color.
 - **Fallback**: If the face scan is skipped, generation via text prompts (e.g., "A passionate, speed-oriented robot") is accepted.
 - **Determination of Initial Personality**: From the dialogue and analysis at this point, initial software parameters such as `tone` (manner of speech/personality, e.g., "Sincere Samurai") and `talkSkill` (charm) are determined and saved in Firestore.
 
@@ -31,13 +31,13 @@ In this phase, "memory (context)" and "affection" for the AI agent are nurtured 
 ### **2.1 Stroll Mode (Outings and Exploration)**
 
 - **Autonomous Movement**: The machine autonomously walks around the acquired spatial mesh (NavMesh), avoiding or climbing obstacles (local processing with zero communication lag).
-- **Vision Integration and Proactive Dialogue**: The smartphone's rear camera footage is streamed to the Gemini Live API at 1-2 frames per second. The AI monitors the footage; for example, if it recognizes "handmade wooden furniture," it spontaneously starts commentary and dialogue (Proactive Audio), saying things like, "Master, this wood smells great!"
-- **Real-World Fusion Craft**: During a stroll, the player takes a photo of a real-world object (e.g., "Fried Spring Roll" on a dining table) and sends it with text like "A holy sword that fires lasers." The backend's Nano Banana Pro performs image fusion (8-Image Mix), generating a "3D weapon texture with the texture of a spring roll" in 1-2 seconds, which is then saved to the inventory.
+- **Vision Integration and Proactive Dialogue**: The smartphone's rear camera footage is streamed to the Gemini Live API (`gemini-2.5-flash-native-audio-preview-12-2025`) at 1-2 frames per second. The AI monitors the footage; for example, if it recognizes "handmade wooden furniture," it spontaneously starts commentary and dialogue (Proactive Audio), saying things like, "Master, this wood smells great!"
+- **Real-World Fusion Craft**: During a stroll, the player takes a photo of a real-world object (e.g., "Fried Spring Roll" on a dining table) and sends it with text like "A holy sword that fires lasers." The backend's Nano Banana Pro (`gemini-3.1-flash-image-preview`) performs image fusion (8-Image Mix), generating a "3D weapon texture with the texture of a spring roll" in 1-2 seconds, which is then saved to the inventory.
 
 ### **2.2 Training Mode (Incantation Special Training)**
 
 - **Flow**: A mini-game to improve the accuracy of "incantations (tongue twisters)" for special moves while avoiding oncoming obstacles.
-- **Articulation Judgment Agent**: Gemini directly analyzes the player's raw audio waveform (Native Audio) and scores it on three axes: "Accuracy" of the text, "Speed" of completion, and "Spirit" (loudness, tremor of the voice, etc.). The higher this score, the higher the "Sync Rate" with the machine.
+- **Articulation Judgment Agent**: `gemini-2.5-flash-native-audio-preview-12-2025` directly analyzes the player's raw audio waveform (Native Audio) and scores it on three axes: "Accuracy" of the text, "Speed" of completion, and "Spirit" (loudness, tremor of the voice, etc.). The higher this score, the higher the "Sync Rate" with the machine.
 
 ## **Phase 3: Battle (AR Multiplayer Match)**
 
@@ -67,12 +67,12 @@ A feedback phase that carves battle results into the machine not just as numeric
 
 ### **4.1 Summarization and Fixation of Memories (Memory Bank)**
 
-- **Flow**: At the end of a match, the backend passes all action logs during the match (in-memory) to Gemini to summarize the highlights.
+- **Flow**: At the end of a match, the backend passes all action logs during the match (in-memory) to `gemini-3.1-pro-preview` to summarize the highlights.
 - **System**: Contextual metadata like "Won with the Spring Roll Sword" or "Successfully avoided many times" is merged into and updated in the long-term memory document (aiMemorySummary) in Firestore.
 
 ### **4.2 Procedural Texture Evolution**
 
-- **Visual Feedback**: At specific milestones, such as completing a certain number of matches, Nano Banana Pro's batch processing runs in the background. Based on past memories (aiMemorySummary), battle history like "black scorch marks from a fierce fire attack" is dynamically synthesized (overwritten) onto the machine's current texture.
+- **Visual Feedback**: At specific milestones, such as completing a certain number of matches, Nano Banana Pro (`gemini-3.1-flash-image-preview`) batch processing runs in the background. Based on past memories (aiMemorySummary), battle history like "black scorch marks from a fierce fire attack" is dynamically synthesized (overwritten) onto the machine's current texture.
 
 ### **4.3 Ambient Growth Feedback**
 
