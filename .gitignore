@@ -96,6 +96,7 @@ output/
 # Misc
 # ==========================
 *.local
+*.DS_Store
 .cache/
 tmp/
 .playwright-cli/
