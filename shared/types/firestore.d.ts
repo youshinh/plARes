@@ -54,6 +54,8 @@ export interface RobotGenerationRequest {
   face_image_base64?: string;
   /** スキップ時にユーザーが入力したテキストプロンプト */
   preset_text?: string;
+  /** フロントで選択した機体タイプ */
+  model_type?: "A" | "B";
 }
 
 /** バックエンドがGemini Visionから生成したロボット初期パラメータ */

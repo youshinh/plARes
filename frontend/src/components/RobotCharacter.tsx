@@ -31,6 +31,7 @@ import {
 const SPEED_NORMAL = 1.5;
 const SPEED_EVADE  = 5.0;
 const GROUND_CLEARANCE_EPSILON = 0.004;
+const GROUND_CONTACT_BIAS = -0.012;
 const ROOT_DRIVE_BONE_RE = /(armature|hips|mixamorighips|root)/i;
 const setFacingYaw = (group: THREE.Group, from: THREE.Vector3, to: THREE.Vector3) => {
   const dirX = to.x - from.x;
@@ -76,6 +77,10 @@ export const RobotCharacter: React.FC = () => {
   const waypointsRef = useRef<THREE.Vector3[]>([]);
   const lastTargetRef= useRef<THREE.Vector3 | null>(null);
   const lastSyncAtRef = useRef<number>(0);
+  const localStoreTimerRef = useRef<number | null>(null);
+  const roamTimerRef = useRef<number | null>(null);
+  const lastLocalStoreSyncAtRef = useRef<number>(0);
+  const lastLocalStorePosRef = useRef<THREE.Vector3>(new THREE.Vector3(0, 0, -1));
   const prevPosRef = useRef<THREE.Vector3>(new THREE.Vector3(0, 0, -1));
   const hoverTimerRef = useRef<number>(0);
   const clipGroundOffsetRef = useRef<Partial<Record<CharacterClipName, number>>>({});
@@ -88,8 +93,13 @@ export const RobotCharacter: React.FC = () => {
   const [heroAnimations, setHeroAnimations] = React.useState<THREE.AnimationClip[]>([]);
   const [heroBaseMinY, setHeroBaseMinY] = React.useState<number | null>(null);
 
-  const { currentState, targetPosition, updateBasicMovement,
-          robotStats, robotMeta, robotDna, modelType } = useFSMStore();
+  const currentState = useFSMStore(s => s.currentState);
+  const targetPosition = useFSMStore(s => s.targetPosition);
+  const robotStats = useFSMStore(s => s.robotStats);
+  const robotMeta = useFSMStore(s => s.robotMeta);
+  const robotDna = useFSMStore(s => s.robotDna);
+  const modelType = useFSMStore(s => s.modelType);
+  const playMode = useFSMStore(s => s.playMode);
   const heroModelUrl = `/models/${modelType}/Character_output.glb`;
   const fallbackModelUrl = `/models/${modelType === 'A' ? 'B' : 'A'}/Character_output.glb`;
   const silhouette = getSilhouetteScales(robotDna);
@@ -97,7 +107,7 @@ export const RobotCharacter: React.FC = () => {
   const dnaGlowIntensity = Math.max(0.9, Math.min(1.8, robotDna.glowIntensity || 1.0));
   const scarRoughnessBoost = (robotDna.scarLevel || 0) * 0.035;
   const heroScale = 0.62 + ((robotStats.vit / 99) * 0.08);
-  const heroOffsetY = heroBaseMinY !== null ? (-heroBaseMinY * heroScale) : -0.145;
+  const heroOffsetY = (heroBaseMinY !== null ? (-heroBaseMinY * heroScale) : 0) + GROUND_CONTACT_BIAS;
 
   React.useEffect(() => {
     let disposed = false;
@@ -257,7 +267,7 @@ export const RobotCharacter: React.FC = () => {
         // Face movement direction (yaw-only to avoid camera-like drift)
         setFacingYaw(groupRef.current, pos, nextWp);
       }
-    } else if (currentState === State.HOVERING && navMesh.isReady()) {
+    } else if (playMode !== 'hub' && currentState === State.HOVERING && navMesh.isReady()) {
       // ── Priority 3: Auto-roaming when hovering ──────────────────────────
       hoverTimerRef.current += delta;
       if (hoverTimerRef.current > 3.0) {
@@ -267,7 +277,13 @@ export const RobotCharacter: React.FC = () => {
           pos.y,
           pos.z + (Math.random() - 0.5) * 2.0
         );
-        updateBasicMovement(randomTarget);
+        if (roamTimerRef.current) {
+          clearTimeout(roamTimerRef.current);
+        }
+        roamTimerRef.current = window.setTimeout(() => {
+          useFSMStore.getState().updateBasicMovement(randomTarget);
+          roamTimerRef.current = null;
+        }, 0);
       }
     }
     const localAnchor = useArenaSyncStore.getState().localCalibration?.point ?? { x: 0, y: 0, z: 0 };
@@ -299,7 +315,7 @@ export const RobotCharacter: React.FC = () => {
       if (Number.isFinite(bounds.min.y)) {
         const groundY = groupRef.current.position.y;
         const clearance = bounds.min.y - groundY;
-        if (clearance > GROUND_CLEARANCE_EPSILON) {
+        if (Math.abs(clearance) > GROUND_CLEARANCE_EPSILON) {
           clipOffset -= clearance / parentScaleY;
           clipGroundOffsetRef.current[activeClip] = clipOffset;
           modelGroup.position.y = heroOffsetY + clipOffset;
@@ -387,10 +403,26 @@ export const RobotCharacter: React.FC = () => {
       }
     });
 
-    useFSMStore.getState().setLocalRobotPosition(pos.clone());
-
     const now = performance.now();
-    if (now - lastSyncAtRef.current >= 50) {
+    if (playMode === 'match') {
+      if (
+        now - lastLocalStoreSyncAtRef.current >= 80 &&
+        lastLocalStorePosRef.current.distanceToSquared(pos) > 1e-6
+      ) {
+        const cloned = pos.clone();
+        if (localStoreTimerRef.current) {
+          clearTimeout(localStoreTimerRef.current);
+        }
+        localStoreTimerRef.current = window.setTimeout(() => {
+          useFSMStore.getState().setLocalRobotPosition(cloned);
+          localStoreTimerRef.current = null;
+        }, 0);
+        lastLocalStorePosRef.current.copy(pos);
+        lastLocalStoreSyncAtRef.current = now;
+      }
+    }
+
+    if (playMode === 'match' && now - lastSyncAtRef.current >= 50) {
       const vel = new THREE.Vector3().subVectors(pos, prevPosRef.current).divideScalar(Math.max(delta, 0.0001));
       const frameId = useArenaSyncStore.getState().localCalibration?.frameId;
       const syncData: SyncData = {
@@ -486,6 +518,10 @@ export const RobotCharacter: React.FC = () => {
     if (!heroScene) return;
     const roughBias = finishTuning.roughnessBias;
     const metalBias = finishTuning.metalBias;
+    const primaryBodyColor = modelType === 'B' ? C.red : C.blue;
+    const secondaryBodyColor = modelType === 'B' ? C.yellow : C.white;
+    const accentEmissiveColor = modelType === 'B' ? C.redD : C.blueL;
+    const visorGlowColor = modelType === 'B' ? C.yellow : C.cyan;
     const applyRough = (value: number) => Math.max(0.02, Math.min(0.98, value + roughBias));
     const applyMetal = (value: number) => Math.max(0.0, Math.min(1.0, value + metalBias));
     const buildHeroMat = (params: THREE.MeshPhysicalMaterialParameters) => {
@@ -506,20 +542,20 @@ export const RobotCharacter: React.FC = () => {
 
     const mats = [
       buildHeroMat({
-        color: skinTex ? 0xffffff : C.blue,
+        color: skinTex ? 0xffffff : primaryBodyColor,
         map: skinTex || blueMaps.map,
         roughnessMap: blueMaps.roughnessMap,
         metalnessMap: blueMaps.metalnessMap,
         emissiveMap: blueMaps.emissiveMap,
         roughness: applyRough(0.34),
         metalness: applyMetal(0.58),
-        emissive: new THREE.Color(C.blueL),
+        emissive: new THREE.Color(accentEmissiveColor),
         emissiveIntensity: 0.06,
         clearcoat: 0.22,
         clearcoatRoughness: 0.34,
       }),
       buildHeroMat({
-        color: skinTex ? 0xffffff : C.white,
+        color: skinTex ? 0xffffff : secondaryBodyColor,
         map: skinTex || whiteMaps.map,
         roughnessMap: whiteMaps.roughnessMap,
         metalnessMap: whiteMaps.metalnessMap,
@@ -545,8 +581,8 @@ export const RobotCharacter: React.FC = () => {
         clearcoatRoughness: 0.5,
       }),
       buildHeroMat({
-        color: C.cyan,
-        emissive: new THREE.Color(C.cyan),
+        color: visorGlowColor,
+        emissive: new THREE.Color(visorGlowColor),
         emissiveMap: surfaceMaps.blue?.emissive,
         emissiveIntensity: Math.max(0.9, dnaGlowIntensity),
         roughness: applyRough(0.08),
@@ -569,7 +605,18 @@ export const RobotCharacter: React.FC = () => {
     return () => {
       mats.forEach((m) => m.dispose());
     };
-  }, [heroScene, C.white, C.whiteB, C.blue, C.blueL, C.black, C.blackM, C.cyan, dnaGlowIntensity, surfaceMaps, withMaps, finishTuning.roughnessBias, finishTuning.metalBias]);
+  }, [heroScene, C.white, C.whiteB, C.blue, C.blueL, C.black, C.blackM, C.cyan, C.red, C.redD, C.yellow, dnaGlowIntensity, modelType, surfaceMaps, withMaps, finishTuning.roughnessBias, finishTuning.metalBias]);
+
+  React.useEffect(() => () => {
+    if (localStoreTimerRef.current) {
+      clearTimeout(localStoreTimerRef.current);
+      localStoreTimerRef.current = null;
+    }
+    if (roamTimerRef.current) {
+      clearTimeout(roamTimerRef.current);
+      roamTimerRef.current = null;
+    }
+  }, []);
 
   return (
     <group ref={groupRef} position={[0, 0, -1]} scale={[silhouette.body, silhouette.body, silhouette.body]}>

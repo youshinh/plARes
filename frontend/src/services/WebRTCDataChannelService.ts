@@ -35,10 +35,14 @@ class WebRTCDataChannelService {
       });
     });
 
-    this.sendPresence();
+    if (wsService.isConnected()) {
+      this.sendPresence();
+    }
     this.emitPeerState();
     this.presenceTimer = setInterval(() => {
-      if (!this.isOpen()) this.sendPresence();
+      if (!this.isOpen() && wsService.isConnected()) {
+        this.sendPresence();
+      }
     }, 4000);
   }
 
@@ -228,6 +232,7 @@ class WebRTCDataChannelService {
   }
 
   private sendPresence() {
+    if (!wsService.isConnected()) return;
     wsService.sendSignal({ kind: 'presence', from: this.localId });
   }
 

@@ -125,6 +125,7 @@ const normalizeGenerationResult = (raw: unknown): NormalizedGenerationResult => 
 export function useCharacterSetup() {
   const setRobotStats = useFSMStore(s => s.setRobotStats);
   const setRobotDna = useFSMStore(s => s.setRobotDna);
+  const modelType = useFSMStore(s => s.modelType);
 
   // 既に初期化済みかどうか
   const [isSetupDone, setIsSetupDone] = useState<boolean>(() => {
@@ -154,6 +155,7 @@ export function useCharacterSetup() {
         user_id: PLAYER_ID,
         face_image_base64: faceImageBase64,
         preset_text: presetText,
+        model_type: modelType,
       };
 
       const data = await new Promise<NormalizedGenerationResult>((resolve, reject) => {
@@ -241,7 +243,7 @@ export function useCharacterSetup() {
     } finally {
       setIsGenerating(false);
     }
-  }, [setRobotStats, setRobotDna]);
+  }, [modelType, setRobotStats, setRobotDna]);
 
   /** デバッグ用：初期化フラグをリセットして再度FaceScannerを表示させる */
   const resetSetup = useCallback(() => {

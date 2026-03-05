@@ -26,6 +26,7 @@ import { patchDepthOcclusionMaterial, updateDepthOcclusionUniforms } from '../ut
 
 const HEIGHT_DEBUG = import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEBUG_UI === 'true';
 const GROUND_CLEARANCE_EPSILON = 0.004;
+const GROUND_CONTACT_BIAS = -0.012;
 
 interface RemoteRobotCharacterProps {
   depthTexture?: THREE.DataTexture | null;
@@ -99,7 +100,7 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
   const hasRemotePeer = useArenaSyncStore(s => s.hasRemotePeer);
   const matchAlignmentReady = useArenaSyncStore(s => s.matchAlignmentReady);
   const localModelType = useFSMStore(s => s.modelType);
-  const remoteBaseOffsetY = modelBaseMinY !== null ? (-modelBaseMinY * 0.62) : -0.145;
+  const remoteBaseOffsetY = (modelBaseMinY !== null ? (-modelBaseMinY * 0.62) : 0) + GROUND_CONTACT_BIAS;
 
   // Sync effect (when connected to someone)
   useEffect(() => {
@@ -151,8 +152,7 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
     };
   }, []);
 
-  // Keep enemy rig identical to local rig to avoid model-specific facing mismatches.
-  const opponentModelType = localModelType;
+  const opponentModelType = hasRemotePeer ? localModelType : (localModelType === 'A' ? 'B' : 'A');
 
   // Load Model
   useEffect(() => {
@@ -182,6 +182,8 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
     loadBaseWithFallback().then(async (baseGltf) => {
       if (disposed) return;
       const scene = cloneSkeleton(baseGltf.scene) as THREE.Group;
+      const bodyColor = opponentModelType === 'B' ? '#a63a25' : '#2f7dff';
+      const emissiveColor = opponentModelType === 'B' ? '#6a1a0f' : '#0f2b66';
       scene.traverse((child) => {
         if ((child as THREE.Mesh).isMesh) {
           const mesh = child as THREE.Mesh;
@@ -195,11 +197,11 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
             ((m as unknown) as { skinning?: boolean }).skinning = true;
             if ('color' in m) {
               const colorMaterial = m as THREE.Material & { color: THREE.Color };
-              colorMaterial.color.set('#2f7dff');
+              colorMaterial.color.set(bodyColor);
             }
             if ('emissive' in m) {
               const emissiveMaterial = m as THREE.Material & { emissive: THREE.Color };
-              emissiveMaterial.emissive.setHex(0x0f2b66);
+              emissiveMaterial.emissive.set(emissiveColor);
             }
             if ('roughness' in m) {
               const roughMaterial = m as THREE.Material & { roughness: number };
@@ -630,7 +632,7 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
       if (Number.isFinite(bounds.min.y)) {
         const groundY = group.position.y;
         const clearance = bounds.min.y - groundY;
-        if (clearance > GROUND_CLEARANCE_EPSILON) {
+        if (Math.abs(clearance) > GROUND_CLEARANCE_EPSILON) {
           clipOffset -= clearance / parentScaleY;
           clipGroundOffsetRef.current[activeClip] = clipOffset;
           modelGroup.position.y = remoteBaseOffsetY + clipOffset;

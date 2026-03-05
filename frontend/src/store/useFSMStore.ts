@@ -4,6 +4,15 @@ import type { CharacterDNA } from '../../../shared/types/firestore';
 import { DEFAULT_CHARACTER_DNA, normalizeCharacterDNA } from '../utils/characterDNA';
 
 export type PlayMode = 'hub' | 'match' | 'training' | 'walk';
+const MODEL_TYPE_STORAGE_KEY = 'plares_model_type';
+const loadInitialModelType = (): 'A' | 'B' => {
+  if (typeof window === 'undefined') return 'A';
+  try {
+    return localStorage.getItem(MODEL_TYPE_STORAGE_KEY) === 'B' ? 'B' : 'A';
+  } catch {
+    return 'A';
+  }
+};
 
 export enum State {
   HOVERING = 'HOVERING',
@@ -69,7 +78,7 @@ interface FSMState {
   setRobotStats: (stats: RobotStats, meta: RobotMeta) => void;
   setRobotDna: (dna: CharacterDNA | null | undefined) => void;
   remoteRobotPosition: THREE.Vector3 | null;
-  setRemoteRobotPosition: (pos: THREE.Vector3) => void;
+  setRemoteRobotPosition: (pos: THREE.Vector3 | null) => void;
   localRobotPosition: THREE.Vector3 | null;
   setLocalRobotPosition: (pos: THREE.Vector3) => void;
 
@@ -109,10 +118,17 @@ export const useFSMStore = create<FSMState>((set, get) => ({
   playMode: 'hub',
   setPlayMode: (mode) => set({ playMode: mode }),
 
-  modelType: 'A',
+  modelType: loadInitialModelType(),
   prioritySource: 'system' as const,
   transitionLog: [],
-  setModelType: (type) => set({ modelType: type }),
+  setModelType: (type) => {
+    try {
+      localStorage.setItem(MODEL_TYPE_STORAGE_KEY, type);
+    } catch {
+      // noop
+    }
+    set({ modelType: type });
+  },
   debugSetState: (nextState) => {
     const prev = get().currentState;
     get().clearEvadeTimeout();

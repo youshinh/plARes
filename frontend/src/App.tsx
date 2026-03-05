@@ -44,6 +44,7 @@ const DEBUG_UI = import.meta.env.VITE_ENABLE_DEBUG_UI === 'true';
 const CHARACTER_LAB_UI = import.meta.env.VITE_ENABLE_CHARACTER_LAB !== 'false';
 const STORAGE_LANG_KEY = 'plares_lang';
 const STORAGE_LANG_SELECTED_KEY = 'plares_lang_selected';
+const STORAGE_ROBOT_INITIALIZED_KEY = 'plares_robot_initialized';
 const STORAGE_PLAY_MODE_KEY = 'plares_play_mode';
 const STORAGE_ROUTE_PROGRESS_KEY = 'plares_route_progress';
 const IS_ANDROID_CHROME = (() => {
@@ -234,6 +235,7 @@ const UI_TEXT: Record<UiLang, Record<string, string>> = {
     startLiveMic: 'LIVEマイク開始',
     stopLiveMic: 'LIVEマイク停止',
     sendLiveText: 'LIVEテキスト送信',
+    liveNeedConnection: 'LIVE接続を先に実行してください',
     testInteraction: '会話テスト',
     testTexture: 'テクスチャ確認',
     castSpecial: '必殺発動 ⚡',
@@ -275,6 +277,19 @@ const UI_TEXT: Record<UiLang, Record<string, string>> = {
     routeStatusDone: '完了',
     routeCtaNext: '次の推奨アクション',
     routeCtaComplete: '推奨ルート達成',
+    prepTitle: '対戦準備ブリーフィング',
+    prepDesc: '対戦開始前に、ルート進捗と機体設定を確認しましょう。',
+    prepStepRoute: '推奨ルート進捗',
+    prepStepModel: '機体モデル',
+    prepStepAlign: '開幕アクション',
+    prepReady: '準備OK',
+    prepGuide: '確認',
+    prepMissing: '未達',
+    prepAlignGuide: '開始後に位置合わせ',
+    prepStartNow: 'この内容で対戦開始',
+    prepBackHub: 'ハブに戻る',
+    prepGoWalk: '散歩を先に実施',
+    prepGoTraining: '修行を先に実施',
     startTraining: '修行開始',
     completeTraining: '修行完了',
     startWalk: '散歩開始',
@@ -321,6 +336,7 @@ const UI_TEXT: Record<UiLang, Record<string, string>> = {
     startLiveMic: 'Start Live Mic',
     stopLiveMic: 'Stop Live Mic',
     sendLiveText: 'Send Live Text',
+    liveNeedConnection: 'Connect Live first.',
     testInteraction: 'Test Interaction',
     testTexture: 'Test Texture',
     castSpecial: 'Cast Special ⚡',
@@ -362,6 +378,19 @@ const UI_TEXT: Record<UiLang, Record<string, string>> = {
     routeStatusDone: 'Done',
     routeCtaNext: 'Recommended Next Action',
     routeCtaComplete: 'Route Completed',
+    prepTitle: 'Battle Prep Briefing',
+    prepDesc: 'Review route progress and machine setup before entering battle.',
+    prepStepRoute: 'Recommended Route',
+    prepStepModel: 'Machine Model',
+    prepStepAlign: 'Opening Action',
+    prepReady: 'Ready',
+    prepGuide: 'Check',
+    prepMissing: 'Missing',
+    prepAlignGuide: 'Align arena after match starts',
+    prepStartNow: 'Start Battle With This Setup',
+    prepBackHub: 'Back to Hub',
+    prepGoWalk: 'Do Walk First',
+    prepGoTraining: 'Do Training First',
     incantationStart: 'Start Incantation ⚡',
     twistTitle: 'Tongue Twister:',
     startTraining: 'Start Training',
@@ -410,6 +439,7 @@ const UI_TEXT: Record<UiLang, Record<string, string>> = {
     startLiveMic: 'Iniciar Micro Live',
     stopLiveMic: 'Detener Micro Live',
     sendLiveText: 'Enviar Texto Live',
+    liveNeedConnection: 'Conecta Live primero.',
     testInteraction: 'Probar Interaccion',
     testTexture: 'Probar Textura',
     castSpecial: 'Lanzar Especial ⚡',
@@ -451,6 +481,19 @@ const UI_TEXT: Record<UiLang, Record<string, string>> = {
     routeStatusDone: 'Completado',
     routeCtaNext: 'Siguiente accion recomendada',
     routeCtaComplete: 'Ruta completada',
+    prepTitle: 'Briefing previo a batalla',
+    prepDesc: 'Revisa progreso de ruta y configuracion del robot antes de combatir.',
+    prepStepRoute: 'Ruta recomendada',
+    prepStepModel: 'Modelo de robot',
+    prepStepAlign: 'Accion inicial',
+    prepReady: 'Listo',
+    prepGuide: 'Revisar',
+    prepMissing: 'Pendiente',
+    prepAlignGuide: 'Alinear arena al iniciar batalla',
+    prepStartNow: 'Iniciar batalla con esta preparacion',
+    prepBackHub: 'Volver al Hub',
+    prepGoWalk: 'Hacer Paseo primero',
+    prepGoTraining: 'Hacer Entreno primero',
     incantationStart: 'Iniciar Encantamiento ⚡',
     twistTitle: 'Trabalenguas:',
     startTraining: 'Iniciar Entreno',
@@ -524,6 +567,7 @@ const MainScene: React.FC = () => {
 
   // Listen for automated environment detection from useWebXRScanner
   const playMode = useFSMStore(s => s.playMode);
+  const showOpponent = playMode === 'match';
   useEffect(() => {
     const handler = (e: Event) => {
       const { trigger, context } = (e as CustomEvent).detail;
@@ -562,7 +606,9 @@ const MainScene: React.FC = () => {
       <pointLight position={[2.2, 1.1, -1.5]} intensity={0.55} color="#FFB26B" />
       <Environment preset="sunset" />
       <RobotCharacter />
-      <RemoteRobotCharacter depthTexture={depthTexture} depthRawToMeters={depthRawToMeters} />
+      {showOpponent && (
+        <RemoteRobotCharacter depthTexture={depthTexture} depthRawToMeters={depthRawToMeters} />
+      )}
 
       {/* Hit-test placement ring */}
       {indicatorPos && (
@@ -599,7 +645,9 @@ function App() {
   const setRobotStats = useFSMStore(s => s.setRobotStats);
   const robotDna = useFSMStore(s => s.robotDna);
   const robotMaterial = useFSMStore(s => s.robotMeta.material);
+  const currentModelType = useFSMStore(s => s.modelType);
   const setRobotDna = useFSMStore(s => s.setRobotDna);
+  const setRemoteRobotPosition = useFSMStore(s => s.setRemoteRobotPosition);
   const matchAlignmentReady = useArenaSyncStore(s => s.matchAlignmentReady);
   const hasRemotePeer = useArenaSyncStore(s => s.hasRemotePeer);
   const isSolo = !hasRemotePeer;
@@ -640,14 +688,17 @@ function App() {
   const [isLiveMicActive, setIsLiveMicActive] = useState(false);
   const [isMatchPaused, setIsMatchPaused] = useState(false);
   const [voiceAckText, setVoiceAckText] = useState('');
-  const { playMode, setPlayMode } = useFSMStore();
+  const playMode = useFSMStore(s => s.playMode);
+  const setPlayMode = useFSMStore(s => s.setPlayMode);
   const switchMode = (mode: PlayMode) => {
     setPlayMode(mode);
   };
   const returnToHub = () => {
+    setIsBattlePrepOpen(false);
     switchMode('hub');
   };
   const enterBattleMode = () => {
+    setIsBattlePrepOpen(false);
     setTrainingSession(null);
     setWalkSession(null);
     setLocalRouteProgress(prev => ({ ...prev, battle: prev.battle + 1 }));
@@ -672,9 +723,13 @@ function App() {
       return { walk: 0, training: 0, battle: 0 };
     }
   });
-  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isProfileOpen, setIsProfileOpen] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return window.matchMedia('(min-width: 1024px)').matches;
+  });
   const [isShareOpen, setIsShareOpen] = useState(false);
   const [isLabOpen, setIsLabOpen] = useState(false);
+  const [isBattlePrepOpen, setIsBattlePrepOpen] = useState(false);
   const [recentABFeedbackCount, setRecentABFeedbackCount] = useState(0);
   const [bgmUrl, setBgmUrl] = useState('');
   const bgmAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -702,8 +757,10 @@ function App() {
   const [appPhase, setAppPhase] = useState<'lang' | 'scan' | 'summon' | 'main'>(() => {
     try {
       if (!localStorage.getItem(STORAGE_LANG_SELECTED_KEY)) return 'lang';
-      // We will let the effect below advance from 'scan' -> 'summon' -> 'main'
-      return 'scan';
+      const setupDone =
+        import.meta.env.VITE_SKIP_FACE_SCANNER === 'true' ||
+        localStorage.getItem(STORAGE_ROBOT_INITIALIZED_KEY) === 'done';
+      return setupDone ? 'summon' : 'scan';
     } catch {
       return 'lang';
     }
@@ -758,6 +815,7 @@ function App() {
   const hasWalkMilestone = walkProgress > 0;
   const hasTrainingMilestone = trainingProgress > 0;
   const hasBattleMilestone = battleProgress > 0;
+  const hasRouteFoundation = hasWalkMilestone && hasTrainingMilestone;
   const routeNextStep: 'walk' | 'training' | 'match' | 'complete' =
     !hasWalkMilestone ? 'walk' :
     !hasTrainingMilestone ? 'training' :
@@ -780,6 +838,13 @@ function App() {
     status === 'doing' ? t.routeStatusDoing :
     t.routeStatusTodo
   );
+  const openBattlePrep = () => {
+    if (playMode === 'match') return;
+    setIsBattlePrepOpen(true);
+    window.dispatchEvent(new CustomEvent('show_subtitle', {
+      detail: { text: t.prepTitle },
+    }));
+  };
 
   const applyLanguage = (langCode: string, markAsChosen: boolean) => {
     try {
@@ -830,6 +895,11 @@ function App() {
       // noop
     }
   }, [localRouteProgress]);
+  useEffect(() => {
+    if (playMode !== 'match') {
+      setRemoteRobotPosition(null);
+    }
+  }, [playMode, setRemoteRobotPosition]);
 
   const modeLabel =
     playMode === 'hub' ? t.modeHub :
@@ -838,6 +908,7 @@ function App() {
     t.modeMatch;
 
   const startTraining = () => {
+    setIsBattlePrepOpen(false);
     setWalkSession(null);
     const session: ModeSession = {
       id: createModeSessionId('training'),
@@ -890,6 +961,7 @@ function App() {
   };
 
   const startWalk = () => {
+    setIsBattlePrepOpen(false);
     setTrainingSession(null);
     const session: ModeSession = {
       id: createModeSessionId('walk'),
@@ -943,7 +1015,7 @@ function App() {
       return;
     }
     if (routeNextStep === 'match') {
-      enterBattleMode();
+      openBattlePrep();
       return;
     }
     window.dispatchEvent(new CustomEvent('show_subtitle', {
@@ -1431,15 +1503,16 @@ function App() {
     useArenaSyncStore.getState().clearCalibrations();
   }, []);
 
-  // Connect WebSocket on mount
+  // Connect realtime channels only after the user reaches the main game flow.
   useEffect(() => {
+    if (appPhase !== 'main') return;
     wsService.connect(WS_URL, PLAYER_ID, ROOM_ID, PLAYER_LANG, SYNC_RATE);
     rtcService.start(PLAYER_ID);
     return () => {
       rtcService.stop();
       wsService.disconnect();
     };
-  }, []);
+  }, [appPhase]);
 
   useEffect(() => {
     const syncPeer = () => {
@@ -1589,7 +1662,7 @@ function App() {
   const toggleLiveMic = async () => {
     if (!isLiveConnected) {
       window.dispatchEvent(new CustomEvent('show_subtitle', {
-        detail: { text: 'Connect Live first' }
+        detail: { text: t.liveNeedConnection }
       }));
       return;
     }
@@ -1607,7 +1680,12 @@ function App() {
   };
 
   const sendLiveTextPing = () => {
-    if (!isLiveConnected) return;
+    if (!isLiveConnected) {
+      window.dispatchEvent(new CustomEvent('show_subtitle', {
+        detail: { text: t.liveNeedConnection }
+      }));
+      return;
+    }
     geminiLiveService.sendClientText('現在の戦況を短く実況してください。');
   };
 
@@ -1944,6 +2022,7 @@ function App() {
   const isMainPhase = appPhase === 'main';
   const isHubMode = playMode === 'hub';
   const showBattleHud = isMainPhase && playMode === 'match';
+  const liveActionDisabled = !isLiveConnected;
 
   return (
     <div className="arena-shell" ref={overlayRef}>
@@ -2191,7 +2270,7 @@ function App() {
                   <h3>{t.flowPhase3Title}</h3>
                   <p>{t.flowPhase3Desc}</p>
                   <div className="flow-hub-actions">
-                    <button className="hud-btn hud-btn-warn hud-btn-mini" onClick={enterBattleMode}>
+                    <button className="hud-btn hud-btn-warn hud-btn-mini" onClick={openBattlePrep}>
                       {t.flowStartBattle}
                     </button>
                   </div>
@@ -2215,6 +2294,46 @@ function App() {
                     </button>
                   </div>
                 </article>
+              </div>
+            </section>
+          )}
+          {isMainPhase && isBattlePrepOpen && (
+            <section className="battle-prep-overlay hud-animate" aria-label={t.prepTitle}>
+              <div className="battle-prep-card">
+                <h2>{t.prepTitle}</h2>
+                <p>{t.prepDesc}</p>
+                <ol className="battle-prep-list">
+                  <li className={`battle-prep-item ${hasRouteFoundation ? 'is-ready' : 'is-missing'}`}>
+                    <span>{t.prepStepRoute}</span>
+                    <strong>{hasRouteFoundation ? t.prepReady : t.prepMissing}</strong>
+                  </li>
+                  <li className="battle-prep-item is-ready">
+                    <span>{t.prepStepModel}</span>
+                    <strong>{`Type ${currentModelType}`}</strong>
+                  </li>
+                  <li className={`battle-prep-item ${alignmentReady ? 'is-ready' : 'is-guide'}`}>
+                    <span>{t.prepStepAlign}</span>
+                    <strong>{alignmentReady ? t.prepReady : t.prepAlignGuide}</strong>
+                  </li>
+                </ol>
+                <div className="battle-prep-actions">
+                  {!hasWalkMilestone && (
+                    <button className="hud-btn hud-btn-teal hud-btn-mini" onClick={startWalk}>
+                      {t.prepGoWalk}
+                    </button>
+                  )}
+                  {!hasTrainingMilestone && (
+                    <button className="hud-btn hud-btn-blue hud-btn-mini" onClick={startTraining}>
+                      {t.prepGoTraining}
+                    </button>
+                  )}
+                  <button className="hud-btn hud-btn-warn hud-btn-mini" onClick={enterBattleMode}>
+                    {t.prepStartNow}
+                  </button>
+                  <button className="hud-btn hud-btn-carbon hud-btn-mini" onClick={() => setIsBattlePrepOpen(false)}>
+                    {t.prepBackHub}
+                  </button>
+                </div>
               </div>
             </section>
           )}
@@ -2286,10 +2405,17 @@ function App() {
               <button
                 className={`hud-btn hud-btn-mini ${isLiveMicActive ? 'hud-btn-warn' : 'hud-btn-blue'}`}
                 onClick={toggleLiveMic}
+                disabled={liveActionDisabled}
+                title={liveActionDisabled ? t.liveNeedConnection : ''}
               >
                 {isLiveMicActive ? t.stopLiveMic : t.startLiveMic}
               </button>
-              <button className="hud-btn hud-btn-carbon hud-btn-mini" onClick={sendLiveTextPing}>
+              <button
+                className="hud-btn hud-btn-carbon hud-btn-mini"
+                onClick={sendLiveTextPing}
+                disabled={liveActionDisabled}
+                title={liveActionDisabled ? t.liveNeedConnection : ''}
+              >
                 {t.sendLiveText}
               </button>
             </div>
@@ -2302,7 +2428,7 @@ function App() {
               </button>
               <button
                 className={`hud-btn hud-btn-mini ${playMode === 'match' ? 'hud-btn-warn' : 'hud-btn-carbon'}`}
-                onClick={playMode === 'match' ? returnToHub : enterBattleMode}
+                onClick={playMode === 'match' ? returnToHub : openBattlePrep}
               >
                 {playMode === 'match' ? t.flowReturnHub : t.flowStartBattle}
               </button>
@@ -2362,7 +2488,7 @@ function App() {
             )}
           </aside>
 
-          {debugVisible && (
+          {debugVisible && showBattleHud && (
             <div className="hud-right-rail hud-animate" style={{ borderLeft: '2px solid #ff6b6b' }}>
               <div style={{ fontSize: '0.7rem', color: '#ff6b6b', fontWeight: 700, letterSpacing: '0.1em', marginBottom: 6 }}>🛠 DEBUG TOOLS</div>
               <button id="btn-fusion-drop" className="hud-btn hud-btn-amber" onClick={requestFusionDrop}>
@@ -2392,7 +2518,7 @@ function App() {
             </button>
           )}
 
-          {debugVisible && (
+          {debugVisible && showBattleHud && (
             <button
               id="btn-p2p-media"
               className={`hud-btn hud-chip-btn ${isP2PMediaOn ? 'is-on' : 'is-off'}`}
@@ -2418,13 +2544,17 @@ function App() {
         }}
       >
         <XR store={store}>
-          <MainScene />
-          <OrbitControls
-            makeDefault
-            enablePan={false}
-            enableDamping={false}
-            autoRotate={false}
-          />
+          {appPhase === 'main' && (
+            <>
+              <MainScene />
+              <OrbitControls
+                makeDefault
+                enablePan={false}
+                enableDamping={false}
+                autoRotate={false}
+              />
+            </>
+          )}
         </XR>
       </Canvas>
 
@@ -2436,7 +2566,7 @@ function App() {
         </>
       )}
       
-      {debugVisible && <AnimationDebugPanel />}
+      {debugVisible && showBattleHud && <AnimationDebugPanel />}
       
       {voiceAckText && (
         <div className="hud-voice-ack" aria-live="polite">

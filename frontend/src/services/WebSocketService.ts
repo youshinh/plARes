@@ -20,6 +20,7 @@ class WebSocketService {
   private lang: string = 'en-US';
   private syncRate: number = 0.5;
   private shouldReconnect = false;
+  private intentionalClose = false;
   private pendingQueue: WebRTCDataChannelPayload[] = [];
   private pendingSync: SyncData | null = null;
   private readonly maxPendingQueue = 128;
@@ -33,6 +34,7 @@ class WebSocketService {
     this.lang = lang;
     this.syncRate = Math.max(0, Math.min(1, syncRate));
     this.shouldReconnect = true;
+    this.intentionalClose = false;
     this._open();
   }
 
@@ -52,6 +54,7 @@ class WebSocketService {
 
   private _open() {
     if (this.ws?.readyState === WebSocket.OPEN) return;
+    if (this.ws?.readyState === WebSocket.CONNECTING) return;
     if (!this.shouldReconnect) return;
     const wsUrl = this._buildUrl();
     console.log(`[WS] Connecting to ${wsUrl} as ${this.userId} room=${this.roomId}`);
@@ -67,17 +70,26 @@ class WebSocketService {
     this.ws.onmessage = (evt: MessageEvent) => {
       try {
         const payload: WebRTCDataChannelPayload = JSON.parse(evt.data);
-        this.handlers.forEach(h => h(payload));
+        // Defer handler execution to avoid React state updates during render.
+        const handlers = Array.from(this.handlers);
+        window.setTimeout(() => {
+          handlers.forEach(h => h(payload));
+        }, 0);
       } catch (e) {
         console.error('[WS] Failed to parse message', e);
       }
     };
 
-    this.ws.onerror = (e) => console.error('[WS] Error', e);
+    this.ws.onerror = (e) => {
+      if (!this.shouldReconnect || this.intentionalClose) return;
+      console.error('[WS] Error', e);
+    };
 
     this.ws.onclose = () => {
       this.stopHeartbeat();
-      if (!this.shouldReconnect) return;
+      const wasIntentional = this.intentionalClose || !this.shouldReconnect;
+      this.intentionalClose = false;
+      if (wasIntentional) return;
       console.warn('[WS] Disconnected – reconnecting in', this.reconnectDelay, 'ms');
       this.reconnectTimer = setTimeout(() => this._open(), this.reconnectDelay);
     };
@@ -183,12 +195,14 @@ class WebSocketService {
 
   disconnect() {
     this.shouldReconnect = false;
+    this.intentionalClose = true;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.stopHeartbeat();
     this.pendingQueue = [];
     this.pendingSync = null;
-    this.ws?.close();
+    const ws = this.ws;
     this.ws = null;
+    ws?.close();
   }
 }
 

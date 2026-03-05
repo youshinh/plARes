@@ -2732,19 +2732,28 @@ async def handle_game_connection(websocket: Any, request_path: str) -> None:
         f"room_clients={len(room_members.get(room_id, set()))}"
     )
 
-    await websocket.send(json.dumps(_profile_sync_payload(user_id, profile), ensure_ascii=False))
-    pending_milestone = int(profile.get("pending_milestone", 0))
-    if pending_milestone > 0:
-        await websocket.send(
-            json.dumps(_milestone_payload(user_id, pending_milestone), ensure_ascii=False)
-        )
-        profile["pending_milestone"] = 0
-        _save_user_profile(profile)
+    try:
+        await websocket.send(json.dumps(_profile_sync_payload(user_id, profile), ensure_ascii=False))
+        pending_milestone = int(profile.get("pending_milestone", 0))
+        if pending_milestone > 0:
+            await websocket.send(
+                json.dumps(_milestone_payload(user_id, pending_milestone), ensure_ascii=False)
+            )
+            profile["pending_milestone"] = 0
+            _save_user_profile(profile)
 
-    await websocket.send(json.dumps(_initial_tactics_payload(lang), ensure_ascii=False))
-    await websocket.send(json.dumps(_battle_status_payload(user_id, battle_metrics), ensure_ascii=False))
-    await websocket.send(json.dumps(_roster_payload(room_id), ensure_ascii=False))
-    await _broadcast_roster(room_id)
+        await websocket.send(json.dumps(_initial_tactics_payload(lang), ensure_ascii=False))
+        await websocket.send(json.dumps(_battle_status_payload(user_id, battle_metrics), ensure_ascii=False))
+        await websocket.send(json.dumps(_roster_payload(room_id), ensure_ascii=False))
+        await _broadcast_roster(room_id)
+    except ConnectionClosed:
+        _cleanup_game_client(websocket, reason="connection_closed")
+        await _broadcast_roster(room_id)
+        logger.info(
+            f"[GAME] disconnected user={user_id} room={room_id} "
+            f"room_clients={len(room_members.get(room_id, set()))}"
+        )
+        return
 
     try:
         async for message in websocket:
