@@ -1,6 +1,8 @@
 import type { CharacterDNA } from '../../../shared/types/firestore';
 
 export type AppPhase = 'lang' | 'scan' | 'summon' | 'main';
+export type ArSupportState = 'checking' | 'supported' | 'unsupported';
+export type ScanState = 'idle' | 'searching' | 'tracking' | 'ready' | 'unsupported';
 
 export type ModeSession = {
   id: string;

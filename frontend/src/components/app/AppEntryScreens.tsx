@@ -1,4 +1,4 @@
-import React from 'react';
+import type { FC } from 'react';
 import { FaceScanner } from '../FaceScanner';
 import type { AppPhase, UiText } from '../../types/app';
 
@@ -20,7 +20,7 @@ type AppEntryScreensProps = {
   onProceedToMain: () => void;
 };
 
-export const AppEntryScreens: React.FC<AppEntryScreensProps> = ({
+export const AppEntryScreens: FC<AppEntryScreensProps> = ({
   appPhase,
   t,
   langOptions,

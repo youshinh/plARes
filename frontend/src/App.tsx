@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { XR, createXRStore } from '@react-three/xr';
 import { OrbitControls } from '@react-three/drei';
@@ -11,25 +11,26 @@ import { ScanGuideOverlay } from './components/ui/ScanGuideOverlay';
 import { AppEntryScreens } from './components/app/AppEntryScreens';
 import { AppMainHud } from './components/app/AppMainHud';
 import { MainScene } from './components/app/MainScene';
+import { useAppArUi } from './hooks/useAppArUi';
+import { useArenaRealtimeChannels } from './hooks/useArenaRealtimeChannels';
 import { useAudioStreamer } from './hooks/useAudioStreamer';
+import { useBgmAudio } from './hooks/useBgmAudio';
 import { useCharacterSetup } from './hooks/useCharacterSetup';
+import { useLiveSessionControls } from './hooks/useLiveSessionControls';
 import { useRemoteBattleEvents } from './hooks/useRemoteBattleEvents';
-import { wsService } from './services/WebSocketService';
 import { rtcService } from './services/WebRTCDataChannelService';
-import { geminiLiveService } from './services/GeminiLiveService';
-import { State, useFSMStore, type PlayMode } from './store/useFSMStore';
+import { wsService } from './services/WebSocketService';
+import { useSpecialCasting } from './hooks/useSpecialCasting';
+import { useVoiceAckFeedback } from './hooks/useVoiceAckFeedback';
+import { useFSMStore, type PlayMode } from './store/useFSMStore';
 import { useArenaSyncStore } from './store/useArenaSyncStore';
-import { GAMEPLAY_RULES } from './constants/gameplay';
 import { EX_GAUGE } from '../../shared/constants/battleConstants';
-import { localizeBattleEvent, localizeCastStart, localizeResult, localizeTimeout } from './utils/localizeEvent';
 import { PLAYER_ID, PLAYER_LANG, ROOM_ID, SYNC_RATE } from './utils/identity';
-import { evolveCharacterDNAByMatchCount, normalizeCharacterDNA } from './utils/characterDNA';
 import * as THREE from 'three';
 import type {
   AppPhase,
   BattleUiState,
   DnaAbFeedbackPayload,
-  LiveDebugInfo,
   ModeSession,
   ProfileInfo,
   RouteProgress,
@@ -121,45 +122,8 @@ const saveCachedTranslations = (bcp47: string, dict: Record<string, string>): vo
   }
 };
 
-const toFiniteNumber = (value: unknown, fallback: number): number => {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
-};
-
-const toPositiveNumber = (value: unknown, fallback: number): number => {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-};
-
-const formatArEnterError = (error: unknown, lang: UiLang): string => {
-  const ja = lang === 'ja';
-  if (error instanceof DOMException) {
-    if (error.name === 'NotAllowedError') {
-      return ja
-        ? 'AR開始にはカメラ権限が必要です。Chromeのサイト権限を確認してください。'
-        : 'Camera permission is required to start AR. Please check Chrome site permissions.';
-    }
-    if (error.name === 'NotSupportedError') {
-      return ja
-        ? 'この端末またはブラウザではWebXR ARが利用できません。'
-        : 'WebXR AR is not supported on this device or browser.';
-    }
-    if (error.name === 'SecurityError') {
-      return ja
-        ? 'AR開始にはHTTPS接続が必要です。'
-        : 'HTTPS is required to start AR.';
-    }
-  }
-  return ja
-    ? 'ARセッションの開始に失敗しました。ページ再読み込み後に再実行してください。'
-    : 'Failed to start AR session. Reload the page and try again.';
-};
-
 const createModeSessionId = (prefix: 'training' | 'walk') =>
   `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
-
-const clampHp = (value: number, maxHp: number): number =>
-  Math.max(0, Math.min(value, maxHp));
 
 const installXrPresentationGuards = (renderer: THREE.WebGLRenderer) => {
   if (xrResizeGuardInstalled.has(renderer)) return;
@@ -546,19 +510,9 @@ function App() {
   const enemyHp = useFSMStore(s => s.enemyHp);
 
   const [isP2PMediaOn, setIsP2PMediaOn] = useState(false);
-  const [arSupportState, setArSupportState] = useState<'checking' | 'supported' | 'unsupported'>('checking');
   const [specialPhrase, setSpecialPhrase] = useState('');
   const [profileInfo, setProfileInfo] = useState<ProfileInfo | null>(null);
-  const [liveDebugInfo, setLiveDebugInfo] = useState<LiveDebugInfo>({
-    tokenName: '',
-    resumeHandle: '',
-    interactionId: '',
-    interactionText: '',
-  });
-  const [isLiveConnected, setIsLiveConnected] = useState(false);
-  const [isLiveMicActive, setIsLiveMicActive] = useState(false);
   const [isMatchPaused, setIsMatchPaused] = useState(false);
-  const [voiceAckText, setVoiceAckText] = useState('');
   const playMode = useFSMStore(s => s.playMode);
   const setPlayMode = useFSMStore(s => s.setPlayMode);
   const switchMode = (mode: PlayMode) => {
@@ -594,16 +548,12 @@ function App() {
       return { walk: 0, training: 0, battle: 0 };
     }
   });
-  const [isProfileOpen, setIsProfileOpen] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return false;
-    return window.matchMedia('(min-width: 1024px)').matches;
-  });
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isShareOpen, setIsShareOpen] = useState(false);
   const [isLabOpen, setIsLabOpen] = useState(false);
   const [isBattlePrepOpen, setIsBattlePrepOpen] = useState(false);
   const [recentABFeedbackCount, setRecentABFeedbackCount] = useState(0);
   const [bgmUrl, setBgmUrl] = useState('');
-  const bgmAudioRef = useRef<HTMLAudioElement | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
 
@@ -613,15 +563,6 @@ function App() {
     }
   }, []);
 
-  // T1-4: scan state for AR plane detection guide
-  const [scanState, setScanState] = useState<'idle' | 'searching' | 'tracking' | 'ready' | 'unsupported'>('idle');
-  const [scanPointCount, setScanPointCount] = useState(0);
-  const [isARSessionActive, setIsARSessionActive] = useState(false);
-  
-  useEffect(() => {
-    console.info(`[App] AR Session State changed: ${isARSessionActive}, Scan State: ${scanState}`);
-  }, [isARSessionActive, scanState]);
-  
   // Debug panel toggle (visible to all, toggled by header button)
   const [debugVisible, setDebugVisible] = useState(DEBUG_UI);
   // Phase Management: 0=Lang, 1=Scan(Setup), 2=Summon(AR Init), 3=Main
@@ -662,11 +603,35 @@ function App() {
     battleStateRef.current = battleState;
   }, [battleState]);
   const [showFusionCraft, setShowFusionCraft] = useState(false);
-  const pendingLiveConnectRef = useRef(false);
-  const castEndsAtRef = useRef<number>(0);
-  const specialRetryRef = useRef(0);
-  const judgeTimeoutRef = useRef<number | null>(null);
-  const voiceAckTimerRef = useRef<number | null>(null);
+  const {
+    connectLiveDirect,
+    disconnectLiveDirect,
+    isLiveConnected,
+    isLiveMicActive,
+    liveDebugInfo,
+    pendingLiveConnectRef,
+    requestInteractionTurn,
+    requestLiveEphemeralToken,
+    sendLiveTextPing,
+    setLiveDebugInfo,
+    toggleLiveMic,
+  } = useLiveSessionControls({
+    liveNeedConnectionText: t.liveNeedConnection,
+  });
+  const voiceAckText = useVoiceAckFeedback(t);
+  const {
+    arSupportState,
+    handleEnterAr,
+    isARSessionActive,
+    scanPointCount,
+    scanState,
+  } = useAppArUi({
+    preferJapanese: uiLang === 'ja',
+    rendererRef,
+    shadowsEnabled: SHADOWS_ENABLED,
+    unsupportedHintText: t.arUnsupportedHint,
+    xrStore: store,
+  });
   const alignmentReady = matchAlignmentReady;
   const profileView = profileInfo ?? {
     totalMatches: 0,
@@ -986,41 +951,7 @@ function App() {
     saveTranslations: saveCachedTranslations,
     t,
   });
-
-  useEffect(() => {
-    useArenaSyncStore.getState().clearCalibrations();
-  }, []);
-
-  // Connect realtime channels only after the user reaches the main game flow.
-  useEffect(() => {
-    if (appPhase !== 'main') return;
-    const timer = window.setTimeout(() => {
-      window.requestAnimationFrame(() => {
-        wsService.connect(WS_URL, PLAYER_ID, ROOM_ID, PLAYER_LANG, SYNC_RATE);
-        rtcService.start(PLAYER_ID);
-      });
-    }, 120);
-    return () => {
-      clearTimeout(timer);
-      rtcService.stop();
-      wsService.disconnect();
-    };
-  }, [appPhase]);
-
-  useEffect(() => {
-    const syncPeer = () => {
-      useArenaSyncStore.getState().setPeerState(rtcService.getRemotePeerId());
-    };
-    const onPeerState = (event: Event) => {
-      const detail = (event as CustomEvent<{ remoteId: string | null }>).detail;
-      useArenaSyncStore.getState().setPeerState(detail?.remoteId ?? null);
-    };
-    syncPeer();
-    window.addEventListener('webrtc_peer_state', onPeerState as EventListener);
-    return () => {
-      window.removeEventListener('webrtc_peer_state', onPeerState as EventListener);
-    };
-  }, []);
+  useArenaRealtimeChannels({ appPhase, wsUrl: WS_URL });
 
   const toggleP2PMedia = async () => {
     try {
@@ -1065,425 +996,20 @@ function App() {
       payload: { trigger: 'manual' },
     });
   };
-
-  useEffect(() => {
-    let cancelled = false;
-    const xr = (navigator as Navigator & { xr?: XRSystem }).xr;
-    if (!xr || typeof xr.isSessionSupported !== 'function') {
-      setArSupportState('unsupported');
-      return;
-    }
-
-    xr.isSessionSupported('immersive-ar')
-      .then((supported) => {
-        if (!cancelled) {
-          setArSupportState(supported ? 'supported' : 'unsupported');
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setArSupportState('unsupported');
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const handleEnterAr = async () => {
-    if (arSupportState !== 'supported') {
-      window.dispatchEvent(new CustomEvent('show_subtitle', {
-        detail: { text: t.arUnsupportedHint }
-      }));
-      return;
-    }
-    try {
-      await store.enterAR();
-    } catch (error) {
-      console.error('[XR] enterAR failed:', error);
-      window.dispatchEvent(new CustomEvent('show_subtitle', {
-        detail: { text: formatArEnterError(error, uiLang) }
-      }));
-    }
-  };
-
-  const requestLiveEphemeralToken = () => {
-    wsService.requestEphemeralToken({
-        request_id: `req_${Date.now()}`,
-        model: 'models/gemini-2.5-flash-native-audio-preview-12-2025',
-        response_modalities: ['AUDIO', 'TEXT'],
-        session_resumption: true,
-        store: false,
-    });
-  };
-
-  const requestInteractionTurn = () => {
-    wsService.requestInteractionTurn({
-        request_id: `req_${Date.now()}`,
-        input: '現在の戦況で次の一手を一文で提案してください。',
-        model: 'models/gemini-3-flash-preview',
-        previous_interaction_id: liveDebugInfo.interactionId || undefined,
-        store: false,
-        system_instruction: 'You are a concise tactical assistant for PlaresAR. Reply in Japanese.',
-        max_output_tokens: 120,
-    });
-  };
-
-  const connectLiveDirect = async () => {
-    if (isLiveConnected) return;
-    if (liveDebugInfo.tokenName) {
-      try {
-        await geminiLiveService.connect({
-          tokenName: liveDebugInfo.tokenName,
-          model: 'models/gemini-2.5-flash-native-audio-preview-12-2025',
-        });
-      } catch {
-        // handled by service events
-      }
-      return;
-    }
-    pendingLiveConnectRef.current = true;
-    requestLiveEphemeralToken();
-  };
-
-  const disconnectLiveDirect = () => {
-    pendingLiveConnectRef.current = false;
-    geminiLiveService.close();
-  };
-
-  const toggleLiveMic = async () => {
-    if (!isLiveConnected) {
-      window.dispatchEvent(new CustomEvent('show_subtitle', {
-        detail: { text: t.liveNeedConnection }
-      }));
-      return;
-    }
-    if (isLiveMicActive) {
-      geminiLiveService.stopMic();
-      return;
-    }
-    try {
-      await geminiLiveService.startMic();
-    } catch (error) {
-      window.dispatchEvent(new CustomEvent('show_subtitle', {
-        detail: { text: `Live mic error: ${String(error)}` }
-      }));
-    }
-  };
-
-  const sendLiveTextPing = () => {
-    if (!isLiveConnected) {
-      window.dispatchEvent(new CustomEvent('show_subtitle', {
-        detail: { text: t.liveNeedConnection }
-      }));
-      return;
-    }
-    geminiLiveService.sendClientText('現在の戦況を短く実況してください。');
-  };
-
-  // T2-4: BGM audio playback when bgm_ready event provides a URL
-  useEffect(() => {
-    if (bgmAudioRef.current) {
-      bgmAudioRef.current.pause();
-      bgmAudioRef.current = null;
-    }
-    if (!bgmUrl) return;
-    const audio = new Audio(bgmUrl);
-    audio.volume = 0.5;
-    audio.loop = false;
-    bgmAudioRef.current = audio;
-    audio.play().catch((err) => {
-      console.warn('[BGM] Autoplay blocked or load failed:', err);
-    });
-    return () => {
-      audio.pause();
-      audio.src = '';
-      bgmAudioRef.current = null;
-    };
-  }, [bgmUrl]);
-
-  // T1-4: AR scan state listener for ScanGuideOverlay
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent<{
-        scanState?: 'idle' | 'searching' | 'tracking' | 'ready' | 'unsupported';
-        pointCount?: number;
-        sessionActive?: boolean;
-      }>).detail;
-      if (!detail) return;
-      setScanState(detail.scanState ?? 'idle');
-      setScanPointCount(Number(detail.pointCount ?? 0));
-      setIsARSessionActive(Boolean(detail.sessionActive));
-    };
-    window.addEventListener('scan_state_change', handler);
-    return () => window.removeEventListener('scan_state_change', handler);
-  }, []);
-
-  useEffect(() => {
-    const renderer = rendererRef.current;
-    if (!renderer) return;
-    const enableShadows = SHADOWS_ENABLED && !isARSessionActive;
-    renderer.shadowMap.enabled = enableShadows;
-    renderer.shadowMap.autoUpdate = enableShadows;
-  }, [isARSessionActive]);
-
-  useEffect(() => {
-    const onAttackResult = (event: Event) => {
-      const detail = (event as CustomEvent<any>).detail || {};
-      const verdict = detail.verdict === 'critical' ? 'critical' : 'miss';
-      const delay = Math.max(0, castEndsAtRef.current - Date.now());
-      if (judgeTimeoutRef.current) {
-        clearTimeout(judgeTimeoutRef.current);
-        judgeTimeoutRef.current = null;
-      }
-      specialRetryRef.current = 0;
-
-      window.setTimeout(() => {
-        resolveSpecialResult({ verdict });
-
-        const payload = {
-          event: verdict === 'critical' ? 'critical_hit' : 'debuff_applied',
-          user: PLAYER_ID,
-          payload: detail,
-        } as const;
-
-        // Server-side broadcasted results should not be echoed again.
-        if (!detail.broadcasted) {
-          if (!rtcService.send({ type: 'event', data: payload })) {
-            wsService.sendEvent(payload);
-          }
-        }
-
-        const suffix =
-          typeof detail.video_frame_count === 'number'
-            ? ` (src:${detail.source ?? 'n/a'}, vf:${detail.video_frame_count}, sr:${detail.sync_rate ?? 'n/a'})`
-            : '';
-        window.dispatchEvent(new CustomEvent('show_subtitle', {
-          detail: { text: `${localizeResult(verdict)}${suffix}` }
-        }));
-      }, delay);
-    };
-
-    window.addEventListener('attack_result', onAttackResult);
-    return () => window.removeEventListener('attack_result', onAttackResult);
-  }, [resolveSpecialResult]);
-
-  useEffect(() => {
-    const onStatus = (event: Event) => {
-      const detail = (event as CustomEvent<{ connected: boolean; message: string }>).detail;
-      if (!detail) return;
-      setIsLiveConnected(!!detail.connected);
-      if (typeof detail.message === 'string' && detail.message) {
-        window.dispatchEvent(new CustomEvent('show_subtitle', { detail: { text: detail.message } }));
-      }
-    };
-
-    const onTranscript = (event: Event) => {
-      const detail = (event as CustomEvent<{ text: string }>).detail;
-      if (!detail?.text) return;
-      setLiveDebugInfo(prev => ({
-        tokenName: prev.tokenName,
-        resumeHandle: prev.resumeHandle,
-        interactionId: prev.interactionId,
-        interactionText: detail.text,
-      }));
-      window.dispatchEvent(new CustomEvent('show_subtitle', { detail: { text: detail.text } }));
-    };
-
-    const onResumption = (event: Event) => {
-      const detail = (event as CustomEvent<{ handle: string }>).detail;
-      if (!detail?.handle) return;
-      setLiveDebugInfo(prev => ({
-        tokenName: prev.tokenName,
-        resumeHandle: detail.handle,
-        interactionId: prev.interactionId,
-        interactionText: prev.interactionText,
-      }));
-    };
-
-    const onMicState = (event: Event) => {
-      const detail = (event as CustomEvent<{ active: boolean }>).detail;
-      setIsLiveMicActive(!!detail?.active);
-    };
-
-    const onError = (event: Event) => {
-      const detail = (event as CustomEvent<{ message: string }>).detail;
-      if (detail?.message) {
-        window.dispatchEvent(new CustomEvent('show_subtitle', { detail: { text: detail.message } }));
-      }
-    };
-
-    window.addEventListener('gemini_live_status', onStatus as EventListener);
-    window.addEventListener('gemini_live_transcript', onTranscript as EventListener);
-    window.addEventListener('gemini_live_resumption', onResumption as EventListener);
-    window.addEventListener('gemini_live_mic_state', onMicState as EventListener);
-    window.addEventListener('gemini_live_error', onError as EventListener);
-    return () => {
-      window.removeEventListener('gemini_live_status', onStatus as EventListener);
-      window.removeEventListener('gemini_live_transcript', onTranscript as EventListener);
-      window.removeEventListener('gemini_live_resumption', onResumption as EventListener);
-      window.removeEventListener('gemini_live_mic_state', onMicState as EventListener);
-      window.removeEventListener('gemini_live_error', onError as EventListener);
-    };
-  }, []);
-
-  useEffect(() => {
-    const commandLabels: Record<string, string> = {
-      special: t.voiceCmdSpecial,
-      dodge: t.voiceCmdDodge,
-      forward: t.voiceCmdForward,
-      attack: t.voiceCmdAttack,
-      flank: t.voiceCmdFlank,
-    };
-
-    const onVoiceFeedback = (event: Event) => {
-      const detail = (event as CustomEvent<{ command?: string }>).detail;
-      const command = detail?.command ?? '';
-      const label = commandLabels[command];
-      if (!label) return;
-
-      setVoiceAckText(`${t.voiceAckPrefix}: ${label}`);
-      if (voiceAckTimerRef.current !== null) {
-        clearTimeout(voiceAckTimerRef.current);
-      }
-      voiceAckTimerRef.current = window.setTimeout(() => {
-        setVoiceAckText('');
-        voiceAckTimerRef.current = null;
-      }, 1600);
-    };
-
-    window.addEventListener('voice_command_feedback', onVoiceFeedback as EventListener);
-    return () => {
-      window.removeEventListener('voice_command_feedback', onVoiceFeedback as EventListener);
-      if (voiceAckTimerRef.current !== null) {
-        clearTimeout(voiceAckTimerRef.current);
-        voiceAckTimerRef.current = null;
-      }
-    };
-  }, [t]);
-
-  useEffect(() => {
-    return () => {
-      if (judgeTimeoutRef.current) {
-        clearTimeout(judgeTimeoutRef.current);
-        judgeTimeoutRef.current = null;
-      }
-    };
-  }, []);
-
-  const handleCastSpecial = async () => {
-    if (playMode === 'hub' || playMode === 'walk') {
-      window.dispatchEvent(new CustomEvent('show_subtitle', {
-        detail: { text: t.battleOnlyHint }
-      }));
-      return;
-    }
-    if (playMode === 'match' && !matchAlignmentReady) {
-      console.info('[Special] blocked: arena alignment pending');
-      window.dispatchEvent(new CustomEvent('show_subtitle', {
-        detail: { text: t.alignPending }
-      }));
-      return;
-    }
-    if (playMode === 'match' && isMatchPaused) {
-      console.info('[Special] blocked: match is paused');
-      window.dispatchEvent(new CustomEvent('show_subtitle', {
-        detail: { text: '試合が一時停止中です' }
-      }));
-      return;
-    }
-    if (!battleState.specialReady) {
-      console.info(`[Special] blocked: EX gauge ${battleState.exGauge}/${EX_GAUGE.MAX}`);
-      window.dispatchEvent(new CustomEvent('show_subtitle', {
-        detail: { text: `EXゲージ不足 (${battleState.exGauge}/${EX_GAUGE.MAX})` }
-      }));
-      return;
-    }
-    // 1) Instantly enter CASTING state and lock the next 3s for latency concealment
-    castEndsAtRef.current = Date.now() + GAMEPLAY_RULES.specialChargeMs;
-    specialRetryRef.current = 0;
-    setBattleState(prev => ({ ...prev, specialReady: false, exGauge: 0 }));
-    if (judgeTimeoutRef.current) {
-      clearTimeout(judgeTimeoutRef.current);
-      judgeTimeoutRef.current = null;
-    }
-    setCastingSpecial();
-    console.info('[Special] casting started');
-
-    // 2) Visual feedback starts immediately while backend inference runs in parallel
-    window.dispatchEvent(new CustomEvent('show_subtitle', {
-      detail: { text: localizeCastStart(specialPhrase || undefined) }
-    }));
-
-    // 3) Sync casting start so the opponent can render the same charge phase
-    const castPayload: any = { action: 'casting_special' };
-    if (playMode === 'training' && specialPhrase) {
-      // Flow2 §3.2 logic: Send event to trigger Articulation Judge Agent
-      wsService.sendEvent({
-        event: 'incantation_submitted',
-        user: PLAYER_ID,
-        payload: { phrase: specialPhrase }
-      });
-      castPayload.kind = 'incantation_request';
-      castPayload.phrase = specialPhrase;
-    }
-
-    const castEvent = {
-      event: 'buff_applied',
-      user: PLAYER_ID,
-      payload: castPayload
-    } as const;
-    if (!rtcService.send({ type: 'event', data: castEvent })) {
-      wsService.sendEvent(castEvent);
-    }
-
-    // 4) Start raw audio stream in parallel with the 3s charge window
-    await startStream({ preferredStream: rtcService.getLocalStream() });
-
-    // 5) Failsafe: timeout at charge-end, retry once, then force MISS.
-    const scheduleJudgeTimeout = (delayMs: number) => {
-      judgeTimeoutRef.current = window.setTimeout(async () => {
-        if (useFSMStore.getState().currentState !== State.CASTING_SPECIAL) return;
-
-        if (specialRetryRef.current < GAMEPLAY_RULES.specialJudgeRetryCount) {
-          specialRetryRef.current += 1;
-          stopStream();
-          await startStream({ preferredStream: rtcService.getLocalStream() });
-          window.dispatchEvent(new CustomEvent('show_subtitle', {
-            detail: { text: '判定再試行...' }
-          }));
-          scheduleJudgeTimeout(1200);
-          return;
-        }
-
-        resolveSpecialResult({ verdict: 'miss' });
-        const timeoutPayload = {
-          event: 'debuff_applied',
-          user: PLAYER_ID,
-          payload: { reason: 'special_judge_timeout', timeout: true },
-        } as const;
-        if (!rtcService.send({ type: 'event', data: timeoutPayload })) {
-          wsService.sendEvent(timeoutPayload);
-        }
-        window.dispatchEvent(new CustomEvent('show_subtitle', {
-          detail: { text: localizeTimeout() }
-        }));
-      }, delayMs);
-    };
-
-    scheduleJudgeTimeout(GAMEPLAY_RULES.specialChargeMs);
-  };
-
-  useEffect(() => {
-    const onVoiceCastSpecial = () => {
-      void handleCastSpecial();
-    };
-    window.addEventListener('voice_cast_special', onVoiceCastSpecial as EventListener);
-    return () => {
-      window.removeEventListener('voice_cast_special', onVoiceCastSpecial as EventListener);
-    };
-  }, [handleCastSpecial]);
+  useBgmAudio(bgmUrl);
+  const { handleCastSpecial } = useSpecialCasting({
+    battleStateRef,
+    isMatchPaused,
+    matchAlignmentReady,
+    playMode,
+    resolveSpecialResult,
+    setBattleState,
+    setCastingSpecial,
+    specialPhrase,
+    startStream,
+    stopStream,
+    t,
+  });
 
   const isArButtonDisabled = arSupportState !== 'supported';
   const arButtonLabel =
@@ -1502,511 +1028,116 @@ function App() {
   return (
     <div className="arena-shell" ref={overlayRef}>
       <div className="arena-atmosphere" aria-hidden />
-
-      {appPhase === 'lang' && (
-        <div className="language-gate">
-          <div className="language-gate-card">
-            <h2>{t.chooseLanguage}</h2>
-            <p>{t.chooseLanguageDesc}</p>
-            <div className="language-gate-grid">
-              {LANG_OPTIONS.map(opt => {
-                const isActive = selectedLanguage === opt.code;
-                return (
-                  <button
-                    key={opt.code}
-                    className={`hud-btn language-gate-lang-btn${isActive ? ' is-active' : ''}`}
-                    onClick={() => applyLanguage(opt.code, true)}
-                    aria-label={opt.label}
-                  >
-                    {isActive && <span className="language-gate-check" aria-hidden>✓</span>}
-                    {opt.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {isMainPhase && playMode === 'walk' && (
-        <div className="hud-training-actions">
-          <button 
-            className="hud-btn-special" 
-            onClick={() => setShowFusionCraft(true)}
-            style={{ background: 'linear-gradient(135deg, #00C9FF 0%, #92FE9D 100%)' }}
-          >
-            Fusion Craft
-          </button>
-          <button className="hud-btn-special" onClick={sendWalkVisionTrigger}>
-            {t.sendWalkVision}
-          </button>
-        </div>
-      )}
-      {isMainPhase && playMode === 'training' && !!trainingSession && specialPhrase && (
-        <div className="hud-twist-telop">
-          {t.twistTitle} {specialPhrase}
-        </div>
-      )}
-
-      {isMainPhase && playMode === 'training' && !!trainingSession && (
-        <div className="hud-training-actions">
-          <button
-            className={`hud-btn hud-btn-special ${!battleState.specialReady ? 'is-disabled' : ''}`}
-            onClick={handleCastSpecial}
-            disabled={!battleState.specialReady}
-          >
-            {t.incantationStart}
-          </button>
-        </div>
-      )}
-
-      {appPhase === 'scan' && (
-        <FaceScanner
-          onGenerate={generateCharacter}
-          isGenerating={isGenerating}
-        />
-      )}
-      
-      {appPhase === 'summon' && (
-        <div className="summon-overlay">
-          <h2>Phase 1.3: First Summoning</h2>
-          <p>Scan your real-world environment to summon your AI partner.</p>
-          <button 
-            id="btn-summon-ar"
-            className={`hud-btn hud-btn-special ${arSupportState === 'checking' ? 'is-disabled' : ''}`}
-            onClick={() => {
-              if (arSupportState === 'supported') {
-                handleEnterAr();
-              }
-              switchMode('hub');
-              setAppPhase('main'); // Advance to flow hub
-            }}
-            disabled={arSupportState === 'checking'}
-            title={arSupportState === 'checking' ? 'Checking AR support...' : ''}
-            style={{ marginBottom: '1rem', background: 'linear-gradient(135deg, #FF9A9E 0%, #FECFEF 100%)', color: '#333' }}
-          >
-            {arSupportState === 'supported' ? t.enterAr : 'Proceed to Main Menu (AR Not Supported)'}
-          </button>
-          
-          {arSupportState === 'supported' && (
-            <button 
-              className="hud-btn hud-btn-carbon" 
-              onClick={() => {
-                switchMode('hub');
-                setAppPhase('main');
-              }}
-            >
-              Skip AR Summoning
-            </button>
-          )}
-        </div>
-      )}
-
-      {CHARACTER_LAB_UI && profileInfo && appPhase === 'main' && (
-        <CharacterLabPanel
-          open={isLabOpen}
-          onClose={() => setIsLabOpen(false)}
-          baseDna={robotDna}
-          material={robotMaterial}
-          totalMatches={profileInfo.totalMatches}
-          recentFeedbackCount={recentABFeedbackCount}
-          onSubmit={(payload) => {
+      <AppEntryScreens
+        appPhase={appPhase}
+        t={t}
+        langOptions={LANG_OPTIONS}
+        selectedLanguage={selectedLanguage}
+        onApplyLanguage={(langCode) => applyLanguage(langCode, true)}
+        onGenerateCharacter={generateCharacter}
+        isGenerating={isGenerating}
+        arSupportState={arSupportState}
+        onEnterAr={() => {
+          void handleEnterAr();
+        }}
+        onProceedToMain={proceedToMain}
+      />
+      {isMainPhase && (
+        <AppMainHud
+          t={t}
+          characterLabEnabled={CHARACTER_LAB_UI}
+          currentModelType={currentModelType}
+          playMode={playMode}
+          isHubMode={isHubMode}
+          showBattleHud={showBattleHud}
+          debugVisible={debugVisible}
+          isArButtonDisabled={isArButtonDisabled}
+          arButtonLabel={arButtonLabel}
+          arButtonTitle={arButtonTitle}
+          isProfileOpen={isProfileOpen}
+          isShareOpen={isShareOpen}
+          isLabOpen={isLabOpen}
+          isBattlePrepOpen={isBattlePrepOpen}
+          showFusionCraft={showFusionCraft}
+          isP2PMediaOn={isP2PMediaOn}
+          isLiveConnected={isLiveConnected}
+          isLiveMicActive={isLiveMicActive}
+          liveActionDisabled={liveActionDisabled}
+          isMatchPaused={isMatchPaused}
+          isStreaming={isStreaming}
+          isSolo={isSolo}
+          alignmentReady={alignmentReady}
+          matchAlignmentReady={matchAlignmentReady}
+          hasWalkMilestone={hasWalkMilestone}
+          hasTrainingMilestone={hasTrainingMilestone}
+          hasRouteFoundation={hasRouteFoundation}
+          recentABFeedbackCount={recentABFeedbackCount}
+          selectedLanguage={selectedLanguage}
+          modeLabel={modeLabel}
+          scanState={scanState}
+          scanPointCount={scanPointCount}
+          isARSessionActive={isARSessionActive}
+          walkSession={walkSession}
+          trainingSession={trainingSession}
+          specialPhrase={specialPhrase}
+          battleState={battleState}
+          profileInfo={profileInfo}
+          profileView={profileView}
+          liveDebugInfo={liveDebugInfo}
+          bgmUrl={bgmUrl}
+          robotDna={robotDna}
+          robotMaterial={robotMaterial}
+          localHp={localHp}
+          enemyHp={enemyHp}
+          routeNextStep={routeNextStep}
+          routeSteps={routeSteps}
+          onEnterAr={() => {
+            void handleEnterAr();
+          }}
+          onRequestMatchEnd={requestMatchEnd}
+          onPublishArenaCalibration={publishArenaCalibration}
+          onToggleProfile={() => setIsProfileOpen((open) => !open)}
+          onOpenProfile={openProfile}
+          onOpenShare={() => setIsShareOpen(true)}
+          onOpenLab={() => setIsLabOpen(true)}
+          onCloseLab={() => setIsLabOpen(false)}
+          onToggleDebug={() => setDebugVisible((visible) => !visible)}
+          onStartWalk={startWalk}
+          onStartTraining={startTraining}
+          onCompleteWalk={completeWalk}
+          onCompleteTraining={completeTraining}
+          onOpenBattlePrep={openBattlePrep}
+          onCloseBattlePrep={() => setIsBattlePrepOpen(false)}
+          onEnterBattleMode={enterBattleMode}
+          onOpenFusionCraft={() => setShowFusionCraft(true)}
+          onCloseFusionCraft={() => setShowFusionCraft(false)}
+          onRequestProfileSync={requestProfileSync}
+          onToggleLiveConnection={isLiveConnected ? disconnectLiveDirect : connectLiveDirect}
+          onToggleLiveMic={toggleLiveMic}
+          onSendLiveTextPing={sendLiveTextPing}
+          onReturnToHub={returnToHub}
+          onWalkVisionOrProfileSync={playMode === 'walk' ? sendWalkVisionTrigger : requestProfileSync}
+          onSendWalkVisionTrigger={sendWalkVisionTrigger}
+          onRequestFusionDrop={requestFusionDrop}
+          onRequestLiveEphemeralToken={requestLiveEphemeralToken}
+          onRequestInteractionTurn={requestInteractionTurn}
+          onHandleCastSpecial={() => {
+            void handleCastSpecial();
+          }}
+          onToggleP2PMedia={() => {
+            void toggleP2PMedia();
+          }}
+          onTriggerRecommendedRouteStep={triggerRecommendedRouteStep}
+          onChangeLanguage={(nextLanguage) => {
+            setSelectedLanguage(nextLanguage);
+            applyLanguage(nextLanguage, true);
+          }}
+          onSubmitDnaFeedback={(payload) => {
             submitDnaABFeedback(payload);
             setIsLabOpen(false);
           }}
         />
       )}
-
-      {appPhase === 'main' && (
-        <>
-          <header className="hud-top-left hud-animate">
-            <div className="hud-brand">
-              <div className="hud-brand-main">PLARES AR</div>
-              <div className="hud-brand-sub">{t.brandSub}</div>
-            </div>
-            <div className="hud-inline-actions">
-              <button
-                id="btn-enter-ar"
-                className={`hud-btn hud-btn-steel hud-btn-mini ${isArButtonDisabled ? 'is-disabled' : ''}`}
-                onClick={handleEnterAr}
-                disabled={isArButtonDisabled}
-                title={arButtonTitle}
-              >
-                {arButtonLabel}
-              </button>
-              {debugVisible && playMode === 'match' && (
-                <button
-                  id="btn-match-end"
-                  className="hud-btn hud-btn-danger hud-btn-mini"
-                  onClick={requestMatchEnd}
-                >
-                  {t.endMatch}
-                </button>
-              )}
-              {playMode === 'match' && (
-                <button
-                  id="btn-arena-align"
-                  className="hud-btn hud-btn-blue hud-btn-mini"
-                  onClick={publishArenaCalibration}
-                >
-                  {t.alignArena}
-                </button>
-              )}
-              <button
-                id="btn-menu-toggle"
-                className="hud-btn hud-btn-carbon hud-btn-mini"
-                onClick={() => setIsProfileOpen(!isProfileOpen)}
-              >
-                {t.menu}
-              </button>
-              {playMode === 'match' && (
-                <button
-                  id="btn-arena-share"
-                  className="hud-btn hud-btn-teal hud-btn-mini"
-                  onClick={() => setIsShareOpen(true)}
-                >
-                  {t.share}
-                </button>
-              )}
-              {CHARACTER_LAB_UI && (
-                <button
-                  id="btn-open-lab"
-                  className="hud-btn hud-btn-carbon hud-btn-mini"
-                  onClick={() => setIsLabOpen(true)}
-                >
-                  Lab
-                </button>
-              )}
-              <button
-                id="btn-debug-toggle"
-                className={`hud-btn hud-btn-mini ${debugVisible ? 'hud-btn-warn' : 'hud-btn-carbon'}`}
-                onClick={() => setDebugVisible(v => !v)}
-                title="Toggle debug panels"
-              >
-                {debugVisible ? '🛠 DEBUG ON' : '🛠 DEBUG'}
-              </button>
-            </div>
-          </header>
-
-          {isHubMode && (
-            <section className="flow-hub hud-animate" aria-label={t.flowHubTitle}>
-              <div className="flow-hub-header">
-                <h2>{t.flowHubTitle}</h2>
-                <p>{t.flowHubDesc}</p>
-                <div className="flow-hub-pill">{t.flowPhase1Done}</div>
-              </div>
-              <div className="flow-route-guide">
-                <div className="flow-route-title">{t.routeGuideTitle}</div>
-                <p className="flow-route-desc">{t.routeGuideDesc}</p>
-                <ol className="flow-route-list">
-                  {([
-                    ['walk', t.routeStepWalk],
-                    ['training', t.routeStepTraining],
-                    ['match', t.routeStepBattle],
-                  ] as const).map(([step, label]) => {
-                    const status = routeStatus(step);
-                    return (
-                      <li key={step} className={`flow-route-item is-${status}`}>
-                        <span className="flow-route-step">{label}</span>
-                        <span className={`flow-route-badge is-${status}`}>{routeStatusLabel(status)}</span>
-                      </li>
-                    );
-                  })}
-                </ol>
-                <button
-                  className="hud-btn hud-btn-blue hud-btn-mini"
-                  onClick={triggerRecommendedRouteStep}
-                  disabled={routeNextStep === 'complete'}
-                >
-                  {routeNextStep === 'complete'
-                    ? t.routeCtaComplete
-                    : `${t.routeCtaNext}: ${routeNextStep === 'walk'
-                      ? t.startWalk
-                      : routeNextStep === 'training'
-                        ? t.startTraining
-                        : t.flowStartBattle}`}
-                </button>
-              </div>
-              <div className="flow-hub-grid">
-                <article className="flow-hub-card">
-                  <h3>{t.flowPhase2Title}</h3>
-                  <p>{t.flowPhase2Desc}</p>
-                  <div className="flow-hub-actions">
-                    <button className="hud-btn hud-btn-teal hud-btn-mini" onClick={startWalk}>
-                      {t.startWalk}
-                    </button>
-                    <button className="hud-btn hud-btn-blue hud-btn-mini" onClick={startTraining}>
-                      {t.startTraining}
-                    </button>
-                  </div>
-                </article>
-
-                <article className="flow-hub-card">
-                  <h3>{t.flowPhase3Title}</h3>
-                  <p>{t.flowPhase3Desc}</p>
-                  <div className="flow-hub-actions">
-                    <button className="hud-btn hud-btn-warn hud-btn-mini" onClick={openBattlePrep}>
-                      {t.flowStartBattle}
-                    </button>
-                  </div>
-                </article>
-
-                <article className="flow-hub-card">
-                  <h3>{t.flowPhase4Title}</h3>
-                  <p>{t.flowPhase4Desc}</p>
-                  <div className="flow-hub-memory" title={profileView.memorySummary || ''}>
-                    {profileView.memorySummary || t.noMemory}
-                  </div>
-                  <div className="flow-hub-actions">
-                    <button
-                      className="hud-btn hud-btn-carbon hud-btn-mini"
-                      onClick={() => {
-                        requestProfileSync();
-                        setIsProfileOpen(true);
-                      }}
-                    >
-                      {t.flowOpenMemory}
-                    </button>
-                  </div>
-                </article>
-              </div>
-            </section>
-          )}
-          {isMainPhase && isBattlePrepOpen && (
-            <section className="battle-prep-overlay hud-animate" aria-label={t.prepTitle}>
-              <div className="battle-prep-card">
-                <h2>{t.prepTitle}</h2>
-                <p>{t.prepDesc}</p>
-                <ol className="battle-prep-list">
-                  <li className={`battle-prep-item ${hasRouteFoundation ? 'is-ready' : 'is-missing'}`}>
-                    <span>{t.prepStepRoute}</span>
-                    <strong>{hasRouteFoundation ? t.prepReady : t.prepMissing}</strong>
-                  </li>
-                  <li className="battle-prep-item is-ready">
-                    <span>{t.prepStepModel}</span>
-                    <strong>{`Type ${currentModelType}`}</strong>
-                  </li>
-                  <li className={`battle-prep-item ${alignmentReady ? 'is-ready' : 'is-guide'}`}>
-                    <span>{t.prepStepAlign}</span>
-                    <strong>{alignmentReady ? t.prepReady : t.prepAlignGuide}</strong>
-                  </li>
-                </ol>
-                <div className="battle-prep-actions">
-                  {!hasWalkMilestone && (
-                    <button className="hud-btn hud-btn-teal hud-btn-mini" onClick={startWalk}>
-                      {t.prepGoWalk}
-                    </button>
-                  )}
-                  {!hasTrainingMilestone && (
-                    <button className="hud-btn hud-btn-blue hud-btn-mini" onClick={startTraining}>
-                      {t.prepGoTraining}
-                    </button>
-                  )}
-                  <button className="hud-btn hud-btn-warn hud-btn-mini" onClick={enterBattleMode}>
-                    {t.prepStartNow}
-                  </button>
-                  <button className="hud-btn hud-btn-carbon hud-btn-mini" onClick={() => setIsBattlePrepOpen(false)}>
-                    {t.prepBackHub}
-                  </button>
-                </div>
-              </div>
-            </section>
-          )}
-
-          <FusionCraftModal 
-            isOpen={showFusionCraft} 
-            onClose={() => setShowFusionCraft(false)} 
-          />
-
-          {showBattleHud && (
-            <div className="hud-health-bars">
-              <div className="hud-hp-side is-local">
-                <div className="hud-hp-label">{t.hp}</div>
-                <div className="hud-hp-track">
-                  <div
-                    className={`hud-hp-fill ${localHp < 30 ? 'critical' : ''}`}
-                    style={{ width: `${isSolo ? localHp : (battleState.maxHp > 0 ? (battleState.hp / battleState.maxHp) * 100 : 0)}%` }}
-                  />
-                </div>
-              </div>
-              <div className="hud-hp-vs">VS</div>
-              <div className="hud-hp-side is-remote">
-                <div className="hud-hp-label">{t.enemyHp}</div>
-                <div className="hud-hp-track">
-                  <div
-                    className={`hud-hp-fill ${enemyHp < 30 ? 'critical' : ''}`}
-                    style={{ width: `${isSolo ? enemyHp : (battleState.opponentMaxHp > 0 ? (battleState.opponentHp / battleState.opponentMaxHp) * 100 : 0)}%` }}
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-
-          <aside className={`hud-profile hud-animate ${isProfileOpen ? 'is-open' : ''}`}>
-            <div className="hud-profile-title" onClick={() => setIsProfileOpen(!isProfileOpen)}>
-              {t.pilotTelemetry}
-            </div>
-            <div className="hud-profile-actions">
-              <div className={`hud-align-pill ${alignmentReady ? 'is-ready' : ''}`}>
-                {alignmentReady ? t.alignReady : t.alignPending}
-              </div>
-              <label className="hud-lang-wrap">
-                <span>{t.language}</span>
-                <select
-                  className="hud-lang-select"
-                  value={selectedLanguage}
-                  onChange={(e) => {
-                    const next = e.target.value;
-                    setSelectedLanguage(next);
-                    applyLanguage(next, true);
-                  }}
-                >
-                  <option value="ja-JP">日本語</option>
-                  <option value="en-US">English</option>
-                  <option value="es-ES">Espanol</option>
-                </select>
-              </label>
-            </div>
-            <div className="hud-main-commands">
-              <button className="hud-btn hud-btn-carbon hud-btn-mini" onClick={requestProfileSync}>
-                {t.refreshMemory}
-              </button>
-              <button
-                className={`hud-btn hud-btn-mini ${isLiveConnected ? 'hud-btn-green' : 'hud-btn-teal'}`}
-                onClick={isLiveConnected ? disconnectLiveDirect : connectLiveDirect}
-              >
-                {isLiveConnected ? t.disconnectLive : t.connectLive}
-              </button>
-              <button
-                className={`hud-btn hud-btn-mini ${isLiveMicActive ? 'hud-btn-warn' : 'hud-btn-blue'}`}
-                onClick={toggleLiveMic}
-                disabled={liveActionDisabled}
-                title={liveActionDisabled ? t.liveNeedConnection : ''}
-              >
-                {isLiveMicActive ? t.stopLiveMic : t.startLiveMic}
-              </button>
-              <button
-                className="hud-btn hud-btn-carbon hud-btn-mini"
-                onClick={sendLiveTextPing}
-                disabled={liveActionDisabled}
-                title={liveActionDisabled ? t.liveNeedConnection : ''}
-              >
-                {t.sendLiveText}
-              </button>
-            </div>
-            <div className="hud-main-commands">
-              <button
-                className={`hud-btn hud-btn-mini ${playMode === 'hub' ? 'hud-btn-blue' : 'hud-btn-carbon'}`}
-                onClick={returnToHub}
-              >
-                {t.modeHub}
-              </button>
-              <button
-                className={`hud-btn hud-btn-mini ${playMode === 'match' ? 'hud-btn-warn' : 'hud-btn-carbon'}`}
-                onClick={playMode === 'match' ? returnToHub : openBattlePrep}
-              >
-                {playMode === 'match' ? t.flowReturnHub : t.flowStartBattle}
-              </button>
-              <button
-                className={`hud-btn hud-btn-mini ${playMode === 'training' ? 'hud-btn-teal' : 'hud-btn-carbon'}`}
-                onClick={trainingSession ? completeTraining : startTraining}
-              >
-                {trainingSession ? t.completeTraining : t.startTraining}
-              </button>
-              <button
-                className={`hud-btn hud-btn-mini ${playMode === 'walk' ? 'hud-btn-teal' : 'hud-btn-carbon'}`}
-                onClick={walkSession ? completeWalk : startWalk}
-              >
-                {walkSession ? t.completeWalk : t.startWalk}
-              </button>
-              <button
-                className="hud-btn hud-btn-steel hud-btn-mini"
-                onClick={playMode === 'walk' ? sendWalkVisionTrigger : requestProfileSync}
-              >
-                {playMode === 'walk' ? t.sendWalkVision : t.refreshMemory}
-              </button>
-            </div>
-            <div className="hud-profile-grid">
-              <span>{t.mode}</span><strong>{modeLabel}</strong>
-              <span>AR</span><strong>{isARSessionActive ? `${scanState} (${scanPointCount})` : 'OFF'}</strong>
-              <span>{t.matches}</span><strong>{profileView.totalMatches}</strong>
-              <span>{t.training}</span><strong>{profileView.totalTrainingSessions}</strong>
-              <span>{t.walks}</span><strong>{profileView.totalWalkSessions}</strong>
-              <span>{t.tone}</span><strong>{profileView.tone}</strong>
-              <span>{t.sync}</span><strong>{profileView.syncRate.toFixed(2)}</strong>
-              <span>{t.store}</span><strong>{profileView.storageBackend}</strong>
-              <span>{t.hp}</span><strong>{`${battleState.hp}/${battleState.maxHp || '-'}`}</strong>
-              <span>{t.enemyHp}</span><strong>{`${battleState.opponentHp}/${battleState.opponentMaxHp || '-'}`}</strong>
-              <span>{t.heat}</span><strong>{battleState.heatActive ? 'ON' : 'OFF'}</strong>
-            </div>
-            <div className="hud-memory-line" title={profileView.memorySummary || ''}>
-              {profileView.memorySummary || t.noMemory}
-            </div>
-            {profileView.recentLogs.length > 0 && (
-              <div className="hud-block">
-                {profileView.recentLogs.map((log, idx) => (
-                  <div key={`${log.timestamp}-${idx}`} className="hud-log-line">
-                    {`${log.result} C:${log.criticalHits} M:${log.misses}`}
-                  </div>
-                ))}
-              </div>
-            )}
-            {debugVisible && (liveDebugInfo.tokenName || liveDebugInfo.interactionId || liveDebugInfo.interactionText || bgmUrl) && (
-              <div className="hud-block hud-dim" style={{ borderLeft: '2px solid #ff6b6b' }}>
-                <div style={{ fontSize: '0.6rem', color: '#ff6b6b', fontWeight: 700, marginBottom: 2 }}>🛠 DEBUG INFO</div>
-                {liveDebugInfo.tokenName && <div className="hud-truncate">{`Token: ${liveDebugInfo.tokenName}`}</div>}
-                {liveDebugInfo.resumeHandle && <div className="hud-truncate">{`Resume: ${liveDebugInfo.resumeHandle}`}</div>}
-                {liveDebugInfo.interactionId && <div className="hud-truncate">{`Interaction: ${liveDebugInfo.interactionId}`}</div>}
-                {liveDebugInfo.interactionText && <div className="hud-truncate">{liveDebugInfo.interactionText}</div>}
-                {bgmUrl && <div className="hud-truncate">{`BGM: ${bgmUrl}`}</div>}
-              </div>
-            )}
-          </aside>
-
-          {debugVisible && showBattleHud && (
-            <div className="hud-right-rail hud-animate" style={{ borderLeft: '2px solid #ff6b6b' }}>
-              <div style={{ fontSize: '0.7rem', color: '#ff6b6b', fontWeight: 700, letterSpacing: '0.1em', marginBottom: 6 }}>🛠 DEBUG TOOLS</div>
-              <button id="btn-fusion-drop" className="hud-btn hud-btn-amber" onClick={requestFusionDrop}>
-                {t.dropFusion}
-              </button>
-              <button id="btn-live-token" className="hud-btn hud-btn-blue" onClick={requestLiveEphemeralToken}>
-                {t.issueLiveToken}
-              </button>
-              <button id="btn-interaction-turn" className="hud-btn hud-btn-steel" onClick={requestInteractionTurn}>
-                {t.testInteraction}
-              </button>
-            </div>
-          )}
-
-          {showBattleHud && (
-            <button
-              id="btn-cast-special"
-              className={`hud-btn hud-cast-btn ${(isStreaming || isMatchPaused || !battleState.specialReady || !matchAlignmentReady) ? 'is-disabled' : ''}`}
-              disabled={isStreaming || isMatchPaused || !battleState.specialReady || !matchAlignmentReady}
-              onClick={handleCastSpecial}
-            >
-              {isMatchPaused
-                ? t.matchPaused
-                : (!matchAlignmentReady
-                  ? t.alignPending
-                  : (isStreaming ? t.casting : (battleState.specialReady ? t.castSpecial : `EX ${battleState.exGauge}/${EX_GAUGE.MAX}`)))}
-            </button>
-          )}
-
-          {debugVisible && showBattleHud && (
-            <button
-              id="btn-p2p-media"
-              className={`hud-btn hud-chip-btn ${isP2PMediaOn ? 'is-on' : 'is-off'}`}
-              onClick={toggleP2PMedia}
-            >
-              {isP2PMediaOn ? t.p2pOn : t.p2pOff}
-            </button>
-          )}
-        </>
-      )}
-
-
-
       <Canvas
         className="arena-canvas"
         shadows={SHADOWS_ENABLED ? { type: THREE.PCFShadowMap } : false}
@@ -2021,7 +1152,7 @@ function App() {
         <XR store={store}>
           {appPhase === 'main' && (
             <>
-              <MainScene />
+              <MainScene shadowsEnabled={SHADOWS_ENABLED} />
               <OrbitControls
                 makeDefault
                 enablePan={false}

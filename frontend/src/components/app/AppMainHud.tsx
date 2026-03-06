@@ -1,4 +1,4 @@
-import React from 'react';
+import type { FC } from 'react';
 import type { CharacterDNA } from '../../../../shared/types/firestore';
 import { EX_GAUGE } from '../../../../shared/constants/battleConstants';
 import { CharacterLabPanel } from '../ui/CharacterLabPanel';
@@ -129,7 +129,7 @@ const nextRouteLabel = (t: UiText, routeNextStep: RouteStepKey | 'complete') => 
       : t.flowStartBattle}`;
 };
 
-const FlowHubSection: React.FC<FlowHubSectionProps> = ({
+const FlowHubSection: FC<FlowHubSectionProps> = ({
   t,
   profileView,
   routeNextStep,
@@ -224,7 +224,7 @@ type BattlePrepProps = Pick<
   'onCloseBattlePrep'
 >;
 
-const BattlePrepOverlay: React.FC<BattlePrepProps> = ({
+const BattlePrepOverlay: FC<BattlePrepProps> = ({
   t,
   hasRouteFoundation,
   currentModelType,
@@ -312,7 +312,7 @@ type ProfilePanelProps = Pick<
   'onToggleProfile'
 >;
 
-const ProfilePanel: React.FC<ProfilePanelProps> = ({
+const ProfilePanel: FC<ProfilePanelProps> = ({
   t,
   alignmentReady,
   selectedLanguage,
@@ -464,7 +464,7 @@ const ProfilePanel: React.FC<ProfilePanelProps> = ({
   </aside>
 );
 
-export const AppMainHud: React.FC<AppMainHudProps> = ({
+export const AppMainHud: FC<AppMainHudProps> = ({
   t,
   characterLabEnabled,
   currentModelType,

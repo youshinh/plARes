@@ -7,6 +7,7 @@ import { normalizeArenaCalibration, useArenaSyncStore } from '../store/useArenaS
 import { PLAYER_ID, PLAYER_LANG, SYNC_RATE } from '../utils/identity';
 import { evolveCharacterDNAByMatchCount, normalizeCharacterDNA } from '../utils/characterDNA';
 import { localizeBattleEvent } from '../utils/localizeEvent';
+import { showSubtitle } from '../utils/uiEvents';
 import type { GameEvent, WebRTCDataChannelPayload } from '../../../shared/types/events';
 import type { CharacterDNA } from '../../../shared/types/firestore';
 import type { BattleUiState, LiveDebugInfo, ProfileInfo, UiText } from '../types/app';
@@ -44,10 +45,6 @@ const toPositiveNumber = (value: unknown, fallback: number): number => {
 
 const clampHp = (value: number, maxHp: number): number =>
   Math.max(0, Math.min(value, maxHp));
-
-const showSubtitle = (text: string) => {
-  window.dispatchEvent(new CustomEvent('show_subtitle', { detail: { text } }));
-};
 
 export const useRemoteBattleEvents = ({
   battleStateRef,

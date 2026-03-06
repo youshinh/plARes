@@ -1712,11 +1712,14 @@
     -webkit-backdrop-filter: var(--glass-blur);
     box-shadow: var(--shadow-hud);
     background: var(--hud-bg);
+    overflow-x: hidden;
+    clip-path: inset(0 calc(100% - 42px) 0 0 round var(--radius-lg));
   }
 
   .hud-profile.is-open,
   .hud-profile:focus-within {
     transform: translateX(0);
+    clip-path: inset(0 0 0 0 round var(--radius-lg));
   }
 
   .hud-profile::before {

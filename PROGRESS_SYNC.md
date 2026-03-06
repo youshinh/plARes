@@ -10,6 +10,8 @@
 
 | Date       | Owner    | TaskID | Directory                       | Status | NextAction                                                                                      | Blocker |
 | ---------- | -------- | ------ | ------------------------------- | ------ | ----------------------------------------------------------------------------------------------- | ------- |
+| 2026-03-06 | Codex    | T1-21  | /frontend/src, /frontend        | DONE   | `App.tsx` hook分割継続 + HUD重なり修正 + Playwrightで Walk→Training→Battle Prep→Match を再確認 | なし    |
+| 2026-03-06 | Codex    | T1-20  | /frontend/src                   | DONE   | `App.tsx` の画面責務分割継続 + `RobotCharacter.tsx` を asset/appearance/animation hook へ分離 | なし    |
 | 2026-03-06 | Codex    | T1-19  | /frontend/src/App.tsx           | DONE   | React warning（setState in render）を解消し、Flow main遷移の安定動作をPlaywrightで再確認       | なし    |
 | 2026-03-03 | Codex    | T1-18  | /frontend/src, /frontend        | DONE   | Flow準拠のハブ導線実装（hub追加、散歩/修行/対戦の明示遷移、常時バトルHUD廃止、UI再設計）        | なし    |
 | 2026-03-02 | Jules    | J-6    | /frontend/src                   | DONE   | HUD/パネルボタンのキーボードアクセシビリティ改善                                                | なし    |

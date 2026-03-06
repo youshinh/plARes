@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import { useEffect, type FC } from 'react';
 import { Environment } from '@react-three/drei';
 import { useXR } from '@react-three/xr';
 import * as THREE from 'three';
@@ -17,7 +17,7 @@ type MainSceneProps = {
   shadowsEnabled: boolean;
 };
 
-export const MainScene: React.FC<MainSceneProps> = ({ shadowsEnabled }) => {
+export const MainScene: FC<MainSceneProps> = ({ shadowsEnabled }) => {
   const { session } = useXR();
   const { hoverMatrix, depthTexture, depthRawToMeters } = useWebXRScanner();
   const playMode = useFSMStore(s => s.playMode);
