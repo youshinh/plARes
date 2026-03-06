@@ -1,6 +1,6 @@
 # PROGRESS_SYNC.md
 
-最終更新: 2026-03-06
+最終更新: 2026-03-07
 
 ## 運用ルール
 
@@ -10,6 +10,17 @@
 
 | Date       | Owner    | TaskID | Directory                       | Status | NextAction                                                                                      | Blocker |
 | ---------- | -------- | ------ | ------------------------------- | ------ | ----------------------------------------------------------------------------------------------- | ------- |
+| 2026-03-07 | Codex    | T2-15  | /backend/ai_core, /backend/tests | DONE   | `main.py` の最終整理として composition 重複を削減し、backend test 55件を維持                   | なし    |
+| 2026-03-07 | Codex    | T2-14  | /backend/ai_core, /backend/tests | DONE   | `genai_helpers.py` 抽出と packet contract 厳密化を追加し、`main.py` を1082行まで整理して backend testを55件まで拡張 | なし    |
+| 2026-03-07 | Codex    | T2-13  | /backend/ai_core, /backend/tests | DONE   | `genai_client_factory.py` / `platform_bootstrap.py` / `message_contracts.py` を追加し、bootstrap整理と packet contract validation を導入して backend testを51件まで拡張 | なし    |
+| 2026-03-07 | Codex    | T2-12  | /backend/ai_core, /backend/tests | DONE   | `character_session_service.py` / `ui_payloads.py` 抽出で character接続とUI helperを分離し、backend testを45件まで拡張 | なし    |
+| 2026-03-07 | Codex    | T2-11  | /backend/ai_core, /backend/tests | DONE   | `audio_session_service.py` / `game_session_service.py` 抽出で接続ライフサイクルを分離し、backend testを39件まで拡張 | なし    |
+| 2026-03-07 | Codex    | T2-10  | /backend/ai_core, /backend/tests | DONE   | `genai_request_service.py` / `ws_router.py` 抽出で GenAI request処理とWS router/bootstrap を分離し、backend testを37件まで拡張 | なし    |
+| 2026-03-07 | Codex    | T2-9   | /backend/ai_core, /backend/tests | DONE   | `persistence_service.py` / `runtime_service.py` 抽出で Firestore と room/session 管理を分離し、backend testを29件まで拡張 | なし    |
+| 2026-03-06 | Codex    | T2-8   | /backend/ai_core, /backend/tests | DONE   | `GameApplicationDeps` 導入 + `dialogue_service.py` 抽出 + game_application contract test追加   | なし    |
+| 2026-03-06 | Codex    | T2-7   | /backend/ai_core, /backend/tests | DONE   | `battle_service.py` 抽出で HP/EX/heat/match_end を分離し、backend testを20件まで拡張          | なし    |
+| 2026-03-06 | Codex    | T2-6   | /backend/ai_core, /backend/tests | DONE   | `audio_judge.py` / `profile_service.py` / `game_application.py` へ分割し、backend testを18件まで拡張 | なし    |
+| 2026-03-06 | Codex    | T2-5   | /backend/ai_core, /backend/tests | DONE   | `main.py` の runtime bug修正（base64/import名揺れ/保存呼び出し）+ 回帰テスト4件追加            | なし    |
 | 2026-03-06 | Codex    | T1-21  | /frontend/src, /frontend        | DONE   | `App.tsx` hook分割継続 + HUD重なり修正 + Playwrightで Walk→Training→Battle Prep→Match を再確認 | なし    |
 | 2026-03-06 | Codex    | T1-20  | /frontend/src                   | DONE   | `App.tsx` の画面責務分割継続 + `RobotCharacter.tsx` を asset/appearance/animation hook へ分離 | なし    |
 | 2026-03-06 | Codex    | T1-19  | /frontend/src/App.tsx           | DONE   | React warning（setState in render）を解消し、Flow main遷移の安定動作をPlaywrightで再確認       | なし    |
