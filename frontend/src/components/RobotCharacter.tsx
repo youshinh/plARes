@@ -238,6 +238,40 @@ export const RobotCharacter: React.FC = () => {
     [heroAnimations],
   );
 
+
+  // Apply battle-state glow via emissive only – preserves each part's unique colour
+  React.useEffect(() => {
+    if (!groupRef.current) return;
+    const emissiveMap: Partial<Record<State, string>> = {
+      [State.HOVERING]:        '#000000',  // no glow during idle
+      [State.BASIC_ATTACK]:    '#661100',  // subtle red pulse
+      [State.EVADE_TO_COVER]:  '#002244',  // blue cold flash
+      [State.FLANKING_RIGHT]:  '#114422',  // green flash
+      [State.EMERGENCY_EVADE]: '#444400',  // yellow warning
+      [State.CASTING_SPECIAL]: '#441100',  // orange charge glow
+    };
+    const emissiveColor = emissiveMap[currentState] ?? '#000000';
+    const emissiveIntensity = currentState === State.HOVERING ? 0.0 : 0.55;
+
+    groupRef.current.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        const mat = (child as THREE.Mesh).material as THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial;
+        // Only touch emissive – leave visor glow controlled by DNA.
+        if (mat.emissive && mat.emissiveIntensity < 1.2) {
+          mat.emissive.set(emissiveColor);
+          mat.emissiveIntensity = emissiveIntensity;
+        }
+        if (typeof mat.roughness === 'number') {
+          const store = mat.userData as { baseRoughness?: number };
+          if (typeof store.baseRoughness !== 'number') {
+            store.baseRoughness = mat.roughness;
+          }
+          mat.roughness = Math.max(0.02, Math.min(0.98, store.baseRoughness + scarRoughnessBoost));
+        }
+      }
+    });
+  }, [currentState, scarRoughnessBoost]);
+
   useFrame((_, delta) => {
     if (!groupRef.current) return;
     const pos = groupRef.current.position;
@@ -363,45 +397,17 @@ export const RobotCharacter: React.FC = () => {
                 event: 'hit_confirmed',
                 user: PLAYER_ID,
                 payload: { damage: hitStatePolicy.hitWindow.damage },
-              } as unknown as any,
+              } as unknown as Record<string, unknown>,
             };
             if (!rtcService.send(hitPayload)) {
-              wsService.sendEvent(hitPayload.data as any);
+              wsService.sendEvent(hitPayload.data as unknown as Record<string, unknown>);
             }
           }
         }
       }
     }
 
-    // Apply battle-state glow via emissive only – preserves each part's unique colour
-    const emissiveMap: Partial<Record<State, string>> = {
-      [State.HOVERING]:        '#000000',  // no glow during idle
-      [State.BASIC_ATTACK]:    '#661100',  // subtle red pulse
-      [State.EVADE_TO_COVER]:  '#002244',  // blue cold flash
-      [State.FLANKING_RIGHT]:  '#114422',  // green flash
-      [State.EMERGENCY_EVADE]: '#444400',  // yellow warning
-      [State.CASTING_SPECIAL]: '#441100',  // orange charge glow
-    };
-    const emissiveColor = emissiveMap[currentState] ?? '#000000';
-    const emissiveIntensity = currentState === State.HOVERING ? 0.0 : 0.55;
 
-    groupRef.current.traverse((child) => {
-      if ((child as THREE.Mesh).isMesh) {
-        const mat = (child as THREE.Mesh).material as THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial;
-        // Only touch emissive – leave visor glow controlled by DNA.
-        if (mat.emissive && mat.emissiveIntensity < 1.2) {
-          mat.emissive.set(emissiveColor);
-          mat.emissiveIntensity = emissiveIntensity;
-        }
-        if (typeof mat.roughness === 'number') {
-          const store = mat.userData as { baseRoughness?: number };
-          if (typeof store.baseRoughness !== 'number') {
-            store.baseRoughness = mat.roughness;
-          }
-          mat.roughness = Math.max(0.02, Math.min(0.98, store.baseRoughness + scarRoughnessBoost));
-        }
-      }
-    });
 
     const now = performance.now();
     if (playMode === 'match') {
@@ -605,7 +611,7 @@ export const RobotCharacter: React.FC = () => {
     return () => {
       mats.forEach((m) => m.dispose());
     };
-  }, [heroScene, C.white, C.whiteB, C.blue, C.blueL, C.black, C.blackM, C.cyan, C.red, C.redD, C.yellow, dnaGlowIntensity, modelType, surfaceMaps, withMaps, finishTuning.roughnessBias, finishTuning.metalBias]);
+  }, [heroScene, C.white, C.whiteB, C.blue, C.blueL, C.black, C.blackM, C.cyan, C.red, C.redD, C.yellow, dnaGlowIntensity, modelType, surfaceMaps, withMaps, finishTuning.roughnessBias, finishTuning.metalBias, skinTex]);
 
   React.useEffect(() => () => {
     if (localStoreTimerRef.current) {
