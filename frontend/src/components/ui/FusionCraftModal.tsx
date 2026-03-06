@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { wsService } from '../../services/WebSocketService';
 import { PLAYER_ID } from '../../utils/identity';
 
@@ -20,6 +20,16 @@ export const FusionCraftModal: React.FC<FusionCraftModalProps> = ({ isOpen, onCl
   const [image, setImage] = useState<string | null>(null);
   const [isCrafting, setIsCrafting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -69,16 +79,34 @@ export const FusionCraftModal: React.FC<FusionCraftModalProps> = ({ isOpen, onCl
   };
 
   return (
-    <div className="modal-overlay">
-      <div className="modal-content fusion-modal">
+    <div className="modal-overlay" onClick={onClose}>
+      <div
+        className="modal-content fusion-modal"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="fusion-modal-title"
+      >
         <div className="modal-header">
-          <h2>Real-World Fusion Craft</h2>
-          <button className="close-btn" onClick={onClose}>&times;</button>
+          <h2 id="fusion-modal-title">Real-World Fusion Craft</h2>
+          <button className="close-btn" onClick={onClose} aria-label="Close modal">&times;</button>
         </div>
         <div className="modal-body">
           <p className="hint">Capture a real object to fuse its essence into your robot.</p>
           
-          <div className="image-capture-zone" onClick={() => fileInputRef.current?.click()}>
+          <div
+            className="image-capture-zone"
+            onClick={() => fileInputRef.current?.click()}
+            role="button"
+            tabIndex={0}
+            aria-label="Capture or upload an image"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                fileInputRef.current?.click();
+              }
+            }}
+          >
             {image ? (
               <img src={image} alt="Captured" className="captured-preview" />
             ) : (
@@ -94,12 +122,14 @@ export const FusionCraftModal: React.FC<FusionCraftModalProps> = ({ isOpen, onCl
               ref={fileInputRef} 
               style={{ display: 'none' }} 
               onChange={handleFileChange}
+              tabIndex={-1}
             />
           </div>
 
           <div className="input-group">
-            <label>Concentration Concept</label>
+            <label htmlFor="fusion-concept">Concentration Concept</label>
             <input
+              id="fusion-concept"
               type="text"
               placeholder="e.g. 'Cyberpunk Neon', 'Ancient Stone', 'Carbon Fiber'"
               value={concept}
@@ -112,6 +142,7 @@ export const FusionCraftModal: React.FC<FusionCraftModalProps> = ({ isOpen, onCl
             className={`craft-btn ${isCrafting ? 'loading' : ''}`}
             onClick={handleCraft}
             disabled={isCrafting || !image || !concept.trim()}
+            aria-disabled={isCrafting || !image || !concept.trim()}
           >
             {isCrafting ? 'Fusing Essence...' : 'BEGIN FUSION'}
           </button>
