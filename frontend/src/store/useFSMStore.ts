@@ -116,7 +116,10 @@ export const useFSMStore = create<FSMState>((set, get) => ({
   enemyHp: 100,
 
   playMode: 'hub',
-  setPlayMode: (mode) => set({ playMode: mode }),
+  setPlayMode: (mode) => set((state) => {
+    if (state.playMode === mode) return state;
+    return { playMode: mode };
+  }),
 
   modelType: loadInitialModelType(),
   prioritySource: 'system' as const,
@@ -213,8 +216,17 @@ export const useFSMStore = create<FSMState>((set, get) => ({
 
   resetMatch: () => set({ localHp: 100, enemyHp: 100, currentState: State.HOVERING }),
 
-  setRemoteRobotPosition: (pos) => set({ remoteRobotPosition: pos }),
-  setLocalRobotPosition: (pos) => set({ localRobotPosition: pos }),
+  setRemoteRobotPosition: (pos) => set((state) => {
+    const prev = state.remoteRobotPosition;
+    if (!pos && !prev) return state;
+    if (pos && prev && prev.distanceToSquared(pos) < 1e-8) return state;
+    return { remoteRobotPosition: pos ? pos.clone() : null };
+  }),
+  setLocalRobotPosition: (pos) => set((state) => {
+    const prev = state.localRobotPosition;
+    if (prev && prev.distanceToSquared(pos) < 1e-8) return state;
+    return { localRobotPosition: pos.clone() };
+  }),
   setRobotStats: (stats, meta) => set({ robotStats: stats, robotMeta: meta }),
   setRobotDna: (dna) => set({ robotDna: normalizeCharacterDNA(dna) ?? DEFAULT_CHARACTER_DNA }),
 

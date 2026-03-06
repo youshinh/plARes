@@ -1,37 +1,39 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Canvas } from '@react-three/fiber';
-import { XR, createXRStore, useXR } from '@react-three/xr';
-import { Environment, OrbitControls } from '@react-three/drei';
-import { RobotCharacter } from './components/RobotCharacter';
-import { RemoteRobotCharacter } from './components/RemoteRobotCharacter';
-import { FaceScanner } from './components/FaceScanner';
+import { XR, createXRStore } from '@react-three/xr';
+import { OrbitControls } from '@react-three/drei';
 import { ServerDrivenPanel } from './components/ui/ServerDrivenPanel';
 import { AnimationDebugPanel } from './components/ui/AnimationDebugPanel';
 import { DynamicSubtitle } from './components/ui/DynamicSubtitle';
 import { RemoteStreamView } from './components/ui/RemoteStreamView';
-import { CharacterLabPanel } from './components/ui/CharacterLabPanel';
 import { ShareArenaModal } from './components/ui/ShareArenaModal';
 import { ScanGuideOverlay } from './components/ui/ScanGuideOverlay';
-import { FusionCraftModal } from './components/ui/FusionCraftModal';
-import { useVoiceController } from './hooks/useVoiceController';
-import { useWebXRScanner } from './hooks/useWebXRScanner';
-import { useAICommandListener } from './hooks/useAICommandListener';
+import { AppEntryScreens } from './components/app/AppEntryScreens';
+import { AppMainHud } from './components/app/AppMainHud';
+import { MainScene } from './components/app/MainScene';
 import { useAudioStreamer } from './hooks/useAudioStreamer';
 import { useCharacterSetup } from './hooks/useCharacterSetup';
+import { useRemoteBattleEvents } from './hooks/useRemoteBattleEvents';
 import { wsService } from './services/WebSocketService';
 import { rtcService } from './services/WebRTCDataChannelService';
 import { geminiLiveService } from './services/GeminiLiveService';
-import { State, useFSMStore } from './store/useFSMStore';
-import { normalizeArenaCalibration, useArenaSyncStore } from './store/useArenaSyncStore';
+import { State, useFSMStore, type PlayMode } from './store/useFSMStore';
+import { useArenaSyncStore } from './store/useArenaSyncStore';
 import { GAMEPLAY_RULES } from './constants/gameplay';
 import { EX_GAUGE } from '../../shared/constants/battleConstants';
 import { localizeBattleEvent, localizeCastStart, localizeResult, localizeTimeout } from './utils/localizeEvent';
-import { navMesh } from './utils/NavMeshGenerator';
 import { PLAYER_ID, PLAYER_LANG, ROOM_ID, SYNC_RATE } from './utils/identity';
 import { evolveCharacterDNAByMatchCount, normalizeCharacterDNA } from './utils/characterDNA';
-import type { CharacterDNA } from '../../shared/types/firestore';
 import * as THREE from 'three';
-import type { WebRTCDataChannelPayload, GameEvent } from '../../shared/types/events';
+import type {
+  AppPhase,
+  BattleUiState,
+  DnaAbFeedbackPayload,
+  LiveDebugInfo,
+  ModeSession,
+  ProfileInfo,
+  RouteProgress,
+} from './types/app';
 import './App.css';
 
 const defaultBackendHost = (() => {
@@ -117,13 +119,6 @@ const saveCachedTranslations = (bcp47: string, dict: Record<string, string>): vo
   } catch {
     // storage quota; noop
   }
-};
-
-type PlayMode = 'hub' | 'match' | 'training' | 'walk';
-
-type ModeSession = {
-  id: string;
-  startedAt: string;
 };
 
 const toFiniteNumber = (value: unknown, fallback: number): number => {
@@ -525,110 +520,6 @@ const store = createXRStore({
   planeDetection: false,
 });
 
-// ── Inner scene (must render inside Canvas + XR) ─────────────────────────────
-const MainScene: React.FC = () => {
-  const { session } = useXR();
-  const { hoverMatrix, depthTexture, depthRawToMeters } = useWebXRScanner();
-  useVoiceController();
-  useAICommandListener();
-
-  // Listen for NavMesh ready event (fired by useWebXRScanner once point-cloud is dense)
-  useEffect(() => {
-    const handler = async (e: Event) => {
-      const points = (e as CustomEvent<THREE.Vector3[]>).detail;
-      await navMesh.buildFromPoints(points);
-      
-      // Send local navmesh to remote peer
-      if (rtcService.isOpen()) {
-        const plainPoints = points.map(p => ({ x: p.x, y: p.y, z: p.z }));
-        rtcService.sendNavMesh(plainPoints);
-      }
-    };
-    window.addEventListener('navmesh_ready', handler);
-    return () => window.removeEventListener('navmesh_ready', handler);
-  }, []);
-
-  // Listen for remote NavMesh ready event (received via WebRTC)
-  useEffect(() => {
-    const handler = async (e: Event) => {
-      const pointsData = (e as CustomEvent<{x: number, y: number, z: number}[]>).detail;
-      if (Array.isArray(pointsData)) {
-        console.info('[NavMesh] Received remote navmesh points, building local navmesh...');
-        const points = pointsData.map(p => new THREE.Vector3(p.x, p.y, p.z));
-        await navMesh.buildFromPoints(points);
-        window.dispatchEvent(
-          new CustomEvent('show_subtitle', { detail: { text: 'Remote NavMesh loaded' } })
-        );
-      }
-    };
-    window.addEventListener('remote_navmesh_ready', handler);
-    return () => window.removeEventListener('remote_navmesh_ready', handler);
-  }, []);
-
-  // Listen for automated environment detection from useWebXRScanner
-  const playMode = useFSMStore(s => s.playMode);
-  const showOpponent = playMode === 'match';
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const { trigger, context } = (e as CustomEvent).detail;
-      if (playMode === 'walk') {
-        console.info(`[Vision] Auto-trigger detected: ${trigger} (${context})`);
-        wsService.sendEvent({
-          event: 'walk_vision_trigger',
-          user: PLAYER_ID,
-          target: PLAYER_ID,
-          payload: { trigger, context: `auto_${context}` }
-        });
-      }
-    };
-    window.addEventListener('vision_trigger_detected', handler);
-    return () => window.removeEventListener('vision_trigger_detected', handler);
-  }, [playMode]);
-
-  // Placement indicator at the current hit-test surface point
-  const indicatorPos = hoverMatrix
-    ? new THREE.Vector3().setFromMatrixPosition(hoverMatrix)
-    : null;
-  const showGround = !session || session.environmentBlendMode === 'opaque';
-
-  return (
-    <>
-      <ambientLight intensity={0.28} />
-      <hemisphereLight args={['#CFE8FF', '#1B2634', 0.8]} />
-      <directionalLight
-        position={[4, 8, 6]}
-        intensity={1.4}
-        castShadow={SHADOWS_ENABLED}
-        shadow-mapSize-width={2048}
-        shadow-mapSize-height={2048}
-      />
-      <pointLight position={[-2.5, 1.8, 2.2]} intensity={0.9} color="#7BC8FF" />
-      <pointLight position={[2.2, 1.1, -1.5]} intensity={0.55} color="#FFB26B" />
-      <Environment preset="sunset" />
-      <RobotCharacter />
-      {showOpponent && (
-        <RemoteRobotCharacter depthTexture={depthTexture} depthRawToMeters={depthRawToMeters} />
-      )}
-
-      {/* Hit-test placement ring */}
-      {indicatorPos && (
-        <mesh position={indicatorPos} rotation={[-Math.PI / 2, 0, 0]}>
-          <ringGeometry args={[0.15, 0.2, 32]} />
-          <meshBasicMaterial color="#00ffff" side={2} />
-        </mesh>
-      )}
-
-      {/* Ground should stay hidden in AR camera view; keep it for VR/non-XR. */}
-      {showGround && (
-        <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow={SHADOWS_ENABLED}>
-          <planeGeometry args={[10, 10]} />
-          <meshStandardMaterial color="#2C313A" roughness={0.86} metalness={0.08} />
-        </mesh>
-      )}
-    </>
-  );
-};
-
 // ── Root App ─────────────────────────────────────────────────────────────────
 function App() {
   const uiLang = toUiLang(PLAYER_LANG);
@@ -657,28 +548,8 @@ function App() {
   const [isP2PMediaOn, setIsP2PMediaOn] = useState(false);
   const [arSupportState, setArSupportState] = useState<'checking' | 'supported' | 'unsupported'>('checking');
   const [specialPhrase, setSpecialPhrase] = useState('');
-  const [profileInfo, setProfileInfo] = useState<{
-    totalMatches: number;
-    totalTrainingSessions: number;
-    totalWalkSessions: number;
-    tone: string;
-    syncRate: number;
-    storageBackend: string;
-    memorySummary: string;
-    recentLogs: Array<{
-      timestamp: string;
-      roomId: string;
-      result: string;
-      criticalHits: number;
-      misses: number;
-      }>;
-  } | null>(null);
-  const [liveDebugInfo, setLiveDebugInfo] = useState<{
-    tokenName: string;
-    resumeHandle: string;
-    interactionId: string;
-    interactionText: string;
-  }>({
+  const [profileInfo, setProfileInfo] = useState<ProfileInfo | null>(null);
+  const [liveDebugInfo, setLiveDebugInfo] = useState<LiveDebugInfo>({
     tokenName: '',
     resumeHandle: '',
     interactionId: '',
@@ -709,7 +580,7 @@ function App() {
   };
   const [trainingSession, setTrainingSession] = useState<ModeSession | null>(null);
   const [walkSession, setWalkSession] = useState<ModeSession | null>(null);
-  const [localRouteProgress, setLocalRouteProgress] = useState<{ walk: number; training: number; battle: number }>(() => {
+  const [localRouteProgress, setLocalRouteProgress] = useState<RouteProgress>(() => {
     try {
       const raw = localStorage.getItem(STORAGE_ROUTE_PROGRESS_KEY);
       if (!raw) return { walk: 0, training: 0, battle: 0 };
@@ -754,7 +625,7 @@ function App() {
   // Debug panel toggle (visible to all, toggled by header button)
   const [debugVisible, setDebugVisible] = useState(DEBUG_UI);
   // Phase Management: 0=Lang, 1=Scan(Setup), 2=Summon(AR Init), 3=Main
-  const [appPhase, setAppPhase] = useState<'lang' | 'scan' | 'summon' | 'main'>(() => {
+  const [appPhase, setAppPhase] = useState<AppPhase>(() => {
     try {
       if (!localStorage.getItem(STORAGE_LANG_SELECTED_KEY)) return 'lang';
       const setupDone =
@@ -777,7 +648,7 @@ function App() {
   const [selectedLanguage, setSelectedLanguage] = useState<string>(
     LANG_OPTIONS.find(o => PLAYER_LANG.startsWith(o.code.substring(0, 2)))?.code ?? 'en-US'
   );
-  const [battleState, setBattleState] = useState({
+  const [battleState, setBattleState] = useState<BattleUiState>({
     hp: 100,
     maxHp: 100,
     opponentHp: 100,
@@ -786,6 +657,10 @@ function App() {
     specialReady: false,
     heatActive: false,
   });
+  const battleStateRef = useRef<BattleUiState>(battleState);
+  useEffect(() => {
+    battleStateRef.current = battleState;
+  }, [battleState]);
   const [showFusionCraft, setShowFusionCraft] = useState(false);
   const pendingLiveConnectRef = useRef(false);
   const castEndsAtRef = useRef<number>(0);
@@ -833,17 +708,28 @@ function App() {
     if (playMode === 'match') return 'doing';
     return hasBattleMilestone ? 'done' : 'todo';
   };
-  const routeStatusLabel = (status: 'todo' | 'doing' | 'done') => (
-    status === 'done' ? t.routeStatusDone :
-    status === 'doing' ? t.routeStatusDoing :
-    t.routeStatusTodo
-  );
+  const routeSteps = ([
+    ['walk', t.routeStepWalk],
+    ['training', t.routeStepTraining],
+    ['match', t.routeStepBattle],
+  ] as const).map(([step, label]) => ({
+    key: step,
+    label,
+    status: routeStatus(step),
+  }));
   const openBattlePrep = () => {
     if (playMode === 'match') return;
     setIsBattlePrepOpen(true);
     window.dispatchEvent(new CustomEvent('show_subtitle', {
       detail: { text: t.prepTitle },
     }));
+  };
+  const openProfile = () => {
+    setIsProfileOpen(true);
+  };
+  const proceedToMain = () => {
+    switchMode('hub');
+    setAppPhase('main');
   };
 
   const applyLanguage = (langCode: string, markAsChosen: boolean) => {
@@ -1066,14 +952,7 @@ function App() {
       detail: { text: t.alignShared }
     }));
   };
-  const submitDnaABFeedback = (payload: {
-    choice: 'A' | 'B';
-    scoreA: number;
-    scoreB: number;
-    note: string;
-    variantA: CharacterDNA;
-    variantB: CharacterDNA;
-  }) => {
+  const submitDnaABFeedback = (payload: DnaAbFeedbackPayload) => {
     wsService.sendEvent({
       event: 'dna_ab_feedback',
       user: PLAYER_ID,
@@ -1090,414 +969,23 @@ function App() {
       detail: { text: `A/B feedback saved: ${payload.choice}` }
     }));
   };
-  const handleRemoteBattleEvent = (evt: GameEvent) => {
-    const payload = (evt as any)?.payload;
-    const target = (evt as any)?.target as string | undefined;
-    if (Array.isArray(payload)) return; // server-driven tactical panel payload
-
-    if (evt.event === 'hit_confirmed' && evt.user !== PLAYER_ID) {
-      const damage = Number((payload as any)?.damage ?? 0);
-      if (damage > 0) {
-        // Attacker Authority: The remote peer confirmed a hit on us.
-        useFSMStore.getState().takeDamage('local', damage);
-      }
-      return;
-    }
-
-    if (payload && typeof payload === 'object') {
-      if (payload.kind === 'arena_calibration') {
-        const sender = String((evt as any)?.user ?? '');
-        if (!sender || sender === PLAYER_ID) return;
-        const calibration = normalizeArenaCalibration((payload as any).calibration);
-        if (!calibration) return;
-        const arenaSync = useArenaSyncStore.getState();
-        arenaSync.setRemoteCalibration(sender, calibration);
-        const readyWithSender = useArenaSyncStore.getState().hasAlignment(sender);
-        window.dispatchEvent(new CustomEvent('show_subtitle', {
-          detail: { text: readyWithSender ? t.alignReady : t.alignPeerSynced }
-        }));
-        return;
-      }
-      if (payload.kind === 'profile_sync' && payload.profile && (!target || target === PLAYER_ID)) {
-        console.groupCollapsed('[App] Profile Sync Received');
-        console.dir(payload.profile);
-        console.groupEnd();
-        const p = payload.profile as any;
-        const logsRaw = Array.isArray(p.recent_match_logs) ? p.recent_match_logs : [];
-        const totalMatches = Number(p.total_matches ?? 0);
-        const recentLogs = logsRaw.map((log: any) => ({
-          timestamp: String(log.timestamp ?? ''),
-          roomId: String(log.room_id ?? ''),
-          result: String(log.result ?? 'DRAW'),
-          criticalHits: Number(log.critical_hits ?? 0),
-          misses: Number(log.misses ?? 0),
-        }));
-        const candidateDna =
-          normalizeCharacterDNA(p.character_dna) ??
-          normalizeCharacterDNA(p.characterDna);
-        if (candidateDna) {
-          setRobotDna(evolveCharacterDNAByMatchCount(candidateDna, totalMatches));
-        }
-        const stats = p.robot_stats;
-        if (stats && typeof stats === 'object') {
-          const rawMaterial = String(p.robot_material ?? robotMaterial);
-          const material = rawMaterial === 'Metal' || rawMaterial === 'Resin' ? rawMaterial : 'Wood';
-          setRobotStats(
-            {
-              power: Number((stats as any).power ?? 40),
-              speed: Number((stats as any).speed ?? 40),
-              vit: Number((stats as any).vit ?? 40),
-            },
-            {
-              name: String(p.player_name ?? 'Plares Unit'),
-              material,
-              tone: String(p.tone ?? 'balanced'),
-            },
-          );
-        }
-        const recentAB = Array.isArray(p.recent_dna_ab_tests) ? p.recent_dna_ab_tests : [];
-        setRecentABFeedbackCount(recentAB.length);
-        setProfileInfo({
-          totalMatches,
-          totalTrainingSessions: Number(p.total_training_sessions ?? 0),
-          totalWalkSessions: Number(p.total_walk_sessions ?? 0),
-          tone: String(p.tone ?? 'balanced'),
-          syncRate: Number(p.sync_rate ?? 0.5),
-          storageBackend: String(p.storage_backend ?? 'local'),
-          memorySummary: String(p.ai_memory_summary ?? ''),
-          recentLogs,
-        });
-        return;
-      }
-      if (payload.kind === 'milestone_notice' && (!target || target === PLAYER_ID)) {
-        const total = Number(payload.total_matches ?? 0);
-        setRobotDna(evolveCharacterDNAByMatchCount(robotDna, total));
-        window.dispatchEvent(new CustomEvent('show_subtitle', {
-          detail: { text: `Milestone reached: ${total} matches` }
-        }));
-        return;
-      }
-      if (payload.kind === 'dna_ab_feedback_saved' && (!target || target === PLAYER_ID)) {
-        setRecentABFeedbackCount((n) => Math.max(n, Number(payload.total ?? n)));
-        return;
-      }
-      if (payload.kind === 'battle_status' && (!target || target === PLAYER_ID)) {
-        setBattleState(prev => {
-          const maxHp = toPositiveNumber(payload.max_hp, prev.maxHp);
-          const opponentMaxHp = toPositiveNumber(payload.opponent_max_hp, prev.opponentMaxHp);
-          const hpAfter = clampHp(toFiniteNumber(payload.hp, prev.hp), maxHp);
-          const opponentHpAfter = clampHp(toFiniteNumber(payload.opponent_hp, prev.opponentHp), opponentMaxHp);
-          useFSMStore.getState().syncHp('local', hpAfter);
-          useFSMStore.getState().syncHp('enemy', opponentHpAfter);
-          return {
-            ...prev,
-            hp: hpAfter,
-            maxHp,
-            opponentHp: opponentHpAfter,
-            opponentMaxHp,
-            exGauge: toFiniteNumber(payload.ex_gauge, prev.exGauge),
-            specialReady: Boolean(payload.special_ready ?? prev.specialReady),
-            heatActive: Boolean(payload.heat_active ?? prev.heatActive),
-          };
-        });
-        return;
-      }
-      if (payload.kind === 'ex_gauge_update' && (!target || target === PLAYER_ID)) {
-        setBattleState(prev => {
-          const maxHp = toPositiveNumber(payload.max_hp, prev.maxHp);
-          const opponentMaxHp = toPositiveNumber(payload.opponent_max_hp, prev.opponentMaxHp);
-          const hpAfter = clampHp(toFiniteNumber(payload.hp, prev.hp), maxHp);
-          const opponentHpAfter = clampHp(toFiniteNumber(payload.opponent_hp, prev.opponentHp), opponentMaxHp);
-          // Sync local FSM so it can react to HP chunks (e.g. from special move damage over time)
-          useFSMStore.getState().syncHp('local', hpAfter);
-          useFSMStore.getState().syncHp('enemy', opponentHpAfter);
-          return {
-            ...prev,
-            exGauge: toFiniteNumber(payload.value, prev.exGauge),
-            specialReady: Boolean(payload.special_ready ?? prev.specialReady),
-            hp: hpAfter,
-            opponentHp: opponentHpAfter,
-            maxHp,
-            opponentMaxHp,
-            heatActive: Boolean(payload.heat_active ?? prev.heatActive),
-          };
-        });
-        return;
-      }
-      if (payload.kind === 'special_ready' && (!target || target === PLAYER_ID)) {
-        const text = String(payload.text ?? '');
-        if (text) setSpecialPhrase(text);
-        setBattleState(prev => ({
-          ...prev,
-          exGauge: Number(payload.ex_gauge ?? EX_GAUGE.MAX),
-          specialReady: true,
-        }));
-        window.dispatchEvent(new CustomEvent('show_subtitle', {
-          detail: { text: text || 'Special ready!' }
-        }));
-        return;
-      }
-      if (payload.kind === 'special_not_ready' && (!target || target === PLAYER_ID)) {
-        window.dispatchEvent(new CustomEvent('show_subtitle', {
-          detail: { text: String(payload.message ?? 'EX gauge is not full') }
-        }));
-        return;
-      }
-      if (payload.kind === 'damage_applied') {
-        const victim = String(payload.target ?? '');
-        const hpAfter = toFiniteNumber(payload.hp_after, 0);
-        if (victim === PLAYER_ID) {
-          useFSMStore.getState().syncHp('local', hpAfter);
-          setBattleState(prev => {
-            const maxHp = toPositiveNumber(payload.max_hp, prev.maxHp);
-            return { ...prev, hp: clampHp(hpAfter, maxHp), maxHp };
-          });
-        } else {
-          useFSMStore.getState().syncHp('enemy', hpAfter);
-          setBattleState(prev => {
-            const opponentMaxHp = toPositiveNumber(payload.max_hp, prev.opponentMaxHp);
-            return { ...prev, opponentHp: clampHp(hpAfter, opponentMaxHp), opponentMaxHp };
-          });
-        }
-        return;
-      }
-      if (payload.kind === 'heat_state' && (!target || target === PLAYER_ID)) {
-        setBattleState(prev => {
-          const maxHp = toPositiveNumber(payload.max_hp, prev.maxHp);
-          const hpAfter = clampHp(toFiniteNumber(payload.hp, prev.hp), maxHp);
-          useFSMStore.getState().syncHp('local', hpAfter);
-          return {
-            ...prev,
-            heatActive: Boolean(payload.active ?? prev.heatActive),
-            hp: hpAfter,
-            maxHp,
-          };
-        });
-        return;
-      }
-      if (payload.kind === 'down_state') {
-        const victim = String(payload.target ?? '');
-        if (victim === PLAYER_ID) {
-          window.dispatchEvent(new CustomEvent('show_subtitle', {
-            detail: { text: 'DOWN! 体勢を立て直せ！' }
-          }));
-        }
-        return;
-      }
-      if (payload.kind === 'incantation_prompt' && typeof payload.text === 'string') {
-        if (target && target !== PLAYER_ID) return;
-        setSpecialPhrase(payload.text);
-        window.dispatchEvent(new CustomEvent('show_subtitle', {
-          detail: { text: payload.text }
-        }));
-        return;
-      }
-      if (payload.kind === 'persona_tone' && typeof payload.message === 'string') {
-        if (target && target !== PLAYER_ID) return;
-        setProfileInfo(prev => ({
-          totalMatches: prev?.totalMatches ?? 0,
-          totalTrainingSessions: prev?.totalTrainingSessions ?? 0,
-          totalWalkSessions: prev?.totalWalkSessions ?? 0,
-          tone: String(payload.tone ?? prev?.tone ?? 'balanced'),
-          syncRate: prev?.syncRate ?? SYNC_RATE,
-          storageBackend: prev?.storageBackend ?? 'local',
-          memorySummary: prev?.memorySummary ?? '',
-          recentLogs: prev?.recentLogs ?? [],
-        }));
-        window.dispatchEvent(new CustomEvent('show_subtitle', {
-          detail: { text: payload.message }
-        }));
-        return;
-      }
-      if (payload.kind === 'proactive_line') {
-        if (target && target !== PLAYER_ID) return;
-        const line = String(payload.text ?? '').trim();
-        if (line) {
-          window.dispatchEvent(new CustomEvent('show_subtitle', {
-            detail: { text: line }
-          }));
-        }
-        const action = String(payload.action ?? '');
-        if (action === 'glow_eyes') {
-          window.dispatchEvent(new CustomEvent('show_subtitle', {
-            detail: { text: 'Eye glow activated' }
-          }));
-        }
-        return;
-      }
-      if (payload.kind === 'reject_item') {
-        const reason = String(payload.reason ?? 'not_my_style');
-        const count = Number(payload.reject_count ?? 0);
-        useFSMStore.getState().setRejectItem();
-        window.dispatchEvent(new CustomEvent('show_subtitle', {
-          detail: { text: `Item rejected (${reason}) x${count}` }
-        }));
-        return;
-      }
-      if (payload.kind === 'bgm_ready') {
-        const url = String(payload.url ?? '');
-        if (url) {
-          setBgmUrl(url);
-          window.dispatchEvent(new CustomEvent('show_subtitle', {
-            detail: { text: 'Victory BGM ready' }
-          }));
-        }
-        return;
-      }
-      if (payload.kind === 'fused_item') {
-        const concept = typeof payload.concept === 'string' ? payload.concept : 'fused item';
-        const action = typeof payload.action === 'string' ? payload.action : '';
-        const url = typeof payload.texture_url === 'string' ? payload.texture_url : '';
-        
-        if (action === 'equip' && url) {
-          // Update local DNA skin to instantly apply the new texture
-          const currentDna = useFSMStore.getState().robotDna;
-          setRobotDna({ ...currentDna, skinUrl: url });
-          window.dispatchEvent(new CustomEvent('show_subtitle', {
-            detail: { text: `Equipped Fusion Drop: ${concept}` }
-          }));
-        } else {
-          window.dispatchEvent(new CustomEvent('show_subtitle', {
-            detail: { text: `Fusion Drop: ${concept}` }
-          }));
-        }
-        return;
-      }
-      if (payload.kind === 'intervention_rejected') {
-        window.dispatchEvent(new CustomEvent('show_subtitle', {
-          detail: { text: String(payload.message ?? 'Intervention rejected') }
-        }));
-        return;
-      }
-      if (payload.kind === 'ui_translations' && (!target || target === PLAYER_ID)) {
-        const langCode = String(payload.lang ?? '');
-        const dict = payload.translations;
-        if (langCode && dict && typeof dict === 'object') {
-          saveCachedTranslations(langCode, dict as Record<string, string>);
-          // Reload so the cached translations are immediately applied
-          window.location.reload();
-        }
-        return;
-      }
-      if (payload.kind === 'match_pause') {
-        setIsMatchPaused(true);
-        window.dispatchEvent(new CustomEvent('show_subtitle', {
-          detail: { text: String(payload.message ?? 'Match paused (connection issue)') }
-        }));
-        return;
-      }
-      if (payload.kind === 'match_resumed') {
-        setIsMatchPaused(false);
-        window.dispatchEvent(new CustomEvent('show_subtitle', {
-          detail: { text: String(payload.message ?? 'Match resumed') }
-        }));
-        return;
-      }
-      if (payload.kind === 'state_correction') {
-        window.dispatchEvent(new CustomEvent('show_subtitle', {
-          detail: { text: String(payload.message ?? 'State corrected by server') }
-        }));
-        return;
-      }
-      if (payload.kind === 'live_ephemeral_token' && (!target || target === PLAYER_ID)) {
-        if (payload.ok) {
-          setLiveDebugInfo(prev => ({
-            tokenName: String(payload.token_name ?? prev.tokenName ?? ''),
-            resumeHandle: prev.resumeHandle,
-            interactionId: prev.interactionId,
-            interactionText: prev.interactionText,
-          }));
-          window.dispatchEvent(new CustomEvent('show_subtitle', {
-            detail: {
-              text: `Live token ready (${String(payload.model ?? 'model')})`,
-            }
-          }));
-          if (pendingLiveConnectRef.current) {
-            pendingLiveConnectRef.current = false;
-            const tokenName = String(payload.token_name ?? '');
-            if (tokenName) {
-              // Inject robot tone as system instruction (Flow1 §4.3)
-              const robotTone = String(
-                useFSMStore.getState().robotMeta.tone ?? 'balanced'
-              );
-              const systemInstruction =
-                `You are an AR battle robot companion. Language: ${PLAYER_LANG}. ` +
-                `Persona tone: ${robotTone}. ` +
-                `Speak naturally in short phrases. Stay in character.`;
-              geminiLiveService.connect({
-                tokenName,
-                model: String(payload.model ?? 'gemini-2.5-flash-native-audio-preview-12-2025'),
-                systemInstruction,
-              }).catch(() => {});
-            }
-          }
-        } else {
-          pendingLiveConnectRef.current = false;
-          window.dispatchEvent(new CustomEvent('show_subtitle', {
-            detail: { text: `Token error: ${String(payload.error ?? 'unknown')}` }
-          }));
-        }
-        return;
-      }
-      if (payload.kind === 'interaction_response' && (!target || target === PLAYER_ID)) {
-        if (payload.ok) {
-          const text = String(payload.text ?? '');
-          setLiveDebugInfo(prev => ({
-            tokenName: prev.tokenName,
-            resumeHandle: prev.resumeHandle,
-            interactionId: String(payload.interaction_id ?? prev.interactionId ?? ''),
-            interactionText: text,
-          }));
-          if (text) {
-            window.dispatchEvent(new CustomEvent('show_subtitle', { detail: { text } }));
-          }
-        } else {
-          window.dispatchEvent(new CustomEvent('show_subtitle', {
-            detail: { text: `Interaction error: ${String(payload.error ?? 'unknown')}` }
-          }));
-        }
-        return;
-      }
-    }
-
-    if (evt.event === 'winner_interview' && payload && typeof payload === 'object') {
-      const text = (payload as any).text;
-      if (typeof text === 'string' && text.trim()) {
-        window.dispatchEvent(new CustomEvent('show_subtitle', { detail: { text } }));
-      }
-      return;
-    }
-    if (evt.event === 'proactive_line' && payload && typeof payload === 'object') {
-      const text = String((payload as any).text ?? '').trim();
-      if (text) {
-        window.dispatchEvent(new CustomEvent('show_subtitle', { detail: { text } }));
-      }
-      return;
-    }
-    if (evt.event === 'bgm_ready' && payload && typeof payload === 'object') {
-      const url = String((payload as any).url ?? '');
-      if (url) {
-        setBgmUrl(url);
-        window.dispatchEvent(new CustomEvent('show_subtitle', {
-          detail: { text: 'Victory BGM ready' }
-        }));
-      }
-      return;
-    }
-    if (evt.event === 'disconnect_tko' && payload && typeof payload === 'object') {
-      setIsMatchPaused(true);
-      const loser = String((payload as any).loser ?? 'unknown');
-      window.dispatchEvent(new CustomEvent('show_subtitle', {
-        detail: { text: `Connection TKO: ${loser}` }
-      }));
-      return;
-    }
-
-    if (!evt?.event || evt.user === PLAYER_ID) return;
-    window.dispatchEvent(new CustomEvent('show_subtitle', {
-      detail: { text: localizeBattleEvent(evt.event, evt.user) }
-    }));
-  };
+  useRemoteBattleEvents({
+    battleStateRef,
+    pendingLiveConnectRef,
+    robotDna,
+    robotMaterial,
+    setBattleState,
+    setRecentABFeedbackCount,
+    setProfileInfo,
+    setSpecialPhrase,
+    setBgmUrl,
+    setIsMatchPaused,
+    setLiveDebugInfo,
+    setRobotDna,
+    setRobotStats,
+    saveTranslations: saveCachedTranslations,
+    t,
+  });
 
   useEffect(() => {
     useArenaSyncStore.getState().clearCalibrations();
@@ -1506,9 +994,14 @@ function App() {
   // Connect realtime channels only after the user reaches the main game flow.
   useEffect(() => {
     if (appPhase !== 'main') return;
-    wsService.connect(WS_URL, PLAYER_ID, ROOM_ID, PLAYER_LANG, SYNC_RATE);
-    rtcService.start(PLAYER_ID);
+    const timer = window.setTimeout(() => {
+      window.requestAnimationFrame(() => {
+        wsService.connect(WS_URL, PLAYER_ID, ROOM_ID, PLAYER_LANG, SYNC_RATE);
+        rtcService.start(PLAYER_ID);
+      });
+    }, 120);
     return () => {
+      clearTimeout(timer);
       rtcService.stop();
       wsService.disconnect();
     };
@@ -1734,24 +1227,6 @@ function App() {
     renderer.shadowMap.enabled = enableShadows;
     renderer.shadowMap.autoUpdate = enableShadows;
   }, [isARSessionActive]);
-
-  useEffect(() => {
-    const unsubscribe = wsService.addHandler((payload: WebRTCDataChannelPayload) => {
-      if (payload.type !== 'event') return;
-      handleRemoteBattleEvent(payload.data as GameEvent);
-    });
-    return () => unsubscribe();
-  }, []);
-
-  useEffect(() => {
-    const onP2PPayload = (event: Event) => {
-      const payload = (event as CustomEvent<WebRTCDataChannelPayload>).detail;
-      if (payload?.type !== 'event') return;
-      handleRemoteBattleEvent(payload.data as GameEvent);
-    };
-    window.addEventListener('webrtc_payload', onP2PPayload as EventListener);
-    return () => window.removeEventListener('webrtc_payload', onP2PPayload as EventListener);
-  }, []);
 
   useEffect(() => {
     const onAttackResult = (event: Event) => {

@@ -1,6 +1,6 @@
 # PROGRESS_SYNC.md
 
-最終更新: 2026-03-03
+最終更新: 2026-03-06
 
 ## 運用ルール
 
@@ -10,6 +10,7 @@
 
 | Date       | Owner    | TaskID | Directory                       | Status | NextAction                                                                                      | Blocker |
 | ---------- | -------- | ------ | ------------------------------- | ------ | ----------------------------------------------------------------------------------------------- | ------- |
+| 2026-03-06 | Codex    | T1-19  | /frontend/src/App.tsx           | DONE   | React warning（setState in render）を解消し、Flow main遷移の安定動作をPlaywrightで再確認       | なし    |
 | 2026-03-03 | Codex    | T1-18  | /frontend/src, /frontend        | DONE   | Flow準拠のハブ導線実装（hub追加、散歩/修行/対戦の明示遷移、常時バトルHUD廃止、UI再設計）        | なし    |
 | 2026-03-02 | Jules    | J-6    | /frontend/src                   | DONE   | HUD/パネルボタンのキーボードアクセシビリティ改善                                                | なし    |
 | 2026-03-02 | Jules    | J-1    | /backend                        | DONE   | ログパスのトラバーサル脆弱性修正（Sentinel）                                                    | なし    |
