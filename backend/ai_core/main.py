@@ -519,7 +519,7 @@ def _load_profile_from_firestore(user_id: str) -> dict[str, Any] | None:
     if db is None:
         return None
     try:
-        snap = db.collection("users").document(user_id).get()
+        snap = db.collection("users").document(_sanitize_id(user_id)).get()
         if not snap.exists:
             return None
         data = snap.to_dict()
@@ -558,7 +558,7 @@ def _save_profile_to_firestore(profile: dict[str, Any]) -> None:
             "recent_dna_ab_tests": recent_ab,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
-        db.collection("users").document(user_id).set(payload, merge=True)
+        db.collection("users").document(_sanitize_id(user_id)).set(payload, merge=True)
     except Exception:
         return
 
@@ -578,7 +578,7 @@ def _save_match_log_to_firestore(user_id: str, match_log: dict[str, Any]) -> Non
                 payload["expires_at"] = datetime.fromisoformat(expires)
             except Exception:
                 pass
-        db.collection("users").document(user_id).collection("matchLogs").document(doc_id).set(payload)
+        db.collection("users").document(_sanitize_id(user_id)).collection("matchLogs").document(_sanitize_id(doc_id)).set(payload)
     except Exception:
         return
 
