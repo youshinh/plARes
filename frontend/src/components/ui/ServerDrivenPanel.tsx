@@ -28,7 +28,14 @@ export const ServerDrivenPanel: React.FC = () => {
   const [tactics, setTactics] = useState<TacticItem[]>([]);
   const setAICommand = useFSMStore(s => s.setAICommand);
   const lang = (PLAYER_LANG || 'en-US').toLowerCase();
-  const [isOpen, setIsOpen] = useState(true);
+  const [isMobileViewport, setIsMobileViewport] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.innerWidth < 1080;
+  });
+  const [isOpen, setIsOpen] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    return window.innerWidth >= 1080;
+  });
 
   const title = lang.startsWith('ja')
     ? '戦術オプション'
@@ -46,6 +53,18 @@ export const ServerDrivenPanel: React.FC = () => {
       }
     });
     return () => { unsubscribe(); };
+  }, []);
+
+  useEffect(() => {
+    const handleResize = () => {
+      const mobile = window.innerWidth < 1080;
+      setIsMobileViewport(mobile);
+      if (mobile) {
+        setIsOpen(false);
+      }
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
   }, []);
 
   const fallbackTactics: TacticItem[] = lang.startsWith('ja')
@@ -76,7 +95,7 @@ export const ServerDrivenPanel: React.FC = () => {
   };
 
   return (
-    <div className={`tactics-panel hud-animate ${!isOpen ? 'is-collapsed' : ''}`}>
+    <div className={`tactics-panel hud-animate ${!isOpen ? 'is-collapsed' : ''} ${isMobileViewport ? 'is-mobile' : ''}`}>
       <h3
         className="tactics-title"
         onClick={() => setIsOpen(!isOpen)}

@@ -2,24 +2,34 @@ import type { FC } from 'react';
 import type { CharacterDNA } from '../../../../shared/types/firestore';
 import { EX_GAUGE } from '../../../../shared/constants/battleConstants';
 import { CharacterLabPanel } from '../ui/CharacterLabPanel';
-import { FusionCraftModal } from '../ui/FusionCraftModal';
+import { BattlePrepOverlay } from './BattlePrepOverlay';
+import { FlowHubScreen } from './FlowHubScreen';
+import { PlayModeScreen } from './PlayModeScreen';
+import { ProfilePanel } from './ProfilePanel';
 import type {
   BattleUiState,
   DnaAbFeedbackPayload,
+  FusionCraftFlowState,
   LiveDebugInfo,
   ModeSession,
   ProfileInfo,
+  RouteStatus,
+  RouteStepKey,
   UiText,
 } from '../../types/app';
+import type { LanguagePreset } from '../../i18n/runtime';
 import type { PlayMode } from '../../store/useFSMStore';
+import type { ModelTypeId } from '../../constants/modelTypes';
 
-type RouteStatus = 'todo' | 'doing' | 'done';
-type RouteStepKey = 'walk' | 'training' | 'match';
-
-type AppMainHudProps = {
+export type AppMainHudProps = {
   t: UiText;
   characterLabEnabled: boolean;
-  currentModelType: 'A' | 'B';
+  currentModelType: ModelTypeId;
+  enemyModelType: ModelTypeId;
+  onSelectModelType: (type: ModelTypeId) => void;
+  onSelectEnemyModelType: (type: ModelTypeId) => void;
+  onSelectPaletteFamily: (palette: CharacterDNA['paletteFamily']) => void;
+  onSelectEnemyPaletteFamily: (palette: CharacterDNA['paletteFamily']) => void;
   playMode: PlayMode;
   isHubMode: boolean;
   showBattleHud: boolean;
@@ -32,6 +42,7 @@ type AppMainHudProps = {
   isLabOpen: boolean;
   isBattlePrepOpen: boolean;
   showFusionCraft: boolean;
+  fusionCraftFlow: FusionCraftFlowState;
   isP2PMediaOn: boolean;
   isLiveConnected: boolean;
   isLiveMicActive: boolean;
@@ -45,6 +56,7 @@ type AppMainHudProps = {
   hasTrainingMilestone: boolean;
   hasRouteFoundation: boolean;
   recentABFeedbackCount: number;
+  languagePresets: LanguagePreset[];
   selectedLanguage: string;
   modeLabel: string;
   scanState: string;
@@ -59,6 +71,7 @@ type AppMainHudProps = {
   liveDebugInfo: LiveDebugInfo;
   bgmUrl: string;
   robotDna: CharacterDNA;
+  enemyRobotDna: CharacterDNA;
   robotMaterial: 'Wood' | 'Metal' | 'Resin';
   localHp: number;
   enemyHp: number;
@@ -82,6 +95,7 @@ type AppMainHudProps = {
   onEnterBattleMode: () => void;
   onOpenFusionCraft: () => void;
   onCloseFusionCraft: () => void;
+  onSubmitFusionCraft: (payload: { requestId: string; concept: string; referenceImage: string }) => void;
   onRequestProfileSync: () => void;
   onToggleLiveConnection: () => void;
   onToggleLiveMic: () => void;
@@ -99,375 +113,15 @@ type AppMainHudProps = {
   onSubmitDnaFeedback: (payload: DnaAbFeedbackPayload) => void;
 };
 
-type FlowHubSectionProps = Pick<
-  AppMainHudProps,
-  't' |
-  'profileView' |
-  'routeNextStep' |
-  'routeSteps' |
-  'onTriggerRecommendedRouteStep' |
-  'onStartWalk' |
-  'onStartTraining' |
-  'onOpenBattlePrep' |
-  'onRequestProfileSync'
-> & {
-  onOpenProfile: () => void;
-};
-
-const routeStatusLabel = (t: UiText, status: RouteStatus) => (
-  status === 'done' ? t.routeStatusDone :
-  status === 'doing' ? t.routeStatusDoing :
-  t.routeStatusTodo
-);
-
-const nextRouteLabel = (t: UiText, routeNextStep: RouteStepKey | 'complete') => {
-  if (routeNextStep === 'complete') return t.routeCtaComplete;
-  return `${t.routeCtaNext}: ${routeNextStep === 'walk'
-    ? t.startWalk
-    : routeNextStep === 'training'
-      ? t.startTraining
-      : t.flowStartBattle}`;
-};
-
-const FlowHubSection: FC<FlowHubSectionProps> = ({
-  t,
-  profileView,
-  routeNextStep,
-  routeSteps,
-  onTriggerRecommendedRouteStep,
-  onStartWalk,
-  onStartTraining,
-  onOpenBattlePrep,
-  onRequestProfileSync,
-  onOpenProfile,
-}) => (
-  <section className="flow-hub hud-animate" aria-label={t.flowHubTitle}>
-    <div className="flow-hub-header">
-      <h2>{t.flowHubTitle}</h2>
-      <p>{t.flowHubDesc}</p>
-      <div className="flow-hub-pill">{t.flowPhase1Done}</div>
-    </div>
-    <div className="flow-route-guide">
-      <div className="flow-route-title">{t.routeGuideTitle}</div>
-      <p className="flow-route-desc">{t.routeGuideDesc}</p>
-      <ol className="flow-route-list">
-        {routeSteps.map(step => (
-          <li key={step.key} className={`flow-route-item is-${step.status}`}>
-            <span className="flow-route-step">{step.label}</span>
-            <span className={`flow-route-badge is-${step.status}`}>{routeStatusLabel(t, step.status)}</span>
-          </li>
-        ))}
-      </ol>
-      <button
-        className="hud-btn hud-btn-blue hud-btn-mini"
-        onClick={onTriggerRecommendedRouteStep}
-        disabled={routeNextStep === 'complete'}
-      >
-        {nextRouteLabel(t, routeNextStep)}
-      </button>
-    </div>
-    <div className="flow-hub-grid">
-      <article className="flow-hub-card">
-        <h3>{t.flowPhase2Title}</h3>
-        <p>{t.flowPhase2Desc}</p>
-        <div className="flow-hub-actions">
-          <button className="hud-btn hud-btn-teal hud-btn-mini" onClick={onStartWalk}>
-            {t.startWalk}
-          </button>
-          <button className="hud-btn hud-btn-blue hud-btn-mini" onClick={onStartTraining}>
-            {t.startTraining}
-          </button>
-        </div>
-      </article>
-      <article className="flow-hub-card">
-        <h3>{t.flowPhase3Title}</h3>
-        <p>{t.flowPhase3Desc}</p>
-        <div className="flow-hub-actions">
-          <button className="hud-btn hud-btn-warn hud-btn-mini" onClick={onOpenBattlePrep}>
-            {t.flowStartBattle}
-          </button>
-        </div>
-      </article>
-      <article className="flow-hub-card">
-        <h3>{t.flowPhase4Title}</h3>
-        <p>{t.flowPhase4Desc}</p>
-        <div className="flow-hub-memory" title={profileView.memorySummary || ''}>
-          {profileView.memorySummary || t.noMemory}
-        </div>
-        <div className="flow-hub-actions">
-          <button
-            className="hud-btn hud-btn-carbon hud-btn-mini"
-            onClick={() => {
-              onRequestProfileSync();
-              onOpenProfile();
-            }}
-          >
-            {t.flowOpenMemory}
-          </button>
-        </div>
-      </article>
-    </div>
-  </section>
-);
-
-type BattlePrepProps = Pick<
-  AppMainHudProps,
-  't' |
-  'hasRouteFoundation' |
-  'currentModelType' |
-  'alignmentReady' |
-  'hasWalkMilestone' |
-  'hasTrainingMilestone' |
-  'onStartWalk' |
-  'onStartTraining' |
-  'onEnterBattleMode' |
-  'onCloseBattlePrep'
->;
-
-const BattlePrepOverlay: FC<BattlePrepProps> = ({
-  t,
-  hasRouteFoundation,
-  currentModelType,
-  alignmentReady,
-  hasWalkMilestone,
-  hasTrainingMilestone,
-  onStartWalk,
-  onStartTraining,
-  onEnterBattleMode,
-  onCloseBattlePrep,
-}) => (
-  <section className="battle-prep-overlay hud-animate" aria-label={t.prepTitle}>
-    <div className="battle-prep-card">
-      <h2>{t.prepTitle}</h2>
-      <p>{t.prepDesc}</p>
-      <ol className="battle-prep-list">
-        <li className={`battle-prep-item ${hasRouteFoundation ? 'is-ready' : 'is-missing'}`}>
-          <span>{t.prepStepRoute}</span>
-          <strong>{hasRouteFoundation ? t.prepReady : t.prepMissing}</strong>
-        </li>
-        <li className="battle-prep-item is-ready">
-          <span>{t.prepStepModel}</span>
-          <strong>{`Type ${currentModelType}`}</strong>
-        </li>
-        <li className={`battle-prep-item ${alignmentReady ? 'is-ready' : 'is-guide'}`}>
-          <span>{t.prepStepAlign}</span>
-          <strong>{alignmentReady ? t.prepReady : t.prepAlignGuide}</strong>
-        </li>
-      </ol>
-      <div className="battle-prep-actions">
-        {!hasWalkMilestone && (
-          <button className="hud-btn hud-btn-teal hud-btn-mini" onClick={onStartWalk}>
-            {t.prepGoWalk}
-          </button>
-        )}
-        {!hasTrainingMilestone && (
-          <button className="hud-btn hud-btn-blue hud-btn-mini" onClick={onStartTraining}>
-            {t.prepGoTraining}
-          </button>
-        )}
-        <button className="hud-btn hud-btn-warn hud-btn-mini" onClick={onEnterBattleMode}>
-          {t.prepStartNow}
-        </button>
-        <button className="hud-btn hud-btn-carbon hud-btn-mini" onClick={onCloseBattlePrep}>
-          {t.prepBackHub}
-        </button>
-      </div>
-    </div>
-  </section>
-);
-
-type ProfilePanelProps = Pick<
-  AppMainHudProps,
-  't' |
-  'alignmentReady' |
-  'selectedLanguage' |
-  'onChangeLanguage' |
-  'onRequestProfileSync' |
-  'isLiveConnected' |
-  'isLiveMicActive' |
-  'liveActionDisabled' |
-  'onToggleLiveConnection' |
-  'onToggleLiveMic' |
-  'onSendLiveTextPing' |
-  'playMode' |
-  'onReturnToHub' |
-  'onOpenBattlePrep' |
-  'onStartTraining' |
-  'onCompleteTraining' |
-  'trainingSession' |
-  'onStartWalk' |
-  'onCompleteWalk' |
-  'walkSession' |
-  'onWalkVisionOrProfileSync' |
-  'modeLabel' |
-  'isARSessionActive' |
-  'scanState' |
-  'scanPointCount' |
-  'profileView' |
-  'battleState' |
-  'debugVisible' |
-  'liveDebugInfo' |
-  'bgmUrl' |
-  'isProfileOpen' |
-  'onToggleProfile'
->;
-
-const ProfilePanel: FC<ProfilePanelProps> = ({
-  t,
-  alignmentReady,
-  selectedLanguage,
-  onChangeLanguage,
-  onRequestProfileSync,
-  isLiveConnected,
-  isLiveMicActive,
-  liveActionDisabled,
-  onToggleLiveConnection,
-  onToggleLiveMic,
-  onSendLiveTextPing,
-  playMode,
-  onReturnToHub,
-  onOpenBattlePrep,
-  onStartTraining,
-  onCompleteTraining,
-  trainingSession,
-  onStartWalk,
-  onCompleteWalk,
-  walkSession,
-  onWalkVisionOrProfileSync,
-  modeLabel,
-  isARSessionActive,
-  scanState,
-  scanPointCount,
-  profileView,
-  battleState,
-  debugVisible,
-  liveDebugInfo,
-  bgmUrl,
-  isProfileOpen,
-  onToggleProfile,
-}) => (
-  <aside className={`hud-profile hud-animate ${isProfileOpen ? 'is-open' : ''}`}>
-    <div className="hud-profile-title" onClick={onToggleProfile}>
-      {t.pilotTelemetry}
-    </div>
-    <div className="hud-profile-actions">
-      <div className={`hud-align-pill ${alignmentReady ? 'is-ready' : ''}`}>
-        {alignmentReady ? t.alignReady : t.alignPending}
-      </div>
-      <label className="hud-lang-wrap">
-        <span>{t.language}</span>
-        <select
-          className="hud-lang-select"
-          value={selectedLanguage}
-          onChange={(event) => onChangeLanguage(event.target.value)}
-        >
-          <option value="ja-JP">日本語</option>
-          <option value="en-US">English</option>
-          <option value="es-ES">Espanol</option>
-        </select>
-      </label>
-    </div>
-    <div className="hud-main-commands">
-      <button className="hud-btn hud-btn-carbon hud-btn-mini" onClick={onRequestProfileSync}>
-        {t.refreshMemory}
-      </button>
-      <button
-        className={`hud-btn hud-btn-mini ${isLiveConnected ? 'hud-btn-green' : 'hud-btn-teal'}`}
-        onClick={onToggleLiveConnection}
-      >
-        {isLiveConnected ? t.disconnectLive : t.connectLive}
-      </button>
-      <button
-        className={`hud-btn hud-btn-mini ${isLiveMicActive ? 'hud-btn-warn' : 'hud-btn-blue'}`}
-        onClick={onToggleLiveMic}
-        disabled={liveActionDisabled}
-        title={liveActionDisabled ? t.liveNeedConnection : ''}
-      >
-        {isLiveMicActive ? t.stopLiveMic : t.startLiveMic}
-      </button>
-      <button
-        className="hud-btn hud-btn-carbon hud-btn-mini"
-        onClick={onSendLiveTextPing}
-        disabled={liveActionDisabled}
-        title={liveActionDisabled ? t.liveNeedConnection : ''}
-      >
-        {t.sendLiveText}
-      </button>
-    </div>
-    <div className="hud-main-commands">
-      <button
-        className={`hud-btn hud-btn-mini ${playMode === 'hub' ? 'hud-btn-blue' : 'hud-btn-carbon'}`}
-        onClick={onReturnToHub}
-      >
-        {t.modeHub}
-      </button>
-      <button
-        className={`hud-btn hud-btn-mini ${playMode === 'match' ? 'hud-btn-warn' : 'hud-btn-carbon'}`}
-        onClick={playMode === 'match' ? onReturnToHub : onOpenBattlePrep}
-      >
-        {playMode === 'match' ? t.flowReturnHub : t.flowStartBattle}
-      </button>
-      <button
-        className={`hud-btn hud-btn-mini ${playMode === 'training' ? 'hud-btn-teal' : 'hud-btn-carbon'}`}
-        onClick={trainingSession ? onCompleteTraining : onStartTraining}
-      >
-        {trainingSession ? t.completeTraining : t.startTraining}
-      </button>
-      <button
-        className={`hud-btn hud-btn-mini ${playMode === 'walk' ? 'hud-btn-teal' : 'hud-btn-carbon'}`}
-        onClick={walkSession ? onCompleteWalk : onStartWalk}
-      >
-        {walkSession ? t.completeWalk : t.startWalk}
-      </button>
-      <button
-        className="hud-btn hud-btn-steel hud-btn-mini"
-        onClick={onWalkVisionOrProfileSync}
-      >
-        {playMode === 'walk' ? t.sendWalkVision : t.refreshMemory}
-      </button>
-    </div>
-    <div className="hud-profile-grid">
-      <span>{t.mode}</span><strong>{modeLabel}</strong>
-      <span>AR</span><strong>{isARSessionActive ? `${scanState} (${scanPointCount})` : 'OFF'}</strong>
-      <span>{t.matches}</span><strong>{profileView.totalMatches}</strong>
-      <span>{t.training}</span><strong>{profileView.totalTrainingSessions}</strong>
-      <span>{t.walks}</span><strong>{profileView.totalWalkSessions}</strong>
-      <span>{t.tone}</span><strong>{profileView.tone}</strong>
-      <span>{t.sync}</span><strong>{profileView.syncRate.toFixed(2)}</strong>
-      <span>{t.store}</span><strong>{profileView.storageBackend}</strong>
-      <span>{t.hp}</span><strong>{`${battleState.hp}/${battleState.maxHp || '-'}`}</strong>
-      <span>{t.enemyHp}</span><strong>{`${battleState.opponentHp}/${battleState.opponentMaxHp || '-'}`}</strong>
-      <span>{t.heat}</span><strong>{battleState.heatActive ? 'ON' : 'OFF'}</strong>
-    </div>
-    <div className="hud-memory-line" title={profileView.memorySummary || ''}>
-      {profileView.memorySummary || t.noMemory}
-    </div>
-    {profileView.recentLogs.length > 0 && (
-      <div className="hud-block">
-        {profileView.recentLogs.map((log, index) => (
-          <div key={`${log.timestamp}-${index}`} className="hud-log-line">
-            {`${log.result} C:${log.criticalHits} M:${log.misses}`}
-          </div>
-        ))}
-      </div>
-    )}
-    {debugVisible && (liveDebugInfo.tokenName || liveDebugInfo.interactionId || liveDebugInfo.interactionText || bgmUrl) && (
-      <div className="hud-block hud-dim" style={{ borderLeft: '2px solid #ff6b6b' }}>
-        <div style={{ fontSize: '0.6rem', color: '#ff6b6b', fontWeight: 700, marginBottom: 2 }}>🛠 DEBUG INFO</div>
-        {liveDebugInfo.tokenName && <div className="hud-truncate">{`Token: ${liveDebugInfo.tokenName}`}</div>}
-        {liveDebugInfo.resumeHandle && <div className="hud-truncate">{`Resume: ${liveDebugInfo.resumeHandle}`}</div>}
-        {liveDebugInfo.interactionId && <div className="hud-truncate">{`Interaction: ${liveDebugInfo.interactionId}`}</div>}
-        {liveDebugInfo.interactionText && <div className="hud-truncate">{liveDebugInfo.interactionText}</div>}
-        {bgmUrl && <div className="hud-truncate">{`BGM: ${bgmUrl}`}</div>}
-      </div>
-    )}
-  </aside>
-);
-
 export const AppMainHud: FC<AppMainHudProps> = ({
   t,
   characterLabEnabled,
   currentModelType,
+  enemyModelType,
+  onSelectModelType,
+  onSelectEnemyModelType,
+  onSelectPaletteFamily,
+  onSelectEnemyPaletteFamily,
   playMode,
   isHubMode,
   showBattleHud,
@@ -479,6 +133,7 @@ export const AppMainHud: FC<AppMainHudProps> = ({
   isLabOpen,
   isBattlePrepOpen,
   showFusionCraft,
+  fusionCraftFlow,
   isP2PMediaOn,
   isLiveConnected,
   isLiveMicActive,
@@ -492,6 +147,7 @@ export const AppMainHud: FC<AppMainHudProps> = ({
   hasTrainingMilestone,
   hasRouteFoundation,
   recentABFeedbackCount,
+  languagePresets,
   selectedLanguage,
   modeLabel,
   scanState,
@@ -506,6 +162,7 @@ export const AppMainHud: FC<AppMainHudProps> = ({
   liveDebugInfo,
   bgmUrl,
   robotDna,
+  enemyRobotDna,
   robotMaterial,
   localHp,
   enemyHp,
@@ -529,6 +186,7 @@ export const AppMainHud: FC<AppMainHudProps> = ({
   onEnterBattleMode,
   onOpenFusionCraft,
   onCloseFusionCraft,
+  onSubmitFusionCraft,
   onRequestProfileSync,
   onToggleLiveConnection,
   onToggleLiveMic,
@@ -546,36 +204,6 @@ export const AppMainHud: FC<AppMainHudProps> = ({
   onSubmitDnaFeedback,
 }) => (
   <>
-    {playMode === 'walk' && (
-      <div className="hud-training-actions">
-        <button
-          className="hud-btn-special"
-          onClick={onOpenFusionCraft}
-          style={{ background: 'linear-gradient(135deg, #00C9FF 0%, #92FE9D 100%)' }}
-        >
-          Fusion Craft
-        </button>
-        <button className="hud-btn-special" onClick={onSendWalkVisionTrigger}>
-          {t.sendWalkVision}
-        </button>
-      </div>
-    )}
-    {playMode === 'training' && trainingSession && specialPhrase && (
-      <div className="hud-twist-telop">
-        {t.twistTitle} {specialPhrase}
-      </div>
-    )}
-    {playMode === 'training' && trainingSession && (
-      <div className="hud-training-actions">
-        <button
-          className={`hud-btn hud-btn-special ${!battleState.specialReady ? 'is-disabled' : ''}`}
-          onClick={onHandleCastSpecial}
-          disabled={!battleState.specialReady}
-        >
-          {t.incantationStart}
-        </button>
-      </div>
-    )}
     {characterLabEnabled && profileInfo && (
       <CharacterLabPanel
         open={isLabOpen}
@@ -587,10 +215,34 @@ export const AppMainHud: FC<AppMainHudProps> = ({
         onSubmit={onSubmitDnaFeedback}
       />
     )}
+
+    <PlayModeScreen
+      t={t}
+      playMode={playMode}
+      walkSession={walkSession}
+      trainingSession={trainingSession}
+      specialPhrase={specialPhrase}
+      battleState={battleState}
+      showBattleHud={showBattleHud}
+      alignmentReady={alignmentReady}
+      isProfileOpen={isProfileOpen}
+      showFusionCraft={showFusionCraft}
+      fusionCraftFlow={fusionCraftFlow}
+      onOpenFusionCraft={onOpenFusionCraft}
+      onCloseFusionCraft={onCloseFusionCraft}
+      onSubmitFusionCraft={onSubmitFusionCraft}
+      onCompleteWalk={onCompleteWalk}
+      onSendWalkVisionTrigger={onSendWalkVisionTrigger}
+      onStartTraining={onStartTraining}
+      onCompleteTraining={onCompleteTraining}
+      onHandleCastSpecial={onHandleCastSpecial}
+      onOpenBattlePrep={onOpenBattlePrep}
+      onReturnToHub={onReturnToHub}
+    />
+
     <header className="hud-top-left hud-animate">
       <div className="hud-brand">
-        <div className="hud-brand-main">PLARES AR</div>
-        <div className="hud-brand-sub">{t.brandSub}</div>
+        <div className="hud-brand-main">plARes</div>
       </div>
       <div className="hud-inline-actions">
         <button
@@ -611,7 +263,7 @@ export const AppMainHud: FC<AppMainHudProps> = ({
             {t.endMatch}
           </button>
         )}
-        {playMode === 'match' && (
+        {playMode === 'match' && !isArButtonDisabled && (
           <button
             id="btn-arena-align"
             className="hud-btn hud-btn-blue hud-btn-mini"
@@ -630,7 +282,7 @@ export const AppMainHud: FC<AppMainHudProps> = ({
         {playMode === 'match' && (
           <button
             id="btn-arena-share"
-            className="hud-btn hud-btn-teal hud-btn-mini"
+            className="hud-btn hud-btn-teal hud-btn-mini hud-desktop-only"
             onClick={onOpenShare}
           >
             {t.share}
@@ -639,7 +291,7 @@ export const AppMainHud: FC<AppMainHudProps> = ({
         {characterLabEnabled && (
           <button
             id="btn-open-lab"
-            className="hud-btn hud-btn-carbon hud-btn-mini"
+            className="hud-btn hud-btn-carbon hud-btn-mini hud-desktop-only"
             onClick={onOpenLab}
           >
             Lab
@@ -647,7 +299,7 @@ export const AppMainHud: FC<AppMainHudProps> = ({
         )}
         <button
           id="btn-debug-toggle"
-          className={`hud-btn hud-btn-mini ${debugVisible ? 'hud-btn-warn' : 'hud-btn-carbon'}`}
+          className={`hud-btn hud-btn-mini hud-desktop-only ${debugVisible ? 'hud-btn-warn' : 'hud-btn-carbon'}`}
           onClick={onToggleDebug}
           title="Toggle debug panels"
         >
@@ -655,10 +307,12 @@ export const AppMainHud: FC<AppMainHudProps> = ({
         </button>
       </div>
     </header>
+
     {isHubMode && (
-      <FlowHubSection
+      <FlowHubScreen
         t={t}
         profileView={profileView}
+        selectedLanguage={selectedLanguage}
         routeNextStep={routeNextStep}
         routeSteps={routeSteps}
         onTriggerRecommendedRouteStep={onTriggerRecommendedRouteStep}
@@ -669,24 +323,31 @@ export const AppMainHud: FC<AppMainHudProps> = ({
         onOpenProfile={onOpenProfile}
       />
     )}
+
     {isBattlePrepOpen && (
       <BattlePrepOverlay
         t={t}
         hasRouteFoundation={hasRouteFoundation}
+        isSolo={isSolo}
         currentModelType={currentModelType}
+        enemyModelType={enemyModelType}
+        robotDna={robotDna}
+        enemyRobotDna={enemyRobotDna}
+        robotMaterial={robotMaterial}
         alignmentReady={alignmentReady}
         hasWalkMilestone={hasWalkMilestone}
         hasTrainingMilestone={hasTrainingMilestone}
+        onSelectModelType={onSelectModelType}
+        onSelectEnemyModelType={onSelectEnemyModelType}
+        onSelectPaletteFamily={onSelectPaletteFamily}
+        onSelectEnemyPaletteFamily={onSelectEnemyPaletteFamily}
         onStartWalk={onStartWalk}
         onStartTraining={onStartTraining}
         onEnterBattleMode={onEnterBattleMode}
         onCloseBattlePrep={onCloseBattlePrep}
       />
     )}
-    <FusionCraftModal
-      isOpen={showFusionCraft}
-      onClose={onCloseFusionCraft}
-    />
+
     {showBattleHud && (
       <div className="hud-health-bars">
         <div className="hud-hp-side is-local">
@@ -710,9 +371,11 @@ export const AppMainHud: FC<AppMainHudProps> = ({
         </div>
       </div>
     )}
+
     <ProfilePanel
       t={t}
       alignmentReady={alignmentReady}
+      languagePresets={languagePresets}
       selectedLanguage={selectedLanguage}
       onChangeLanguage={onChangeLanguage}
       onRequestProfileSync={onRequestProfileSync}
@@ -731,6 +394,8 @@ export const AppMainHud: FC<AppMainHudProps> = ({
       onStartWalk={onStartWalk}
       onCompleteWalk={onCompleteWalk}
       walkSession={walkSession}
+      onOpenFusionCraft={onOpenFusionCraft}
+      onSendWalkVisionTrigger={onSendWalkVisionTrigger}
       onWalkVisionOrProfileSync={onWalkVisionOrProfileSync}
       modeLabel={modeLabel}
       isARSessionActive={isARSessionActive}
@@ -744,6 +409,7 @@ export const AppMainHud: FC<AppMainHudProps> = ({
       isProfileOpen={isProfileOpen}
       onToggleProfile={onToggleProfile}
     />
+
     {debugVisible && showBattleHud && (
       <div className="hud-right-rail hud-animate" style={{ borderLeft: '2px solid #ff6b6b' }}>
         <div style={{ fontSize: '0.7rem', color: '#ff6b6b', fontWeight: 700, letterSpacing: '0.1em', marginBottom: 6 }}>🛠 DEBUG TOOLS</div>
@@ -758,10 +424,11 @@ export const AppMainHud: FC<AppMainHudProps> = ({
         </button>
       </div>
     )}
-    {showBattleHud && (
+
+    {showBattleHud && !isProfileOpen && (
       <button
         id="btn-cast-special"
-        className={`hud-btn hud-cast-btn ${(isStreaming || isMatchPaused || !battleState.specialReady || !matchAlignmentReady) ? 'is-disabled' : ''}`}
+        className={`hud-btn hud-cast-btn ${debugVisible ? 'has-chip' : ''} ${(isStreaming || isMatchPaused || !battleState.specialReady || !matchAlignmentReady) ? 'is-disabled' : ''}`}
         disabled={isStreaming || isMatchPaused || !battleState.specialReady || !matchAlignmentReady}
         onClick={onHandleCastSpecial}
       >
@@ -772,7 +439,8 @@ export const AppMainHud: FC<AppMainHudProps> = ({
             : (isStreaming ? t.casting : (battleState.specialReady ? t.castSpecial : `EX ${battleState.exGauge}/${EX_GAUGE.MAX}`)))}
       </button>
     )}
-    {debugVisible && showBattleHud && (
+
+    {debugVisible && showBattleHud && !isProfileOpen && (
       <button
         id="btn-p2p-media"
         className={`hud-btn hud-chip-btn ${isP2PMediaOn ? 'is-on' : 'is-off'}`}

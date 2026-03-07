@@ -40,7 +40,7 @@ export const useLiveSessionControls = ({
       model: 'models/gemini-3-flash-preview',
       previous_interaction_id: liveDebugInfo.interactionId || undefined,
       store: false,
-      system_instruction: 'You are a concise tactical assistant for PlaresAR. Reply in Japanese.',
+      system_instruction: 'You are a concise tactical assistant for plARes. Reply in Japanese.',
       max_output_tokens: 120,
     });
   }, [liveDebugInfo.interactionId]);

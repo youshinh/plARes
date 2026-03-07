@@ -10,20 +10,23 @@
  */
 
 import React, { useRef, useEffect, useState, useCallback } from 'react';
+import { getModelTypeCopy, MODEL_TYPE_OPTIONS } from '../constants/modelTypes';
 import { useFSMStore } from '../store/useFSMStore';
+import type { UiText } from '../types/app';
 
-const PRESETS = [
-  { label: '⚡ スピード重視の忍者型', text: '俊敏でスピード重視、シャープな目つきのニンジャロボット' },
-  { label: '💪 パワー重視のマッチョ型', text: '力強くタフな体格、しっかりした顎のマッチョロボット' },
-  { label: '🎤 愛嬌重視のアイドル型', text: '表情豊かで笑顔が素敵、観客を魅了するアイドルロボット' },
+const buildPresets = (t: UiText) => [
+  { label: t.scanPresetSpeedLabel, text: t.scanPresetSpeedPrompt },
+  { label: t.scanPresetPowerLabel, text: t.scanPresetPowerPrompt },
+  { label: t.scanPresetCharmLabel, text: t.scanPresetCharmPrompt },
 ];
 
 interface FaceScannerProps {
+  t: UiText;
   onGenerate: (faceImageBase64?: string, presetText?: string) => Promise<void>;
   isGenerating: boolean;
 }
 
-export const FaceScanner: React.FC<FaceScannerProps> = ({ onGenerate, isGenerating }) => {
+export const FaceScanner: React.FC<FaceScannerProps> = ({ t, onGenerate, isGenerating }) => {
   const videoRef   = useRef<HTMLVideoElement>(null);
   const canvasRef  = useRef<HTMLCanvasElement>(null);
   const streamRef  = useRef<MediaStream | null>(null);
@@ -32,14 +35,19 @@ export const FaceScanner: React.FC<FaceScannerProps> = ({ onGenerate, isGenerati
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [captured, setCaptured]   = useState<string | null>(null); // Base64 JPEG
   const [presetText, setPresetText] = useState('');
+  const [cameraBootNonce, setCameraBootNonce] = useState(0);
+  const [isCameraReady, setIsCameraReady] = useState(false);
 
   const modelType = useFSMStore(s => s.modelType);
   const setModelType = useFSMStore(s => s.setModelType);
+  const presets = buildPresets(t);
 
   // カメラ起動
   useEffect(() => {
     if (mode !== 'camera') return;
     let active = true;
+    setIsCameraReady(false);
+    setCameraError(null);
 
     navigator.mediaDevices
       .getUserMedia({ video: { facingMode: 'user', width: 480, height: 480 } })
@@ -53,7 +61,7 @@ export const FaceScanner: React.FC<FaceScannerProps> = ({ onGenerate, isGenerati
       })
       .catch((err) => {
         if (!active) return;
-        setCameraError('カメラへのアクセスが許可されませんでした。スキップしてください。');
+        setCameraError(t.scanCameraDenied);
         console.warn('[FaceScanner] camera error:', err);
       });
 
@@ -62,7 +70,7 @@ export const FaceScanner: React.FC<FaceScannerProps> = ({ onGenerate, isGenerati
       streamRef.current?.getTracks().forEach(t => t.stop());
       streamRef.current = null;
     };
-  }, [mode]);
+  }, [mode, t.scanCameraDenied, cameraBootNonce]);
 
   // スキップ時はカメラ停止
   const handleSkip = useCallback(() => {
@@ -76,7 +84,7 @@ export const FaceScanner: React.FC<FaceScannerProps> = ({ onGenerate, isGenerati
   const handleCapture = useCallback(() => {
     const video  = videoRef.current;
     const canvas = canvasRef.current;
-    if (!video || !canvas) return;
+    if (!video || !canvas || !isCameraReady) return;
 
     canvas.width  = video.videoWidth  || 480;
     canvas.height = video.videoHeight || 480;
@@ -93,6 +101,9 @@ export const FaceScanner: React.FC<FaceScannerProps> = ({ onGenerate, isGenerati
   // 撮り直し
   const handleRetake = useCallback(() => {
     setCaptured(null);
+    setCameraError(null);
+    setIsCameraReady(false);
+    setCameraBootNonce((prev) => prev + 1);
     setMode('camera');
   }, []);
 
@@ -101,18 +112,18 @@ export const FaceScanner: React.FC<FaceScannerProps> = ({ onGenerate, isGenerati
     if (mode === 'camera' && captured) {
       await onGenerate(captured);
     } else {
-      await onGenerate(undefined, presetText || 'バランスの取れた万能ロボット');
+      await onGenerate(undefined, presetText || t.scanFallbackPrompt);
     }
-  }, [mode, captured, presetText, onGenerate]);
+  }, [mode, captured, presetText, onGenerate, t.scanFallbackPrompt]);
 
   return (
     <div style={styles.overlay}>
       <div style={styles.card}>
-        <h2 style={styles.title}>⚙️ プラレスラー生成</h2>
+        <h2 style={styles.title}>{t.scanTitle}</h2>
         <p style={styles.subtitle}>
           {mode === 'camera'
-            ? 'インカメラで顔を撮影すると、あなただけのAIロボットが生まれます！'
-            : 'テキストでロボットの性格を入力してください。'}
+            ? t.scanCameraDesc
+            : t.scanSkipDesc}
         </p>
 
         {/* ── カメラモード ── */}
@@ -120,21 +131,29 @@ export const FaceScanner: React.FC<FaceScannerProps> = ({ onGenerate, isGenerati
           <>
             {!captured ? (
               <div style={styles.videoWrapper}>
-                <video ref={videoRef} style={styles.video} playsInline muted />
+                <video
+                  ref={videoRef}
+                  style={styles.video}
+                  playsInline
+                  muted
+                  autoPlay
+                  onLoadedMetadata={() => setIsCameraReady(true)}
+                />
                 <canvas ref={canvasRef} style={{ display: 'none' }} />
                 <button
                   id="btn-face-capture"
                   style={styles.captureBtn}
                   onClick={handleCapture}
+                  disabled={!isCameraReady}
                 >
-                  📸 撮影する
+                  {t.scanCapture}
                 </button>
               </div>
             ) : (
               <div style={styles.videoWrapper}>
                 <img src={captured} alt="preview" style={styles.video} />
                 <button style={{ ...styles.captureBtn, background: '#555' }} onClick={handleRetake}>
-                  🔄 撮り直す
+                  {t.scanRetake}
                 </button>
               </div>
             )}
@@ -150,7 +169,7 @@ export const FaceScanner: React.FC<FaceScannerProps> = ({ onGenerate, isGenerati
         {mode === 'skip' && (
           <div style={{ width: '100%' }}>
             <div style={styles.presetGrid}>
-              {PRESETS.map((p) => (
+              {presets.map((p) => (
                 <button
                   key={p.text}
                   style={{
@@ -165,7 +184,7 @@ export const FaceScanner: React.FC<FaceScannerProps> = ({ onGenerate, isGenerati
             </div>
             <textarea
               style={styles.textarea}
-              placeholder="例: 無口で忍耐強い重戦車型ロボット"
+              placeholder={t.scanTextareaPlaceholder}
               value={presetText}
               onChange={(e) => setPresetText(e.target.value)}
               rows={3}
@@ -175,19 +194,21 @@ export const FaceScanner: React.FC<FaceScannerProps> = ({ onGenerate, isGenerati
 
         {/* ── モデル選択（テスト用） ── */}
         <div style={{ display: 'flex', gap: 16, alignSelf: 'center', marginBottom: 10 }}>
-          <label style={{ color: '#fff', fontSize: 13, cursor: 'pointer' }}>
-            <input type="radio" checked={modelType === 'A'} onChange={() => setModelType('A')} /> Model A
-          </label>
-          <label style={{ color: '#fff', fontSize: 13, cursor: 'pointer' }}>
-            <input type="radio" checked={modelType === 'B'} onChange={() => setModelType('B')} /> Model B
-          </label>
+          {MODEL_TYPE_OPTIONS.map(({ id }) => {
+            const copy = getModelTypeCopy(id, t);
+            return (
+              <label key={id} style={{ color: '#fff', fontSize: 13, cursor: 'pointer' }}>
+                <input type="radio" checked={modelType === id} onChange={() => setModelType(id)} /> {copy.title}
+              </label>
+            );
+          })}
         </div>
 
         {/* ── アクションボタン ── */}
         <div style={styles.actionRow}>
           {mode === 'camera' && (
             <button style={styles.skipBtn} onClick={handleSkip}>
-              スキップ →
+              {t.scanSkip}
             </button>
           )}
           <button
@@ -200,7 +221,7 @@ export const FaceScanner: React.FC<FaceScannerProps> = ({ onGenerate, isGenerati
             onClick={handleGenerate}
             disabled={isGenerating || (mode === 'camera' && !captured && !cameraError)}
           >
-            {isGenerating ? '⏳ 生成中…' : '🤖 ロボット召喚！'}
+            {isGenerating ? t.scanGenerating : t.scanSummon}
           </button>
         </div>
 
@@ -208,7 +229,7 @@ export const FaceScanner: React.FC<FaceScannerProps> = ({ onGenerate, isGenerati
           <div style={styles.chargeBar}>
             <div style={styles.chargeBarFill} />
             <span style={{ color: '#0ff', fontSize: 12, marginTop: 6 }}>
-              Gemini が機体を解析中…
+              {t.scanAnalyzing}
             </span>
           </div>
         )}

@@ -23,6 +23,7 @@ import {
   type CharacterClipName,
 } from '../utils/characterAnimation';
 import { patchDepthOcclusionMaterial, updateDepthOcclusionUniforms } from '../utils/depthOcclusion';
+import { resolveRobotPalette } from '../utils/characterDNA';
 
 const HEIGHT_DEBUG = import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEBUG_UI === 'true';
 const GROUND_CLEARANCE_EPSILON = 0.004;
@@ -100,6 +101,9 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
   const hasRemotePeer = useArenaSyncStore(s => s.hasRemotePeer);
   const matchAlignmentReady = useArenaSyncStore(s => s.matchAlignmentReady);
   const localModelType = useFSMStore(s => s.modelType);
+  const enemyModelType = useFSMStore(s => s.enemyModelType);
+  const enemyRobotDna = useFSMStore(s => s.enemyRobotDna);
+  const robotMaterial = useFSMStore(s => s.robotMeta.material);
   const remoteBaseOffsetY = (modelBaseMinY !== null ? (-modelBaseMinY * 0.62) : 0) + GROUND_CONTACT_BIAS;
 
   // Sync effect (when connected to someone)
@@ -152,7 +156,8 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
     };
   }, []);
 
-  const opponentModelType = hasRemotePeer ? localModelType : (localModelType === 'A' ? 'B' : 'A');
+  const opponentModelType = hasRemotePeer ? localModelType : enemyModelType;
+  const enemyPalette = resolveRobotPalette(robotMaterial, enemyRobotDna);
 
   // Load Model
   useEffect(() => {
@@ -182,8 +187,8 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
     loadBaseWithFallback().then(async (baseGltf) => {
       if (disposed) return;
       const scene = cloneSkeleton(baseGltf.scene) as THREE.Group;
-      const bodyColor = opponentModelType === 'B' ? '#a63a25' : '#2f7dff';
-      const emissiveColor = opponentModelType === 'B' ? '#6a1a0f' : '#0f2b66';
+      const bodyColor = opponentModelType === 'B' ? enemyPalette.red : enemyPalette.blue;
+      const emissiveColor = opponentModelType === 'B' ? enemyPalette.redD : enemyPalette.blueL;
       scene.traverse((child) => {
         if ((child as THREE.Mesh).isMesh) {
           const mesh = child as THREE.Mesh;
@@ -282,7 +287,7 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
       createdMaterials.forEach((material) => material.dispose());
       if (mixerRef.current) mixerRef.current.stopAllAction();
     };
-  }, [opponentModelType]);
+  }, [enemyPalette.blue, enemyPalette.blueL, enemyPalette.red, enemyPalette.redD, opponentModelType]);
 
   // Setup Mixer
   useEffect(() => {

@@ -1,16 +1,12 @@
-import type { FC } from 'react';
+import { useEffect, useState, type FC } from 'react';
 import { FaceScanner } from '../FaceScanner';
+import { canonicalizeLocale, inferLocaleLabel, type LanguagePreset } from '../../i18n/runtime';
 import type { AppPhase, UiText } from '../../types/app';
 
-type LangOption = {
-  code: string;
-  label: string;
-};
-
-type AppEntryScreensProps = {
+export type AppEntryScreensProps = {
   appPhase: AppPhase;
   t: UiText;
-  langOptions: LangOption[];
+  languagePresets: LanguagePreset[];
   selectedLanguage: string;
   onApplyLanguage: (langCode: string) => void;
   onGenerateCharacter: (faceImageBase64?: string, presetText?: string) => Promise<void>;
@@ -23,7 +19,7 @@ type AppEntryScreensProps = {
 export const AppEntryScreens: FC<AppEntryScreensProps> = ({
   appPhase,
   t,
-  langOptions,
+  languagePresets,
   selectedLanguage,
   onApplyLanguage,
   onGenerateCharacter,
@@ -32,14 +28,48 @@ export const AppEntryScreens: FC<AppEntryScreensProps> = ({
   onEnterAr,
   onProceedToMain,
 }) => {
+  const [languageDraft, setLanguageDraft] = useState(selectedLanguage);
+
+  useEffect(() => {
+    setLanguageDraft(selectedLanguage);
+  }, [selectedLanguage]);
+
   if (appPhase === 'lang') {
     return (
       <div className="language-gate">
         <div className="language-gate-card">
           <h2>{t.chooseLanguage}</h2>
           <p>{t.chooseLanguageDesc}</p>
+          <div className="language-gate-input-row">
+            <input
+              className="language-gate-input"
+              list="entry-language-presets"
+              value={languageDraft}
+              onChange={(event) => setLanguageDraft(event.target.value)}
+              placeholder="e.g. fr-FR"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+            />
+            <button
+              className="hud-btn hud-btn-blue language-gate-apply-btn"
+              onClick={() => onApplyLanguage(canonicalizeLocale(languageDraft, selectedLanguage))}
+            >
+              {t.applyLanguage}
+            </button>
+          </div>
+          <div className="language-gate-current">
+            {`${t.language}: ${inferLocaleLabel(selectedLanguage)} (${selectedLanguage})`}
+          </div>
+          <datalist id="entry-language-presets">
+            {languagePresets.map(option => (
+              <option key={option.code} value={option.code}>
+                {option.label}
+              </option>
+            ))}
+          </datalist>
           <div className="language-gate-grid">
-            {langOptions.map(option => {
+            {languagePresets.map(option => {
               const isActive = selectedLanguage === option.code;
               return (
                 <button
@@ -62,6 +92,7 @@ export const AppEntryScreens: FC<AppEntryScreensProps> = ({
   if (appPhase === 'scan') {
     return (
       <FaceScanner
+        t={t}
         onGenerate={onGenerateCharacter}
         isGenerating={isGenerating}
       />
@@ -74,8 +105,8 @@ export const AppEntryScreens: FC<AppEntryScreensProps> = ({
 
   return (
     <div className="summon-overlay">
-      <h2>Phase 1.3: First Summoning</h2>
-      <p>Scan your real-world environment to summon your AI partner.</p>
+      <h2>{t.summonTitle}</h2>
+      <p>{t.summonDesc}</p>
       <button
         id="btn-summon-ar"
         className={`hud-btn hud-btn-special ${arSupportState === 'checking' ? 'is-disabled' : ''}`}
@@ -89,14 +120,14 @@ export const AppEntryScreens: FC<AppEntryScreensProps> = ({
         title={arSupportState === 'checking' ? 'Checking AR support...' : ''}
         style={{ marginBottom: '1rem', background: 'linear-gradient(135deg, #FF9A9E 0%, #FECFEF 100%)', color: '#333' }}
       >
-        {arSupportState === 'supported' ? t.enterAr : 'Proceed to Main Menu (AR Not Supported)'}
+        {arSupportState === 'supported' ? t.enterAr : t.summonProceedNoAr}
       </button>
       {arSupportState === 'supported' && (
         <button
           className="hud-btn hud-btn-carbon"
           onClick={onProceedToMain}
         >
-          Skip AR Summoning
+          {t.summonSkipAr}
         </button>
       )}
     </div>

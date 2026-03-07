@@ -11,6 +11,7 @@ import { showSubtitle } from '../utils/uiEvents';
 import type { GameEvent, WebRTCDataChannelPayload } from '../../../shared/types/events';
 import type { CharacterDNA } from '../../../shared/types/firestore';
 import type { BattleUiState, LiveDebugInfo, ProfileInfo, UiText } from '../types/app';
+import type { FusionCraftFlowState } from '../types/app';
 
 type UseRemoteBattleEventsArgs = {
   battleStateRef: React.MutableRefObject<BattleUiState>;
@@ -24,6 +25,7 @@ type UseRemoteBattleEventsArgs = {
   setBgmUrl: React.Dispatch<React.SetStateAction<string>>;
   setIsMatchPaused: React.Dispatch<React.SetStateAction<boolean>>;
   setLiveDebugInfo: React.Dispatch<React.SetStateAction<LiveDebugInfo>>;
+  setFusionCraftFlow: React.Dispatch<React.SetStateAction<FusionCraftFlowState>>;
   setRobotDna: (dna: CharacterDNA | null | undefined) => void;
   setRobotStats: (
     stats: { power: number; speed: number; vit: number },
@@ -58,6 +60,7 @@ export const useRemoteBattleEvents = ({
   setBgmUrl,
   setIsMatchPaused,
   setLiveDebugInfo,
+  setFusionCraftFlow,
   setRobotDna,
   setRobotStats,
   saveTranslations,
@@ -125,7 +128,7 @@ export const useRemoteBattleEvents = ({
                 vit: Number((stats as any).vit ?? 40),
               },
               {
-                name: String(profile.player_name ?? 'Plares Unit'),
+                name: String(profile.player_name ?? 'plARes Unit'),
                 material,
                 tone: String(profile.tone ?? 'balanced'),
               },
@@ -303,6 +306,7 @@ export const useRemoteBattleEvents = ({
           const concept = typeof payload.concept === 'string' ? payload.concept : 'fused item';
           const action = typeof payload.action === 'string' ? payload.action : '';
           const url = typeof payload.texture_url === 'string' ? payload.texture_url : '';
+          const requestId = typeof payload.request_id === 'string' ? payload.request_id : '';
 
           if (action === 'equip' && url) {
             const currentDna = useFSMStore.getState().robotDna;
@@ -311,10 +315,51 @@ export const useRemoteBattleEvents = ({
           } else {
             showSubtitle(`Fusion Drop: ${concept}`);
           }
+          setFusionCraftFlow(prev => (
+                !requestId || !prev.requestId || prev.requestId === requestId
+              ? {
+                  status: 'success',
+                  requestId,
+                  concept,
+                  message: `${t.fusionSuccess}: ${concept}`,
+                  textureUrl: url,
+                }
+              : prev
+          ));
           return;
         }
         if (payload.kind === 'intervention_rejected') {
-          showSubtitle(String(payload.message ?? 'Intervention rejected'));
+          const message = String(payload.message ?? 'Intervention rejected');
+          const requestId = typeof payload.request_id === 'string' ? payload.request_id : '';
+          showSubtitle(message);
+          setFusionCraftFlow(prev => (
+            !requestId || !prev.requestId || prev.requestId === requestId
+              ? {
+                  status: 'error',
+                  requestId,
+                  concept: prev.concept,
+                  message,
+                  textureUrl: '',
+                }
+              : prev
+          ));
+          return;
+        }
+        if (payload.kind === 'fused_item_error') {
+          const message = String(payload.message ?? payload.error ?? 'Fusion failed');
+          const requestId = typeof payload.request_id === 'string' ? payload.request_id : '';
+          showSubtitle(message);
+          setFusionCraftFlow(prev => (
+            !requestId || !prev.requestId || prev.requestId === requestId
+              ? {
+                  status: 'error',
+                  requestId,
+                  concept: prev.concept,
+                  message,
+                  textureUrl: '',
+                }
+              : prev
+          ));
           return;
         }
         if (payload.kind === 'ui_translations' && (!target || target === PLAYER_ID)) {

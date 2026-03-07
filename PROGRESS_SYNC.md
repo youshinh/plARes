@@ -66,6 +66,16 @@
 | 2026-03-01 | All      | T4-1   | /scripts                        | DONE   | 対戦シナリオ+HP検証+match_logカウント+サマリ出力追加                                            | なし    |
 | 2026-03-01 | Agent3   | T4-2   | /docs                           | DONE   | APIレイテンシ+コスト+最適化+structured log一覧                                                  | なし    |
 | 2026-03-01 | Agent3   | T4-3   | /docs                           | DONE   | Pre/Deploy/Post 3フェーズチェックリスト作成                                                     | なし    |
+| 2026-03-07 | Codex    | T1-21  | /frontend/src, /backend/ai_core | DONE   | 任意locale + Gemini翻訳キャッシュ基盤、FaceScanner多言語化、Fusion Craft状態遷移化、モバイル導線カード追加 | なし    |
+| 2026-03-07 | Codex    | T1-22  | /frontend/src                   | DONE   | Hub設定カード追加、後変更用の言語導線整理、recent locale保存、表記を plARes に統一             | なし    |
+| 2026-03-07 | Codex    | T1-23  | /frontend/src                   | DONE   | AppMainHudの責務分割（Hub/BattlePrep/ModeFocus/Profile）+ Summon残存文言の多言語化            | なし    |
+| 2026-03-07 | Codex    | T1-24  | /frontend/src                   | DONE   | Walk/Training/Match の専用画面コンポーネント追加、PlayMode selector導入でHUD分離を前進        | なし    |
+| 2026-03-07 | Codex    | T1-25  | /frontend/src                   | DONE   | Fusion Craft を modal から Walk専用 screen へ昇格し、mobile向けにスクロール可能 panel へ調整  | なし    |
+| 2026-03-07 | Codex    | T1-26  | /frontend/src                   | DONE   | `AppOverlayRouter` を追加し、`App.tsx` の entry/main overlay 分岐を router component に整理   | なし    |
+| 2026-03-07 | Codex    | T1-27  | /frontend/src, /.playwright-cli | DONE   | overlay props組み立てを hook化し、Playwrightで `English -> Hub -> Walk -> Fusion Craft` 遷移を確認 | backend未起動のためWS完走は未確認 |
+| 2026-03-07 | Codex    | T0-5   | /frontend, /backend, /cloudbuild | DONE  | backend起動下で `English -> Hub -> Walk -> Fusion Craft -> Training -> Battle Prep` を再確認し、Cloud Runへ再デプロイ | なし    |
+| 2026-03-07 | Codex    | T1-28  | /frontend/src, /.playwright-cli | DONE   | mobile対戦UIを再整理し、`Menu` を `Quick / Settings` 化、`Tactical Options` を mobile下部drawer化して Playwright 390x844 で確認 | なし    |
+| 2026-03-07 | Codex    | T1-29  | /frontend/src                   | DONE   | 機体タイプ定義を list-driven 化し、Battle Prep と FaceScanner の描画を定義リスト参照へ変更     | なし    |
 
 ## ステータス定義
 

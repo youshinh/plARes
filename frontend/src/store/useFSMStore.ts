@@ -1,11 +1,12 @@
 import { create } from 'zustand';
 import * as THREE from 'three';
 import type { CharacterDNA } from '../../../shared/types/firestore';
+import type { ModelTypeId } from '../constants/modelTypes';
 import { DEFAULT_CHARACTER_DNA, normalizeCharacterDNA } from '../utils/characterDNA';
 
 export type PlayMode = 'hub' | 'match' | 'training' | 'walk';
 const MODEL_TYPE_STORAGE_KEY = 'plares_model_type';
-const loadInitialModelType = (): 'A' | 'B' => {
+const loadInitialModelType = (): ModelTypeId => {
   if (typeof window === 'undefined') return 'A';
   try {
     return localStorage.getItem(MODEL_TYPE_STORAGE_KEY) === 'B' ? 'B' : 'A';
@@ -90,8 +91,12 @@ interface FSMState {
   resetMatch: () => void;
 
   // ── Character Model Selection ──
-  modelType: 'A' | 'B';
-  setModelType: (type: 'A' | 'B') => void;
+  modelType: ModelTypeId;
+  setModelType: (type: ModelTypeId) => void;
+  enemyModelType: ModelTypeId;
+  setEnemyModelType: (type: ModelTypeId) => void;
+  enemyRobotDna: CharacterDNA;
+  setEnemyRobotDna: (dna: CharacterDNA | null | undefined) => void;
   debugSetState: (nextState: State) => void;
   debugSetHp: (target: 'local' | 'enemy', value: number) => void;
   // ── Mode Management ──
@@ -122,6 +127,8 @@ export const useFSMStore = create<FSMState>((set, get) => ({
   }),
 
   modelType: loadInitialModelType(),
+  enemyModelType: 'B',
+  enemyRobotDna: { ...DEFAULT_CHARACTER_DNA, paletteFamily: 'ember', eyeGlow: '#FFB86E' },
   prioritySource: 'system' as const,
   transitionLog: [],
   setModelType: (type) => {
@@ -132,6 +139,8 @@ export const useFSMStore = create<FSMState>((set, get) => ({
     }
     set({ modelType: type });
   },
+  setEnemyModelType: (type) => set({ enemyModelType: type }),
+  setEnemyRobotDna: (dna) => set({ enemyRobotDna: normalizeCharacterDNA(dna) ?? { ...DEFAULT_CHARACTER_DNA, paletteFamily: 'ember', eyeGlow: '#FFB86E' } }),
   debugSetState: (nextState) => {
     const prev = get().currentState;
     get().clearEvadeTimeout();

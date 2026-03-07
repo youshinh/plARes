@@ -720,14 +720,38 @@ class GameApplication:
         payload_obj: dict[str, Any],
         ctx: GameSessionContext,
     ) -> None:
+        request_id = str(payload_obj.get("request_id", "")).strip()
         allowed, reason, retry_after = self._consume_spectator_intervention(ctx.room_id)
         if not allowed:
             rejected = self._intervention_rejected_payload(ctx.user_id, reason, retry_after)
+            rejected_payload = rejected.get("data", {}).get("payload")
+            if isinstance(rejected_payload, dict) and request_id:
+                rejected_payload["request_id"] = request_id
             await self._broadcast_room(ctx.room_id, rejected, target_user=ctx.user_id)
             self._record_room_event(ctx.room_id, ctx.user_id, rejected["data"])
             return
 
-        texture_url = await self._generate_fusion_texture(payload_obj)
+        try:
+            texture_url = await self._generate_fusion_texture(payload_obj)
+        except Exception as exc:
+            failed = {
+                "type": "event",
+                "data": {
+                    "event": "item_dropped",
+                    "user": "server",
+                    "target": ctx.user_id,
+                    "payload": {
+                        "kind": "fused_item_error",
+                        "request_id": request_id,
+                        "error": "fusion_generation_failed",
+                        "message": str(exc),
+                    },
+                },
+            }
+            await self._broadcast_room(ctx.room_id, failed, target_user=ctx.user_id)
+            self._record_room_event(ctx.room_id, ctx.user_id, failed["data"])
+            return
+
         target_id = str(event_data.get("target", ctx.user_id) or ctx.user_id)
         concept = str(payload_obj.get("concept", "legendary item"))
         target_lang = self._room_user_lang(ctx.room_id, target_id, default="ja-JP")
@@ -740,6 +764,7 @@ class GameApplication:
             "payload": {
                 "kind": "fused_item",
                 "requested_by": ctx.user_id,
+                "request_id": request_id,
                 "concept": concept,
                 "texture_url": texture_url,
                 "action": "equip",

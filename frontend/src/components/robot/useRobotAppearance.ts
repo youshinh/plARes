@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import * as THREE from 'three';
 import type { CharacterDNA } from '../../../../shared/types/firestore';
+import type { ModelTypeId } from '../../constants/modelTypes';
 import {
   getFinishMaterialTuning,
   getSilhouetteScales,
@@ -12,7 +13,7 @@ import { GROUND_CONTACT_BIAS } from './constants';
 type UseRobotAppearanceArgs = {
   heroBaseMinY: number | null;
   heroScene: THREE.Group | null;
-  modelType: 'A' | 'B';
+  modelType: ModelTypeId;
   robotDna: CharacterDNA;
   robotMaterial: string;
   vit: number;

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js';
+import type { ModelTypeId } from '../../constants/modelTypes';
 import { collectCharacterClips } from '../../utils/characterAnimation';
 import { ROOT_DRIVE_BONE_RE } from './constants';
 
@@ -22,7 +23,7 @@ const stripRootPositionTracks = (clips: THREE.AnimationClip[]): THREE.AnimationC
     return sanitized;
   });
 
-export const useRobotAssetBundle = (modelType: 'A' | 'B') => {
+export const useRobotAssetBundle = (modelType: ModelTypeId) => {
   const [heroScene, setHeroScene] = useState<THREE.Group | null>(null);
   const [heroAnimations, setHeroAnimations] = useState<THREE.AnimationClip[]>([]);
   const [heroBaseMinY, setHeroBaseMinY] = useState<number | null>(null);

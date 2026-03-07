@@ -25,6 +25,9 @@ export type RouteProgress = {
   battle: number;
 };
 
+export type RouteStatus = 'todo' | 'doing' | 'done';
+export type RouteStepKey = 'walk' | 'training' | 'match';
+
 export type ProfileInfo = {
   totalMatches: number;
   totalTrainingSessions: number;
@@ -47,6 +50,14 @@ export type LiveDebugInfo = {
   resumeHandle: string;
   interactionId: string;
   interactionText: string;
+};
+
+export type FusionCraftFlowState = {
+  status: 'idle' | 'captured' | 'submitting' | 'success' | 'error';
+  requestId: string;
+  concept: string;
+  message: string;
+  textureUrl: string;
 };
 
 export type DnaAbFeedbackPayload = {
