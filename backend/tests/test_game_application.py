@@ -1,4 +1,5 @@
 from collections import defaultdict
+import json
 
 import pytest
 
@@ -24,7 +25,7 @@ class DummyLogger:
         self.warnings.append(message)
 
 
-def build_app():
+def build_app(*, get_genai_client=None, safe_json_loads=None):
     broadcast = BroadcastRecorder()
     events = []
     syncs = []
@@ -58,13 +59,13 @@ def build_app():
         record_room_sync=lambda *args: syncs.append(args),
         consume_special_gauge=lambda *_args: (True, {"ex_gauge": 0, "special_ready": False, "hp": 100, "max_hp": 100, "heat_active": False}),
         ex_gauge_payload=lambda user_id, _metrics: {"type": "event", "data": {"target": user_id}},
-        get_genai_client=lambda *_args: None,
+        get_genai_client=get_genai_client or (lambda *_args: None),
         interactions_api_version="v1alpha",
         normalize_model_name=lambda model, _fallback: model,
         ui_translation_model="gemini-flash-lite-latest",
         to_json_safe=lambda value: value,
         collect_text_fragments=lambda _value, _fragments: None,
-        safe_json_loads=lambda text: {"parsed": text},
+        safe_json_loads=safe_json_loads or (lambda text: {"parsed": text}),
         logger=logger,
         issue_ephemeral_token=issue_ephemeral_token,
         run_interaction=run_interaction,
@@ -123,6 +124,39 @@ async def test_request_ui_translations_falls_back_to_base_keys():
     payload = broadcast.calls[-1][0][1]["data"]["payload"]
     assert payload["kind"] == "ui_translations"
     assert payload["translations"] == {"start": "Start"}
+
+
+@pytest.mark.asyncio
+async def test_request_ui_translations_uses_response_text_json():
+    class DummyResponse:
+        text = '{"start":"Demarrer"}'
+
+    class DummyModels:
+        def generate_content(self, **_kwargs):
+            return DummyResponse()
+
+    class DummyClient:
+        models = DummyModels()
+
+    app, broadcast, _logger = build_app(
+        get_genai_client=lambda *_args: DummyClient(),
+        safe_json_loads=lambda text: json.loads(text),
+    )
+
+    await app.process_packet(
+        {
+            "type": "event",
+            "data": {
+                "event": "request_ui_translations",
+                "payload": {"lang": "fr-FR", "base_keys": {"start": "Start"}},
+            },
+        },
+        GameSessionContext(websocket=object(), user_id="u1", room_id="room-1", lang="en-US", sync_rate=0.5),
+    )
+
+    payload = broadcast.calls[-1][0][1]["data"]["payload"]
+    assert payload["kind"] == "ui_translations"
+    assert payload["translations"] == {"start": "Demarrer"}
 
 
 @pytest.mark.asyncio

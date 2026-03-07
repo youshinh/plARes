@@ -457,10 +457,21 @@ class GameApplication:
                     model=model,
                     contents=prompt,
                 )
-                raw = self._to_json_safe(response)
-                fragments: list[str] = []
-                self._collect_text_fragments(raw, fragments)
-                text = " ".join(dict.fromkeys(fragments)).strip()
+                text = str(getattr(response, "text", "") or "").strip()
+                if text.startswith("```"):
+                    lines = text.splitlines()
+                    if len(lines) >= 3:
+                        text = "\n".join(lines[1:-1]).strip()
+                if not text:
+                    raw = self._to_json_safe(response)
+                    fragments: list[str] = []
+                    self._collect_text_fragments(raw, fragments)
+                    text = " ".join(dict.fromkeys(fragments)).strip()
+                if text:
+                    first_brace = text.find("{")
+                    last_brace = text.rfind("}")
+                    if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+                        text = text[first_brace:last_brace + 1]
                 if text:
                     parsed = self._safe_json_loads(text)
                     if isinstance(parsed, dict):
@@ -477,6 +488,15 @@ class GameApplication:
                 )
         if not translations:
             translations = dict(base_keys)
+            self._logger.warning(
+                json.dumps(
+                    {
+                        "event": "ui_translations_fallback_to_base_keys",
+                        "lang": target_lang,
+                        "reason": "translation_parse_failed_or_empty",
+                    }
+                )
+            )
         wrapped = {
             "type": "event",
             "data": {

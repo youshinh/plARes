@@ -820,13 +820,26 @@ const store = createXRStore({
 
 // ── Root App ─────────────────────────────────────────────────────────────────
 function App() {
-  const activeLocale = canonicalizeLocale(PLAYER_LANG);
+  const initialSelectedLanguage = canonicalizeLocale(
+    (() => {
+      try {
+        return localStorage.getItem(STORAGE_LANG_KEY) || PLAYER_LANG;
+      } catch {
+        return PLAYER_LANG;
+      }
+    })(),
+  );
+  const [selectedLanguage, setSelectedLanguage] = useState<string>(initialSelectedLanguage);
+  const [dynamicTranslations, setDynamicTranslations] = useState<Record<string, string> | null>(
+    () => loadCachedTranslations(initialSelectedLanguage),
+  );
+  const [translationRevision, setTranslationRevision] = useState(0);
+  const activeLocale = canonicalizeLocale(selectedLanguage || PLAYER_LANG);
   const uiLang = resolveBaseUiLang(activeLocale);
   // Merge built-in dictionary with any Gemini-generated cached translations.
   // For ja/en/es the cache will be empty so this is a no-op.
-  const cachedDynamic = loadCachedTranslations(activeLocale);
-  const t = cachedDynamic
-    ? { ...UI_TEXT[uiLang], ...cachedDynamic } as typeof UI_TEXT['en']
+  const t = dynamicTranslations
+    ? { ...UI_TEXT[uiLang], ...dynamicTranslations } as typeof UI_TEXT['en']
     : UI_TEXT[uiLang];
   const { isSetupDone, isGenerating, generateCharacter } = useCharacterSetup();
   const { isStreaming, startStream, stopStream } = useAudioStreamer();
@@ -925,17 +938,10 @@ function App() {
     }
   }, [appPhase, isSetupDone]);
 
-  const [selectedLanguage, setSelectedLanguage] = useState<string>(
-    canonicalizeLocale(
-      (() => {
-        try {
-          return localStorage.getItem(STORAGE_LANG_KEY) || PLAYER_LANG;
-        } catch {
-          return PLAYER_LANG;
-        }
-      })(),
-    )
-  );
+  useEffect(() => {
+    setDynamicTranslations(loadCachedTranslations(activeLocale));
+  }, [activeLocale, translationRevision]);
+
   const requestedTranslationLocaleRef = useRef('');
   const languagePresets = mergeLanguagePresets(selectedLanguage);
   const [battleState, setBattleState] = useState<BattleUiState>({
@@ -1067,11 +1073,6 @@ function App() {
   const openProfile = () => {
     setIsProfileOpen(true);
   };
-  const proceedToMain = () => {
-    switchMode('hub');
-    setAppPhase('main');
-  };
-
   const queuePendingTranslation = (langCode: string) => {
     try {
       localStorage.setItem(STORAGE_PENDING_TRANSLATION_KEY, canonicalizeLocale(langCode));
@@ -1106,6 +1107,31 @@ function App() {
     }));
   };
 
+  const requestPendingTranslationIfNeeded = () => {
+    let pendingLocale = '';
+    try {
+      pendingLocale = localStorage.getItem(STORAGE_PENDING_TRANSLATION_KEY) || '';
+    } catch {
+      pendingLocale = '';
+    }
+    const canonical = canonicalizeLocale(pendingLocale || selectedLanguage, selectedLanguage);
+    if (localeUsesBuiltinDictionary(canonical) || loadCachedTranslations(canonical)) {
+      requestedTranslationLocaleRef.current = '';
+      clearPendingTranslation(canonical);
+      return;
+    }
+    if (requestedTranslationLocaleRef.current === canonical) return;
+    requestUiTranslations(canonical);
+  };
+
+  const proceedToMain = () => {
+    switchMode('hub');
+    setAppPhase('main');
+    window.setTimeout(() => {
+      requestPendingTranslationIfNeeded();
+    }, 0);
+  };
+
   const applyLanguage = (langCode: string, markAsChosen: boolean) => {
     const canonical = canonicalizeLocale(langCode);
     setSelectedLanguage(canonical);
@@ -1137,23 +1163,9 @@ function App() {
   };
 
   useEffect(() => {
-    const selectedCanonical = canonicalizeLocale(selectedLanguage);
     const maybeRequestPendingTranslation = () => {
-      let pendingLocale = '';
-      try {
-        pendingLocale = localStorage.getItem(STORAGE_PENDING_TRANSLATION_KEY) || '';
-      } catch {
-        pendingLocale = '';
-      }
-      const canonical = canonicalizeLocale(pendingLocale || selectedCanonical, selectedCanonical);
-      if (localeUsesBuiltinDictionary(canonical) || loadCachedTranslations(canonical)) {
-        requestedTranslationLocaleRef.current = '';
-        clearPendingTranslation(canonical);
-        return;
-      }
-      if (appPhase !== 'main' || !wsService.isConnected()) return;
-      if (requestedTranslationLocaleRef.current === canonical) return;
-      requestUiTranslations(canonical);
+      if (appPhase !== 'main') return;
+      requestPendingTranslationIfNeeded();
     };
 
     maybeRequestPendingTranslation();
@@ -1397,7 +1409,14 @@ function App() {
     setFusionCraftFlow,
     setRobotDna,
     setRobotStats,
-    saveTranslations: saveCachedTranslations,
+    saveTranslations: (langCode, dict) => {
+      saveCachedTranslations(langCode, dict);
+      clearPendingTranslation(langCode);
+      if (canonicalizeLocale(langCode) === activeLocale) {
+        setDynamicTranslations(dict);
+      }
+      setTranslationRevision(prev => prev + 1);
+    },
     t,
   });
   useArenaRealtimeChannels({ appPhase, wsUrl: WS_URL });

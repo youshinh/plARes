@@ -384,7 +384,6 @@ export const useRemoteBattleEvents = ({
           const dictionary = payload.translations;
           if (langCode && dictionary && typeof dictionary === 'object') {
             saveTranslations(langCode, dictionary as Record<string, string>);
-            window.location.reload();
           }
           return;
         }
