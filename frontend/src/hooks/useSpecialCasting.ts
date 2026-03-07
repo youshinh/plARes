@@ -25,7 +25,11 @@ type UseSpecialCastingArgs = {
   setBattleState: Dispatch<SetStateAction<BattleUiState>>;
   setCastingSpecial: () => void;
   specialPhrase: string;
-  startStream: (params?: { preferredStream?: MediaStream | null }) => Promise<void>;
+  startStream: (params?: {
+    preferredStream?: MediaStream | null;
+    recognizedPhrase?: string;
+    expectedPhrase?: string;
+  }) => Promise<void>;
   stopStream: () => void;
   t: UiText;
 };
@@ -54,8 +58,9 @@ export const useSpecialCasting = ({
     }
   }, []);
 
-  const handleCastSpecial = useCallback(async () => {
+  const handleCastSpecial = useCallback(async (options?: { recognizedPhrase?: string }) => {
     const battleState = battleStateRef.current;
+    const recognizedPhrase = options?.recognizedPhrase?.trim() || '';
 
     if (playMode === 'hub' || playMode === 'walk') {
       showSubtitle(t.battleOnlyHint);
@@ -90,10 +95,18 @@ export const useSpecialCasting = ({
       wsService.sendEvent({
         event: 'incantation_submitted',
         user: PLAYER_ID,
-        payload: { phrase: specialPhrase },
+        payload: {
+          phrase: specialPhrase,
+          expected_phrase: specialPhrase,
+          recognized_phrase: recognizedPhrase || undefined,
+        },
       });
       castPayload.kind = 'incantation_request';
       castPayload.phrase = specialPhrase;
+      castPayload.expected_phrase = specialPhrase;
+      if (recognizedPhrase) {
+        castPayload.recognized_phrase = recognizedPhrase;
+      }
     }
 
     const castEvent = {
@@ -105,7 +118,11 @@ export const useSpecialCasting = ({
       wsService.sendEvent(castEvent);
     }
 
-    await startStream({ preferredStream: rtcService.getLocalStream() });
+    await startStream({
+      preferredStream: rtcService.getLocalStream(),
+      recognizedPhrase,
+      expectedPhrase: specialPhrase || undefined,
+    });
 
     const scheduleJudgeTimeout = (delayMs: number) => {
       judgeTimeoutRef.current = window.setTimeout(async () => {
@@ -114,7 +131,11 @@ export const useSpecialCasting = ({
         if (specialRetryRef.current < GAMEPLAY_RULES.specialJudgeRetryCount) {
           specialRetryRef.current += 1;
           stopStream();
-          await startStream({ preferredStream: rtcService.getLocalStream() });
+          await startStream({
+            preferredStream: rtcService.getLocalStream(),
+            recognizedPhrase,
+            expectedPhrase: specialPhrase || undefined,
+          });
           showSubtitle('判定再試行...');
           scheduleJudgeTimeout(1200);
           return;
@@ -143,11 +164,11 @@ export const useSpecialCasting = ({
     resolveSpecialResult,
     setBattleState,
     setCastingSpecial,
-    specialPhrase,
-    startStream,
-    stopStream,
-    t,
-  ]);
+      specialPhrase,
+      startStream,
+      stopStream,
+      t,
+    ]);
 
   useEffect(() => {
     const onAttackResult = (event: Event) => {
@@ -185,8 +206,9 @@ export const useSpecialCasting = ({
   }, [clearJudgeTimeout, resolveSpecialResult]);
 
   useEffect(() => {
-    const onVoiceCastSpecial = () => {
-      void handleCastSpecial();
+    const onVoiceCastSpecial = (event: Event) => {
+      const detail = (event as CustomEvent<{ transcript?: string }>).detail;
+      void handleCastSpecial({ recognizedPhrase: detail?.transcript });
     };
 
     window.addEventListener('voice_cast_special', onVoiceCastSpecial as EventListener);

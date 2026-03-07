@@ -117,7 +117,7 @@ Maintain `PROGRESS_SYNC.md` in the project root. Agents must update this file wh
 
 - **Developer Knowledge MCP Server**: Autonomously use MCP tools to search official tech docs (Google Cloud, etc.) in real-time whenever implementation doubts arise.
 - **Dynamic Gating & Cost Minimization**: Ensure heavy computation (video streaming, Veo 3.1) is purely event-driven and deactivated when inactive.
-- **Claude Code Skills Extension**: Write custom skills (`SKILL.md`) inside the `.claude/skills/` root folder to let agents learn new ADK tools autonomously.
+- **Claude Code Skills Extension**: Use the project-specific skills (`SKILL.md`) located in the `.agents/skills/` folder. Agents should proactively read and follow the instructions in these skills to perform specialized tasks (e.g., UI building, state management, ADK setup).
 
 ## 5. Gemini-Native Paradigm Shift
 

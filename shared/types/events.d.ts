@@ -5,6 +5,7 @@ export type EventType =
   | "item_dropped"
   | "milestone_reached"
   | "request_ephemeral_token"
+  | "request_adk_status"
   | "interaction_turn"
   | "match_end"
   | "winner_interview"

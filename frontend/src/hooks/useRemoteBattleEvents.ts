@@ -388,10 +388,10 @@ export const useRemoteBattleEvents = ({
         if (payload.kind === 'live_ephemeral_token' && (!target || target === PLAYER_ID)) {
           if (payload.ok) {
             setLiveDebugInfo(prev => ({
+              ...prev,
               tokenName: String(payload.token_name ?? prev.tokenName ?? ''),
-              resumeHandle: prev.resumeHandle,
-              interactionId: prev.interactionId,
-              interactionText: prev.interactionText,
+              lastStatus: `live_token_ready:${String(payload.model ?? 'model')}`,
+              degradedReason: '',
             }));
             showSubtitle(`Live token ready (${String(payload.model ?? 'model')})`);
             if (pendingLiveConnectRef.current) {
@@ -412,7 +412,13 @@ export const useRemoteBattleEvents = ({
             }
           } else {
             pendingLiveConnectRef.current = false;
-            showSubtitle(`Token error: ${String(payload.error ?? 'unknown')}`);
+            const message = `Token error: ${String(payload.error ?? 'unknown')}`;
+            setLiveDebugInfo(prev => ({
+              ...prev,
+              lastStatus: 'live_token_error',
+              degradedReason: String(payload.detail ?? message),
+            }));
+            showSubtitle(message);
           }
           return;
         }
@@ -420,17 +426,35 @@ export const useRemoteBattleEvents = ({
           if (payload.ok) {
             const text = String(payload.text ?? '');
             setLiveDebugInfo(prev => ({
-              tokenName: prev.tokenName,
-              resumeHandle: prev.resumeHandle,
+              ...prev,
               interactionId: String(payload.interaction_id ?? prev.interactionId ?? ''),
               interactionText: text,
+              lastStatus: 'interaction_response_ok',
+              degradedReason: '',
             }));
             if (text) {
               showSubtitle(text);
             }
           } else {
-            showSubtitle(`Interaction error: ${String(payload.error ?? 'unknown')}`);
+            const message = `Interaction error: ${String(payload.error ?? 'unknown')}`;
+            setLiveDebugInfo(prev => ({
+              ...prev,
+              lastStatus: 'interaction_error',
+              degradedReason: String(payload.detail ?? message),
+            }));
+            showSubtitle(message);
           }
+          return;
+        }
+        if (payload.kind === 'adk_status' && (!target || target === PLAYER_ID)) {
+          const available = Boolean(payload.available);
+          const detail = String(payload.detail ?? '');
+          setLiveDebugInfo(prev => ({
+            ...prev,
+            adkStatus: available ? 'available' : `unavailable${detail ? `: ${detail}` : ''}`,
+            lastStatus: available ? 'adk_status_ok' : 'adk_status_unavailable',
+            degradedReason: available ? prev.degradedReason : (detail || prev.degradedReason),
+          }));
           return;
         }
       }

@@ -874,6 +874,51 @@
   min-width: 0;
 }
 
+.hud-live-status-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  background: hsl(218 28% 10% / 0.72);
+}
+
+.hud-live-status-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-primary);
+}
+
+.hud-live-status-head strong {
+  color: var(--color-text-primary);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+}
+
+.hud-live-status-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  gap: 6px 10px;
+  font-size: 12px;
+}
+
+.hud-live-status-grid span {
+  color: var(--color-text-muted);
+}
+
+.hud-live-status-grid strong {
+  min-width: 0;
+  color: var(--color-text-primary);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
 .hud-menu-tabs {
   display: grid;
   grid-template-columns: 1fr 1fr;

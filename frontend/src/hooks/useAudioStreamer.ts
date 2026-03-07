@@ -84,7 +84,11 @@ export const useAudioStreamer = () => {
     setIsStreaming(false);
   }, []);
 
-  const startStream = useCallback(async (opts?: { preferredStream?: MediaStream | null }) => {
+  const startStream = useCallback(async (opts?: {
+    preferredStream?: MediaStream | null;
+    recognizedPhrase?: string;
+    expectedPhrase?: string;
+  }) => {
     if (isStreaming) return;
     setIsStreaming(true);
 
@@ -123,6 +127,8 @@ export const useAudioStreamer = () => {
           room_id: ROOM_ID,
           lang: PLAYER_LANG,
           sync_rate: SYNC_RATE,
+          recognized_phrase: opts?.recognizedPhrase ?? '',
+          expected_phrase: opts?.expectedPhrase ?? '',
         }));
       };
 
@@ -202,12 +208,12 @@ export const useAudioStreamer = () => {
         };
       }
 
-      // 5. Handle scoring result from ADK / Gemini
+      // 5. Handle scoring result from the dedicated /ws/audio judge path
       ws.onmessage = (evt) => {
         try {
           const result = typeof evt.data === 'string' ? JSON.parse(evt.data) : null;
           if (!result) return;
-          // ADK returns Function Calling payload: { accuracy, speed, passion, verdict }
+          // Current implementation returns judge payload from AudioJudgeService.
           window.dispatchEvent(
             new CustomEvent('attack_result', { detail: result })
           );

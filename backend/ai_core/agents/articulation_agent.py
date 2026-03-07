@@ -1,10 +1,12 @@
 import os
+import json
 from pathlib import Path
 from google.adk.agents import LlmAgent
 from google.adk.tools import FunctionTool
 from pydantic import BaseModel, Field
 from typing import Optional
 
+from ..adk_bridge import get_adk_bridge
 from .tone_control import generate_persona
 
 try:
@@ -26,17 +28,53 @@ class EvaluateArticulationArgs(BaseModel):
     action: str = Field(..., description="Action to take: deploy_shield, attack, dodge, stumble, heavy_attack")
 
 class ExecuteTacticalMoveArgs(BaseModel):
+    room_id: str
+    user_id: str
     action: str
     target: Optional[str] = None
+
+class QueryBattleStateArgs(BaseModel):
+    room_id: str
+    user_id: str
 
 # Define the actual functions for the tools
 def evaluate_articulation(args: EvaluateArticulationArgs) -> str:
     """Evaluate the user's raw voice (incantation) against accuracy, speed, and passion."""
-    return f"Evaluated: {args.action}"
+    recommended_action = args.action
+    if args.is_miss:
+        recommended_action = "observe"
+    elif args.is_critical and args.passion >= 0.75:
+        recommended_action = "heavy_attack"
+    return json.dumps(
+        {
+            "ok": True,
+            "kind": "articulation_feedback",
+            "accuracy": args.accuracy,
+            "speed": args.speed,
+            "passion": args.passion,
+            "recommended_action": recommended_action,
+        },
+        ensure_ascii=False,
+    )
 
 def execute_tactical_move(args: ExecuteTacticalMoveArgs) -> str:
     """React to the opponent or environmental changes with physical actions."""
-    return f"Executing {args.action} on {args.target}"
+    payload = get_adk_bridge().propose_tactic(
+        room_id=args.room_id,
+        user_id=args.user_id,
+        action=args.action,
+        target=args.target,
+    )
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def query_battle_state(args: QueryBattleStateArgs) -> str:
+    """Read the current battle snapshot for a user in a room."""
+    payload = get_adk_bridge().query_battle_state(
+        room_id=args.room_id,
+        user_id=args.user_id,
+    )
+    return json.dumps(payload, ensure_ascii=False)
 
 def get_plares_agent() -> LlmAgent:
     """
@@ -47,6 +85,7 @@ def get_plares_agent() -> LlmAgent:
 
     evaluate_articulation_tool = FunctionTool(evaluate_articulation)
     execute_tactical_move_tool = FunctionTool(execute_tactical_move)
+    query_battle_state_tool = FunctionTool(query_battle_state)
 
     default_prompt = generate_persona(
         robot_name="PlaresBot Default",
@@ -58,7 +97,7 @@ def get_plares_agent() -> LlmAgent:
         name="plares_agent",
         model=model_name,
         instruction=default_prompt,
-        tools=[evaluate_articulation_tool, execute_tactical_move_tool]
+        tools=[evaluate_articulation_tool, execute_tactical_move_tool, query_battle_state_tool]
     )
     
     return agent

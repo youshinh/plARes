@@ -37,6 +37,7 @@ class GameApplicationDeps:
     logger: Any
     issue_ephemeral_token: Callable[[dict[str, Any], str, str], Any]
     run_interaction: Callable[[dict[str, Any], str, str], Any]
+    get_adk_status: Callable[[], dict[str, Any]]
     room_user_lang: Callable[[str, str, str], str]
     room_user_meta: dict[str, dict[str, dict[str, Any]]]
     clamp01: Callable[[float], float]
@@ -84,6 +85,7 @@ class GameApplication:
         self._logger = deps.logger
         self._issue_ephemeral_token = deps.issue_ephemeral_token
         self._run_interaction = deps.run_interaction
+        self._get_adk_status = deps.get_adk_status
         self._room_user_lang = deps.room_user_lang
         self._room_user_meta = deps.room_user_meta
         self._clamp01 = deps.clamp01
@@ -236,6 +238,25 @@ class GameApplication:
                     "user": "server",
                     "target": ctx.user_id,
                     "payload": token_result,
+                },
+            }
+            await self._broadcast_room(ctx.room_id, wrapped, target_user=ctx.user_id)
+            self._record_room_event(ctx.room_id, ctx.user_id, wrapped["data"])
+            return
+
+        if (
+            event_data.get("event") == "request_adk_status"
+            and isinstance(payload_obj, dict)
+        ):
+            status_result = self._get_adk_status()
+            status_result["request_id"] = payload_obj.get("request_id")
+            wrapped = {
+                "type": "event",
+                "data": {
+                    "event": "buff_applied",
+                    "user": "server",
+                    "target": ctx.user_id,
+                    "payload": status_result,
                 },
             }
             await self._broadcast_room(ctx.room_id, wrapped, target_user=ctx.user_id)

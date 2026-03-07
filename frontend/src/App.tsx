@@ -16,6 +16,7 @@ import { useAudioStreamer } from './hooks/useAudioStreamer';
 import { useBgmAudio } from './hooks/useBgmAudio';
 import { useCharacterSetup } from './hooks/useCharacterSetup';
 import { useLiveSessionControls } from './hooks/useLiveSessionControls';
+import { useLiveRouteSelector } from './hooks/useLiveRouteSelector';
 import { useEntryScreenProps, useMainHudProps } from './hooks/useAppOverlayProps';
 import { useRemoteBattleEvents } from './hooks/useRemoteBattleEvents';
 import { rtcService } from './services/WebRTCDataChannelService';
@@ -231,6 +232,17 @@ const UI_TEXT: Record<UiLang, Record<string, string>> = {
     settingsDesc: '言語変更やメニュー系の操作はここから行います。',
     quickActions: 'クイック操作',
     closeMenu: '閉じる',
+    liveRoutingTitle: 'Live経路',
+    liveConversationRoute: '会話',
+    liveBattleRoute: '戦術助言',
+    liveCommentaryRoute: '実況',
+    liveVisionRoute: '視覚トリガー',
+    liveAdkStatus: 'ADK Live',
+    liveStatusLabel: '状態',
+    liveDegradedReason: '理由',
+    liveAvailable: '利用可能',
+    liveUnavailable: '利用不可',
+    livePending: '確認中',
     currentLanguage: '現在の言語',
     languageSettingHint: 'あとで言語を変えたい時は、ここからいつでも切り替えられます。',
     languageChangeAfterMatch: '対戦中は言語を変更できません。ハブに戻ってから変更してください。',
@@ -438,6 +450,17 @@ const UI_TEXT: Record<UiLang, Record<string, string>> = {
     settingsDesc: 'Use this area for language changes and secondary menu controls.',
     quickActions: 'Quick Actions',
     closeMenu: 'Close',
+    liveRoutingTitle: 'Live Routing',
+    liveConversationRoute: 'Conversation',
+    liveBattleRoute: 'Battle Coach',
+    liveCommentaryRoute: 'Commentary',
+    liveVisionRoute: 'Vision Trigger',
+    liveAdkStatus: 'ADK Live',
+    liveStatusLabel: 'Status',
+    liveDegradedReason: 'Reason',
+    liveAvailable: 'Available',
+    liveUnavailable: 'Unavailable',
+    livePending: 'Checking',
     currentLanguage: 'Current Language',
     languageSettingHint: 'You can come back here later whenever you want to change the UI language.',
     languageChangeAfterMatch: 'Language changes are locked during a match. Return to the hub first.',
@@ -646,6 +669,17 @@ const UI_TEXT: Record<UiLang, Record<string, string>> = {
     settingsDesc: 'Usa esta zona para cambiar idioma y otras opciones secundarias.',
     quickActions: 'Acciones rapidas',
     closeMenu: 'Cerrar',
+    liveRoutingTitle: 'Rutas Live',
+    liveConversationRoute: 'Conversacion',
+    liveBattleRoute: 'Asistencia tactica',
+    liveCommentaryRoute: 'Comentario',
+    liveVisionRoute: 'Disparador visual',
+    liveAdkStatus: 'ADK Live',
+    liveStatusLabel: 'Estado',
+    liveDegradedReason: 'Motivo',
+    liveAvailable: 'Disponible',
+    liveUnavailable: 'No disponible',
+    livePending: 'Verificando',
     currentLanguage: 'Idioma actual',
     languageSettingHint: 'Puedes volver aqui mas tarde para cambiar el idioma cuando quieras.',
     languageChangeAfterMatch: 'No puedes cambiar el idioma durante una batalla. Vuelve al hub primero.',
@@ -907,6 +941,7 @@ function App() {
   } = useLiveSessionControls({
     liveNeedConnectionText: t.liveNeedConnection,
   });
+  const liveRouteSelector = useLiveRouteSelector('current');
   const voiceAckText = useVoiceAckFeedback(t);
   const {
     arSupportState,
@@ -1159,6 +1194,18 @@ function App() {
   };
 
   const sendWalkVisionTrigger = () => {
+    const route = liveRouteSelector.resolve('vision_trigger');
+    if (route.primary !== 'game_event_ws') {
+      window.dispatchEvent(new CustomEvent('show_subtitle', {
+        detail: { text: route.note },
+      }));
+      setLiveDebugInfo((prev) => ({
+        ...prev,
+        lastStatus: 'vision_trigger_route_blocked',
+        degradedReason: route.note,
+      }));
+      return;
+    }
     if (playMode !== 'walk') {
       window.dispatchEvent(new CustomEvent('show_subtitle', {
         detail: { text: t.walkOnlyHint },

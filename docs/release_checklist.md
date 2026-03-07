@@ -1,66 +1,73 @@
 # リリースチェックリスト
 
-最終更新: 2026-03-01
+最終更新: 2026-03-07
 
-## Pre-Release
+## 1. CI 自動化
 
-### コード品質
+### Backend contracts
 
-- [ ] `npx tsc --noEmit` — TypeScript エラー 0件
-- [ ] `python3 -m py_compile` — 全 backend モジュール OK
-- [ ] `npm run build` — production ビルド成功
-- [ ] Dead code 削除済み (T3-4)
-- [ ] `.env` に本番用 `GEMINI_API_KEY` 設定
+- [ ] `PYTHONPATH=backend backend/venv/bin/python -m pytest backend/tests/test_ws_router.py -q`
+- [ ] `PYTHONPATH=backend backend/venv/bin/python -m pytest backend/tests/test_genai_request_service.py -q`
+- [ ] `PYTHONPATH=backend backend/venv/bin/python -m pytest backend/tests/test_audio_judge_service.py -q`
+- [ ] `PYTHONPATH=backend backend/venv/bin/python -m pytest backend/tests/test_message_contracts.py -q`
 
-### テスト
+### Build integrity
 
-- [ ] `pytest tests/` — 全テスト PASS
-- [ ] `scripts/e2e_live_smoke.sh` — E2E スモークテスト PASS
-- [ ] Token → Live 接続 → 実況生成 手動確認
-- [ ] キャラ生成（顔写真 + テキスト）手動確認
-- [ ] BGM 再生確認（bgm_ready イベント）
+- [ ] `python3 -m py_compile backend/ai_core/main.py`
+- [ ] `cd frontend && npm run build`
 
-### セキュリティ
+### Smoke wrapper
 
-- [ ] API キーが `.env` 内のみで管理されていること
-- [ ] `.gitignore` に `*.env`, `venv/`, `node_modules/` 含む
-- [ ] MCP Tool 入力サニタイズ（T3-2 で実装済み）
-- [ ] WebSocket の roomId バリデーション
+- [ ] `scripts/phase1_smoke.sh --skip-e2e` が成功する
 
-### インフラ
+## 2. Browser E2E
 
-- [ ] Cloud Run サービス デプロイ確認
-- [ ] Cloud Run コンテナ ヘルスチェック応答
-- [ ] `PLARES_FIRESTORE_MODE` の切り替え確認
-- [ ] Context Cache TTL 設定（`PLARES_CACHE_TTL_SECONDS`）
+### Core flow
 
-### ドキュメント
+- [ ] `scripts/e2e_live_smoke.sh` が成功する
+- [ ] 言語選択 -> Hub -> Walk -> Training -> Battle Prep が通る
+- [ ] token 発行 -> Live 接続 -> transcript 表示が通る
 
-- [ ] `docs/architecture_live.md` 最新化
-- [ ] `PROGRESS_SYNC.md` 全タスク DONE
-- [ ] `README.md` セットアップ手順
+### UI regressions
 
-## Deploy
+- [ ] `Fusion Craft` を開閉できる
+- [ ] 対戦中 `Menu` を閉じられる
+- [ ] `Tactical Options` を閉じると視界を塞がない
+- [ ] mobile で canvas が viewport をはみ出さない
 
-```bash
-# 1. Frontend build
-cd frontend && npm run build
+## 3. 実機手動確認
 
-# 2. Backend dependency check
-cd backend && pip install -r requirements.txt
+### Permissions / device behavior
 
-# 3. Deploy to Cloud Run
-gcloud run deploy plares-backend --source backend/ --region asia-northeast1
-gcloud run deploy plares-frontend --source frontend/ --region asia-northeast1
+- [ ] Android Chrome で mic permission を許可 / deny 両方確認
+- [ ] iOS Safari で `AudioContext` 起動制約下でも復帰できる
+- [ ] camera permission を deny しても skip / upload 導線へ進める
+- [ ] AR 非対応端末で `位置合わせ` 系導線が不自然に残らない
 
-# 4. Post-deploy verification
-curl -f https://plares-backend-XXXX.run.app/health
-```
+### Reconnect / fallback
 
-## Post-Release
+- [ ] `/ws/game` 切断後に復帰する
+- [ ] Gemini token 発行失敗時に理由が出る
+- [ ] ADK unavailable 時に degraded reason が出る
+- [ ] quota / 429 相当時に silent fail しない
 
-- [ ] Cloud Logging ダッシュボードで structured log 確認
-- [ ] Context Cache ヒット率 > 50% 確認
-- [ ] 音声判定 structured log (`event=voice_judge`) 動作確認
-- [ ] E2E スモークテスト再実行
-- [ ] `docs/performance_cost_report.md` に実測値を記入
+### Game-specific UX
+
+- [ ] 散歩 / 修行中にキャラが見える
+- [ ] 必殺発動ボタンが mobile で跳ねない
+- [ ] 記憶と進化が人向け文に見える
+- [ ] 複数タブで開いた時に状態が破綻しない
+- [ ] PWA / ホーム画面追加後でも viewport が崩れない
+
+## 4. デプロイ前まとめ
+
+- [ ] `docs/architecture_live.md` が current/target を最新化済み
+- [ ] `PROGRESS_SYNC.md` に今回の変更が追記済み
+- [ ] Cloud Run 反映前に smoke を最低 1 回実施済み
+
+## 5. デプロイ後確認
+
+- [ ] Frontend latest revision 確認
+- [ ] Backend latest revision 確認
+- [ ] 本番 URL で Hub / Walk / Battle Prep の最低導線を確認
+- [ ] Cloud Logging で `voice_judge`, `interaction_response`, websocket error を確認

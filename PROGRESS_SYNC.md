@@ -10,6 +10,11 @@
 
 | Date       | Owner    | TaskID | Directory                       | Status | NextAction                                                                                      | Blocker |
 | ---------- | -------- | ------ | ------------------------------- | ------ | ----------------------------------------------------------------------------------------------- | ------- |
+| 2026-03-07 | Codex    | T2-20  | /backend/ai_core, /backend/tests | DONE   | `ADKBridge` を追加し、`articulation_agent.py` の tool が battle snapshot / tactical recommendation を返せる形へ更新 | なし    |
+| 2026-03-07 | Codex    | T2-19  | /frontend/src, /backend/ai_core, /backend/tests | DONE   | `audio_ws` に `recognized_phrase / expected_phrase` を通し、`AudioJudgeService` が transcript similarity を accuracy に反映するよう改善 | なし    |
+| 2026-03-07 | Codex    | T2-18  | /frontend/src, /backend/ai_core | DONE   | 修行の `incantation_submitted` に `expected_phrase / recognized_phrase` を通し、音声判定の第一段を仕様寄せ | なし    |
+| 2026-03-07 | Codex    | T2-17  | /frontend/src, /backend/ai_core, /backend/tests, /scripts | DONE | `request_adk_status` 経路とADK可用性表示、Game WS再接続時のlive debug更新、Phase1 smokeへ `test_game_application.py` 追加 | なし    |
+| 2026-03-07 | Codex    | T2-16  | /docs, /frontend/src, /scripts  | DONE   | `architecture_live.md` / `release_checklist.md` 改訂、`useLiveRouteSelector` 導入、Phase1 smoke雛形追加 | なし    |
 | 2026-03-07 | Codex    | T2-15  | /backend/ai_core, /backend/tests | DONE   | `main.py` の最終整理として composition 重複を削減し、backend test 55件を維持                   | なし    |
 | 2026-03-07 | Codex    | T2-14  | /backend/ai_core, /backend/tests | DONE   | `genai_helpers.py` 抽出と packet contract 厳密化を追加し、`main.py` を1082行まで整理して backend testを55件まで拡張 | なし    |
 | 2026-03-07 | Codex    | T2-13  | /backend/ai_core, /backend/tests | DONE   | `genai_client_factory.py` / `platform_bootstrap.py` / `message_contracts.py` を追加し、bootstrap整理と packet contract validation を導入して backend testを51件まで拡張 | なし    |

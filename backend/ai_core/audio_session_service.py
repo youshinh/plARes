@@ -44,6 +44,8 @@ class AudioSessionService:
         packet_count = 0
         amplitude_sum = 0.0
         peak_amplitude = 0.0
+        recognized_phrase = ""
+        expected_phrase = ""
         start = time.monotonic()
 
         try:
@@ -58,6 +60,8 @@ class AudioSessionService:
                         lang = str(payload.get("lang", lang or "en-US"))
                         user_id = str(payload.get("user_id", user_id))
                         room_id = str(payload.get("room_id", room_id))
+                        recognized_phrase = str(payload.get("recognized_phrase", payload.get("recognizedPhrase", recognized_phrase or "")))
+                        expected_phrase = str(payload.get("expected_phrase", payload.get("expectedPhrase", expected_phrase or "")))
                         try:
                             sync_rate = self._clamp01(float(payload.get("sync_rate", sync_rate)))
                         except (TypeError, ValueError):
@@ -97,6 +101,8 @@ class AudioSessionService:
             avg_amplitude=mean_amplitude,
             peak_amplitude=peak_amplitude,
             sync_rate=sync_rate,
+            recognized_phrase=recognized_phrase or None,
+            expected_phrase=expected_phrase or None,
         )
         battle_event = "critical_hit" if result["verdict"] == "critical" else "debuff_applied"
         result["source"] = source

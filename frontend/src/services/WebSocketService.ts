@@ -4,9 +4,8 @@ import { GAMEPLAY_RULES } from '../constants/gameplay';
 type MessageHandler = (data: WebRTCDataChannelPayload) => void;
 
 /**
- * Singleton WebSocketService that manages the live connection to the backend
- * infrastructure (Agent 3 / bidi_stream.py). Dispatches typed game events and
- * sync data to registered handlers.
+ * Shared game websocket for gameplay events, sync, signaling, and lightweight
+ * backend-assisted GenAI requests such as `interaction_turn` and token minting.
  */
 class WebSocketService {
   private ws: WebSocket | null = null;
@@ -38,6 +37,10 @@ class WebSocketService {
     this._open();
   }
 
+  private emitStatus(detail: { connected: boolean; status: string; message: string }) {
+    window.dispatchEvent(new CustomEvent('plares_ws_status', { detail }));
+  }
+
   private _buildUrl(): string {
     try {
       const built = new URL(this.baseUrl, window.location.href);
@@ -65,6 +68,7 @@ class WebSocketService {
       if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
       this.flushPendingQueue();
       this.startHeartbeat();
+      this.emitStatus({ connected: true, status: 'open', message: 'Game socket connected' });
     };
 
     this.ws.onmessage = (evt: MessageEvent) => {
@@ -83,14 +87,19 @@ class WebSocketService {
     this.ws.onerror = (e) => {
       if (!this.shouldReconnect || this.intentionalClose) return;
       console.error('[WS] Error', e);
+      this.emitStatus({ connected: false, status: 'error', message: 'Game socket error' });
     };
 
     this.ws.onclose = () => {
       this.stopHeartbeat();
       const wasIntentional = this.intentionalClose || !this.shouldReconnect;
       this.intentionalClose = false;
-      if (wasIntentional) return;
+      if (wasIntentional) {
+        this.emitStatus({ connected: false, status: 'closed', message: 'Game socket closed' });
+        return;
+      }
       console.warn('[WS] Disconnected – reconnecting in', this.reconnectDelay, 'ms');
+      this.emitStatus({ connected: false, status: 'reconnecting', message: 'Game socket reconnecting' });
       this.reconnectTimer = setTimeout(() => this._open(), this.reconnectDelay);
     };
   }
@@ -165,6 +174,15 @@ class WebSocketService {
     });
   }
 
+  /** Ask backend for current ADK live availability. */
+  requestAdkStatus(payload: Record<string, unknown> = {}) {
+    this.sendEvent({
+      event: 'request_adk_status',
+      user: this.userId,
+      payload,
+    });
+  }
+
   private _send(payload: WebRTCDataChannelPayload) {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(payload));
@@ -203,6 +221,7 @@ class WebSocketService {
     const ws = this.ws;
     this.ws = null;
     ws?.close();
+    this.emitStatus({ connected: false, status: 'closed', message: 'Game socket closed' });
   }
 }
 

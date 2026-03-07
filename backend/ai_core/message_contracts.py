@@ -63,7 +63,7 @@ def _validate_event_payload(event_name: str, payload_value: Any) -> bool:
         base_keys = payload_value.get("base_keys")
         return isinstance(base_keys, dict) and bool(base_keys)
 
-    if event_name in {"request_ephemeral_token", "persona_shift_request", "incantation_submitted", "dna_ab_feedback", "walk_vision_trigger"}:
+    if event_name in {"request_ephemeral_token", "request_adk_status", "persona_shift_request", "incantation_submitted", "dna_ab_feedback", "walk_vision_trigger"}:
         return isinstance(payload_value, dict)
 
     if event_name == "interaction_turn":

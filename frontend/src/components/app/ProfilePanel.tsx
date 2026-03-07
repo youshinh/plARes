@@ -37,6 +37,28 @@ const describeRecentMatch = (
   return `${resultLabel} / ${t.memoryCriticalLabel} ${log.criticalHits} / ${t.memoryMissLabel} ${log.misses}`;
 };
 
+const formatLiveRoute = (route: string) => {
+  const routeLabels: Record<string, string> = {
+    browser_direct: 'Browser Direct',
+    backend_interaction: 'Backend Interaction',
+    audio_ws: 'Audio WS',
+    adk_live_ws: 'ADK Live WS',
+    game_event_ws: 'Game Event WS',
+  };
+  return route
+    .split('->')
+    .map((part) => routeLabels[part.trim()] ?? part.trim())
+    .join(' -> ');
+};
+
+const formatAdkStatus = (status: string, t: UiText) => {
+  if (!status.trim()) return t.liveUnavailable ?? 'Unavailable';
+  if (status === 'pending') return t.livePending ?? 'Checking';
+  if (status === 'available') return t.liveAvailable ?? 'Available';
+  if (status.startsWith('unavailable')) return t.liveUnavailable ?? 'Unavailable';
+  return status;
+};
+
 type ProfilePanelProps = {
   t: UiText;
   alignmentReady: boolean;
@@ -119,6 +141,7 @@ export const ProfilePanel: FC<ProfilePanelProps> = ({
   const toneLabel = describeTone(profileView.tone, t);
   const arLabel = describeArStatus(isARSessionActive, scanState, scanPointCount, t);
   const heatLabel = describeHeat(battleState.heatActive, t);
+  const adkStatusLabel = formatAdkStatus(liveDebugInfo.adkStatus, t);
 
   useEffect(() => {
     setLanguageDraft(selectedLanguage);
@@ -212,6 +235,43 @@ export const ProfilePanel: FC<ProfilePanelProps> = ({
                 {languageLocked ? t.languageChangeAfterMatch : t.languageSettingHint}
               </div>
             </label>
+            {(liveDebugInfo.lastStatus || liveDebugInfo.degradedReason) && (
+              <div className="hud-lang-hint">
+                {liveDebugInfo.degradedReason
+                  ? `Live status: ${liveDebugInfo.lastStatus || 'degraded'} / ${liveDebugInfo.degradedReason}`
+                  : `Live status: ${liveDebugInfo.lastStatus}`}
+              </div>
+            )}
+            <div className="hud-live-status-card">
+              <div className="hud-live-status-head">
+                <span>{t.liveRoutingTitle ?? 'Live Routing'}</span>
+                <strong>{adkStatusLabel}</strong>
+              </div>
+              <div className="hud-live-status-grid">
+                <span>{t.liveConversationRoute ?? 'Conversation'}</span>
+                <strong>{formatLiveRoute(liveDebugInfo.conversationRoute)}</strong>
+                <span>{t.liveBattleRoute ?? 'Battle Coach'}</span>
+                <strong>{formatLiveRoute(liveDebugInfo.battleCoachingRoute)}</strong>
+                <span>{t.liveCommentaryRoute ?? 'Commentary'}</span>
+                <strong>{formatLiveRoute(liveDebugInfo.commentaryRoute)}</strong>
+                <span>{t.liveVisionRoute ?? 'Vision Trigger'}</span>
+                <strong>{formatLiveRoute(liveDebugInfo.visionTriggerRoute)}</strong>
+                <span>{t.liveAdkStatus ?? 'ADK Live'}</span>
+                <strong>{adkStatusLabel}</strong>
+                {liveDebugInfo.lastStatus ? (
+                  <>
+                    <span>{t.liveStatusLabel ?? 'Status'}</span>
+                    <strong>{liveDebugInfo.lastStatus}</strong>
+                  </>
+                ) : null}
+                {liveDebugInfo.degradedReason ? (
+                  <>
+                    <span>{t.liveDegradedReason ?? 'Reason'}</span>
+                    <strong>{liveDebugInfo.degradedReason}</strong>
+                  </>
+                ) : null}
+              </div>
+            </div>
           </div>
         </>
       )}
@@ -345,9 +405,23 @@ export const ProfilePanel: FC<ProfilePanelProps> = ({
           )}
         </>
       )}
-      {!compactMatchMenu && debugVisible && (liveDebugInfo.tokenName || liveDebugInfo.interactionId || liveDebugInfo.interactionText || bgmUrl) && (
+      {!compactMatchMenu && debugVisible && (
+        liveDebugInfo.tokenName ||
+        liveDebugInfo.interactionId ||
+        liveDebugInfo.interactionText ||
+        liveDebugInfo.lastStatus ||
+        liveDebugInfo.degradedReason ||
+        bgmUrl
+      ) && (
         <div className="hud-block hud-dim" style={{ borderLeft: '2px solid #ff6b6b' }}>
           <div style={{ fontSize: '0.6rem', color: '#ff6b6b', fontWeight: 700, marginBottom: 2 }}>🛠 DEBUG INFO</div>
+          <div className="hud-truncate">{`Conversation Route: ${liveDebugInfo.conversationRoute}`}</div>
+          <div className="hud-truncate">{`Battle Coaching Route: ${liveDebugInfo.battleCoachingRoute}`}</div>
+          <div className="hud-truncate">{`Commentary Route: ${liveDebugInfo.commentaryRoute}`}</div>
+          <div className="hud-truncate">{`Vision Trigger Route: ${liveDebugInfo.visionTriggerRoute}`}</div>
+          <div className="hud-truncate">{`ADK Live: ${liveDebugInfo.adkStatus}`}</div>
+          {liveDebugInfo.lastStatus && <div className="hud-truncate">{`Live Status: ${liveDebugInfo.lastStatus}`}</div>}
+          {liveDebugInfo.degradedReason && <div className="hud-truncate">{`Degraded: ${liveDebugInfo.degradedReason}`}</div>}
           {liveDebugInfo.tokenName && <div className="hud-truncate">{`Token: ${liveDebugInfo.tokenName}`}</div>}
           {liveDebugInfo.resumeHandle && <div className="hud-truncate">{`Resume: ${liveDebugInfo.resumeHandle}`}</div>}
           {liveDebugInfo.interactionId && <div className="hud-truncate">{`Interaction: ${liveDebugInfo.interactionId}`}</div>}

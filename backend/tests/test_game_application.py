@@ -65,6 +65,7 @@ def build_app():
         logger=logger,
         issue_ephemeral_token=issue_ephemeral_token,
         run_interaction=run_interaction,
+        get_adk_status=lambda: {"kind": "adk_status", "available": True, "detail": ""},
         room_user_lang=lambda _room_id, _user_id, default="en-US": default,
         room_user_meta=room_user_meta,
         clamp01=lambda value: max(0.0, min(1.0, float(value))),
@@ -150,6 +151,27 @@ async def test_request_profile_sync_loads_and_broadcasts_profile():
 
     wrapped = broadcast.calls[-1][0][1]
     assert wrapped["data"]["payload"]["kind"] == "profile_sync"
+
+
+@pytest.mark.asyncio
+async def test_request_adk_status_broadcasts_result():
+    app, broadcast, _logger = build_app()
+
+    await app.process_packet(
+        {
+            "type": "event",
+            "data": {
+                "event": "request_adk_status",
+                "payload": {"request_id": "req_123"},
+            },
+        },
+        GameSessionContext(websocket=object(), user_id="u1", room_id="room-1", lang="en-US", sync_rate=0.5),
+    )
+
+    wrapped = broadcast.calls[-1][0][1]
+    assert wrapped["data"]["payload"]["kind"] == "adk_status"
+    assert wrapped["data"]["payload"]["available"] is True
+    assert wrapped["data"]["payload"]["request_id"] == "req_123"
 
 
 @pytest.mark.asyncio

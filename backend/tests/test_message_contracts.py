@@ -44,6 +44,18 @@ def test_validate_inbound_packet_rejects_translation_request_without_base_keys()
     assert validate_inbound_packet(payload) is None
 
 
+def test_validate_inbound_packet_accepts_request_adk_status():
+    payload = {
+        "type": "event",
+        "data": {
+            "event": "request_adk_status",
+            "payload": {"request_id": "req_123"},
+        },
+    }
+
+    assert validate_inbound_packet(payload) == payload
+
+
 def test_validate_inbound_packet_rejects_interaction_without_input():
     payload = {
         "type": "event",

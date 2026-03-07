@@ -86,5 +86,5 @@ async def test_handle_client_connection():
 def test_articulation_agent_setup():
     agent = get_plares_agent()
     assert agent.name == "plares_agent"
-    assert len(agent.tools) == 2
+    assert len(agent.tools) == 3
     assert "You are PlaresBot Default" in agent.instruction

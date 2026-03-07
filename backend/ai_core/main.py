@@ -16,6 +16,7 @@ import websockets
 from websockets.exceptions import ConnectionClosed
 
 from .audio_judge import AudioJudgeService
+from .adk_bridge import RuntimeAdkBridge, set_adk_bridge
 from .audio_session_service import AudioSessionService
 from .battle_service import BattleService
 from .character_session_service import CharacterSessionService
@@ -828,10 +829,18 @@ async def _run_articulation_judge(
     room_id: str,
 ) -> dict[str, Any]:
     phrase = str(requested.get("phrase", "")).strip()
+    recognized_phrase = str(
+        requested.get("recognized_phrase", requested.get("recognizedPhrase", ""))
+    ).strip()
+    expected_phrase = str(
+        requested.get("expected_phrase", requested.get("expectedPhrase", phrase))
+    ).strip()
     duration_ms = to_float(requested.get("duration_ms", requested.get("durationMs")), 0.0)
     spirit = to_float(requested.get("spirit", requested.get("passion", 0.7)), 0.7)
     result = audio_judge_service.judge_incantation(
         phrase=phrase,
+        recognized_phrase=recognized_phrase or None,
+        expected_phrase=expected_phrase or None,
         duration_ms=duration_ms if duration_ms > 0 else None,
         spirit=spirit,
     )
@@ -912,6 +921,20 @@ def _vision_action_for_trigger(trigger: str) -> str | None:
     return None
 
 
+def _get_adk_status() -> dict[str, Any]:
+    if adk_live_handler is None:
+        return {
+            "kind": "adk_status",
+            "available": False,
+            "detail": ADK_IMPORT_ERROR or "ADK live handler unavailable",
+        }
+    return {
+        "kind": "adk_status",
+        "available": True,
+        "detail": "",
+    }
+
+
 async def _broadcast_winner_interview_and_bgm(
     room_id: str,
     winner_id: str,
@@ -944,6 +967,15 @@ battle_service = BattleService(
     broadcast_winner_interview_and_bgm=_broadcast_winner_interview_and_bgm,
 )
 
+set_adk_bridge(
+    RuntimeAdkBridge(
+        ensure_runtime_state=_ensure_runtime_state,
+        room_user_map=room_user_map,
+        room_user_meta=room_user_meta,
+        clamp01=clamp01,
+    )
+)
+
 
 game_application = GameApplication(
     GameApplicationDeps(
@@ -965,6 +997,7 @@ game_application = GameApplication(
         logger=logger,
         issue_ephemeral_token=_issue_ephemeral_token,
         run_interaction=_run_interaction,
+        get_adk_status=_get_adk_status,
         room_user_lang=_room_user_lang,
         room_user_meta=room_user_meta,
         clamp01=clamp01,

@@ -50,6 +50,13 @@ export type LiveDebugInfo = {
   resumeHandle: string;
   interactionId: string;
   interactionText: string;
+  conversationRoute: string;
+  battleCoachingRoute: string;
+  commentaryRoute: string;
+  visionTriggerRoute: string;
+  lastStatus: string;
+  degradedReason: string;
+  adkStatus: string;
 };
 
 export type FusionCraftFlowState = {

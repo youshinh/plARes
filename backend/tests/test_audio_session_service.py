@@ -78,3 +78,43 @@ async def test_audio_session_broadcasts_result_and_tone():
     assert payload["has_video_track"] is True
     assert specials[-1]["attacker_id"] == "u1"
     assert json.loads(ws.sent[-1])["broadcasted"] is True
+
+
+@pytest.mark.asyncio
+async def test_audio_session_forwards_recognized_phrase_context():
+    captured = {}
+    broadcast = BroadcastRecorder()
+
+    async def resolve_special_damage(**_kwargs):
+        return None
+
+    service = AudioSessionService(
+        parse_identity=lambda _path: ("u1", "room-1", "en-US", 0.6),
+        safe_json_loads=lambda text: json.loads(text),
+        clamp01=lambda value: max(0.0, min(1.0, float(value))),
+        score_pcm16_frame=lambda _chunk: (0.4, 0.8),
+        build_audio_result=lambda **kwargs: captured.update(kwargs) or {"verdict": "miss", "score": 0.4},
+        room_members=defaultdict(set),
+        room_user_meta=defaultdict(dict),
+        broadcast_room=broadcast,
+        record_room_event=lambda *_args: None,
+        update_persona_tone=lambda *_args: None,
+        resolve_special_damage=resolve_special_damage,
+        connection_closed_exception=Exception,
+    )
+
+    ws = AsyncIterWebSocket(
+        [
+            json.dumps({
+                "cmd": "open_audio_gate",
+                "recognized_phrase": "burst drive",
+                "expected_phrase": "Burst Drive",
+            }),
+            b"\x00\x01\x02\x03",
+        ]
+    )
+
+    await service.handle_connection(ws, "/ws/audio?user_id=u1&room_id=room-1")
+
+    assert captured["recognized_phrase"] == "burst drive"
+    assert captured["expected_phrase"] == "Burst Drive"
