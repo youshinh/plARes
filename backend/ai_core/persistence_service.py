@@ -1,5 +1,15 @@
+import re
 from datetime import datetime, timezone
 from typing import Any
+
+_USER_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_\-]{1,128}$")
+
+def _sanitize_user_id(user_id: Any) -> str:
+    """Validate user_id format to prevent injection/path traversal."""
+    uid = str(user_id or "").strip()
+    if not uid or not _USER_ID_PATTERN.match(uid):
+        raise ValueError(f"Invalid user_id format: {uid!r}")
+    return uid
 
 
 class PersistenceService:
@@ -44,7 +54,8 @@ class PersistenceService:
         if db is None:
             return None
         try:
-            snap = db.collection("users").document(user_id).get()
+            safe_user_id = _sanitize_user_id(user_id)
+            snap = db.collection("users").document(safe_user_id).get()
             if not snap.exists:
                 return None
             data = snap.to_dict()
@@ -60,6 +71,7 @@ class PersistenceService:
         if not user_id:
             return
         try:
+            safe_user_id = _sanitize_user_id(user_id)
             robot = profile.get("robot", {})
             logs = profile.get("match_logs", [])
             training_logs = profile.get("training_logs", [])
@@ -82,7 +94,7 @@ class PersistenceService:
                 "recent_dna_ab_tests": recent_ab,
                 "updated_at": datetime.now(timezone.utc).isoformat(),
             }
-            db.collection("users").document(user_id).set(payload, merge=True)
+            db.collection("users").document(safe_user_id).set(payload, merge=True)
         except Exception:
             return
 
@@ -90,6 +102,11 @@ class PersistenceService:
         db = self.get_firestore_client()
         if db is None:
             return
+        try:
+            safe_user_id = _sanitize_user_id(user_id)
+        except ValueError:
+            return
+
         ts = str(match_log.get("timestamp", datetime.now(timezone.utc).isoformat()))
         room = str(match_log.get("room_id", "unknown"))
         doc_id = f"{ts}_{room}".replace(":", "-")
@@ -101,6 +118,6 @@ class PersistenceService:
                     payload["expires_at"] = datetime.fromisoformat(expires)
                 except Exception:
                     pass
-            db.collection("users").document(user_id).collection("matchLogs").document(doc_id).set(payload)
+            db.collection("users").document(safe_user_id).collection("matchLogs").document(doc_id).set(payload)
         except Exception:
             return
