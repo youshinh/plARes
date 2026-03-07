@@ -106,11 +106,12 @@ except Exception:
             VertexContextCache = None
 
 try:
-    from .character_generator import generate_robot_stats
+    from .character_generator import build_robot_profile, generate_robot_stats
 except Exception:
     try:
-        from ai_core.character_generator import generate_robot_stats
+        from ai_core.character_generator import build_robot_profile, generate_robot_stats
     except Exception:
+        build_robot_profile = None
         generate_robot_stats = None
 
 load_environment(load_dotenv, __file__)
@@ -326,6 +327,22 @@ def _load_user_profile(user_id: str, lang: str, sync_rate: float) -> dict[str, A
 
 def _save_user_profile(profile: dict[str, Any]) -> None:
     profile_service.save_user_profile(profile)
+
+
+def _persist_generated_profile(user_id: str, result: dict[str, Any]) -> None:
+    if build_robot_profile is None:
+        return
+    current_profile = profile_service.load_user_profile(user_id, "ja-JP", DEFAULT_SYNC_RATE)
+    current_robot = current_profile.get("robot", {})
+    current_network = current_robot.get("network", {}) if isinstance(current_robot, dict) else {}
+    sync_rate = to_float(current_network.get("sync_rate", DEFAULT_SYNC_RATE), DEFAULT_SYNC_RATE)
+    generated_robot = build_robot_profile(result, sync_rate=sync_rate)
+    if isinstance(current_robot, dict):
+        existing_level = current_robot.get("level")
+        if isinstance(existing_level, int) and existing_level > 1:
+            generated_robot["level"] = existing_level
+    current_profile["robot"] = generated_robot
+    _save_user_profile(current_profile)
 
 
 def _append_mode_log(
@@ -1077,6 +1094,7 @@ game_session_service = GameSessionService(
 character_session_service = CharacterSessionService(
     safe_json_loads=safe_json_loads,
     generate_robot_stats=generate_robot_stats,
+    persist_generated_profile=_persist_generated_profile,
     logger=logger,
     connection_closed_exception=ConnectionClosed,
 )

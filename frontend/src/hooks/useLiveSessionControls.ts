@@ -96,11 +96,12 @@ export const useLiveSessionControls = ({
     wsService.requestInteractionTurn({
       request_id: `req_${Date.now()}`,
       input: '現在の戦況で次の一手を一文で提案してください。',
-      model: 'models/gemini-3-flash-preview',
+      model: 'models/gemini-flash-lite-latest',
       previous_interaction_id: liveDebugInfo.interactionId || undefined,
       store: false,
-      system_instruction: 'You are a concise tactical assistant for plARes. Reply in Japanese.',
-      max_output_tokens: 120,
+      system_instruction: 'You are a concise tactical assistant for plARes. Reply in Japanese with one short actionable sentence. Do not expose reasoning or metadata.',
+      max_output_tokens: 80,
+      temperature: 0.3,
     });
   }, [liveDebugInfo.interactionId, liveRouteSelector, routeInfo]);
 

@@ -10,6 +10,8 @@
 
 | Date       | Owner    | TaskID | Directory                       | Status | NextAction                                                                                      | Blocker |
 | ---------- | -------- | ------ | ------------------------------- | ------ | ----------------------------------------------------------------------------------------------- | ------- |
+| 2026-03-07 | Codex    | T1-34  | /frontend/src, /backend/ai_core, /backend/tests | DONE   | モバイルMenuの閉時ヒット領域修正、AR進入フローの手動開始化、AR HUD再配置、interaction thought混入除去と tactical interaction 軽量モデル化 | `pytest` 未導入のため backend unit test一括実行は未実施 |
+| 2026-03-07 | Codex    | T2-23  | /frontend/src, /backend/ai_core, /backend/tests | DONE   | 顔写真を Gemini Image で 1:1 顔テクスチャへ整形し、`skinUrl` を profile 永続化して再表示でも復元する | なし    |
 | 2026-03-07 | Codex    | T1-33  | /frontend/src, /backend/ai_core, /backend/tests, /shared/types | DONE   | Fusion Craft を `skin / attachment` の二系統へ拡張し、mount point選択・装備画像アタッチ・inventory記録・backend helperを追加 | なし    |
 | 2026-03-07 | Codex    | T1-32  | /frontend/src                   | DONE   | `useRobotBoneScaling.ts` / `useAttachmentManager.ts` / `headProjectionMaterial.ts` を実装し、骨スケーリング・マウントポイント装備・顔テクスチャの頭部投影を追加 | なし    |
 | 2026-03-07 | Codex    | T1-31  | /frontend/src, /backend/ai_core, /shared/types | DONE   | `bodyType` を shared/frontend/backend に通し、6機体の `model_type` に基づく初期ステータス・PBR差・character generation反映を追加 | なし    |
@@ -88,6 +90,7 @@
 | 2026-03-07 | Codex    | T1-28  | /frontend/src, /.playwright-cli | DONE   | mobile対戦UIを再整理し、`Menu` を `Quick / Settings` 化、`Tactical Options` を mobile下部drawer化して Playwright 390x844 で確認 | なし    |
 | 2026-03-07 | Codex    | T1-29  | /frontend/src                   | DONE   | 機体タイプ定義を list-driven 化し、Battle Prep と FaceScanner の描画を定義リスト参照へ変更     | なし    |
 | 2026-03-07 | Codex    | T1-30  | /frontend/src, /.playwright-cli | DONE   | 非内蔵locale選択時に言語画面から進めない不具合を修正し、pending translation を main接続後に遅延要求するよう変更。Playwrightで `Français` 選択後に summon へ進むことを確認 | なし    |
+| 2026-03-07 | Codex    | T1-35  | /frontend/src, /backend/ai_core, /backend/tests | DONE | manual/CPU `match_end` の勝敗明示化、勝者インタビューのWeb Speech TTS、BGM未取得時のフォールバック音、Flow Hub/MenuのモバイルUI再設計と背景色差分・アニメーション修正 | pytest未導入のため自動実行不可 |
 
 ## ステータス定義
 

@@ -240,9 +240,11 @@ class GenAIRequestService:
 
         fragments: list[str] = []
         self._collect_text_fragments(raw, fragments)
-        text = " ".join(dict.fromkeys(fragments))
+        text = " ".join(dict.fromkeys(fragment.strip() for fragment in fragments if isinstance(fragment, str) and fragment.strip()))
         if len(text) > 1600:
             text = text[:1600]
+        if not text:
+            text = "いったん距離を取り、防御を優先。"
 
         return {
             "kind": "interaction_response",

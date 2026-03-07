@@ -907,23 +907,55 @@ class GameApplication:
         combatants = [str(uid) for uid in raw_combatants if str(uid) in per_user]
         if not combatants:
             combatants = [str(uid) for uid in per_user.keys()][:2]
-        self._finalize_room_runtime(ctx.room_id, trigger="match_end")
+        match_payload = event_data.get("payload")
+        if not isinstance(match_payload, dict):
+            match_payload = {}
+
+        winner_id = str(match_payload.get("winner", "")).strip()
+        loser_id = str(match_payload.get("loser", "")).strip()
+        loser_lang = str(match_payload.get("loser_lang", "")).strip() or "en-US"
+
+        if winner_id and not loser_id:
+            loser_id = next((uid for uid in combatants if uid != winner_id), "")
+        if loser_id and not winner_id:
+            winner_id = next((uid for uid in combatants if uid != loser_id), "")
+
+        if not winner_id or not loser_id:
+            resolved: list[tuple[str, int, int]] = []
+            for user_id in combatants:
+                metrics = per_user.get(user_id, {})
+                hp = self._to_int(metrics.get("hp"), 0)
+                criticals = self._to_int(metrics.get("critical_hits"), 0)
+                misses = self._to_int(metrics.get("misses"), 0)
+                resolved.append((user_id, hp, criticals - misses))
+
+            if len(resolved) >= 2:
+                ranked = sorted(
+                    resolved,
+                    key=lambda item: (item[1], item[2]),
+                    reverse=True,
+                )
+                if ranked[0][0] != ranked[1][0]:
+                    winner_id = ranked[0][0]
+                    loser_id = ranked[-1][0]
+
+        forced_results: dict[str, str] | None = None
+        if winner_id and loser_id and winner_id != loser_id:
+            forced_results = {}
+            for user_id in per_user.keys():
+                if user_id == winner_id:
+                    forced_results[user_id] = "WIN"
+                elif user_id == loser_id:
+                    forced_results[user_id] = "LOSE"
+                else:
+                    forced_results[user_id] = "DRAW"
+            if loser_id in per_user:
+                loser_lang = str(per_user.get(loser_id, {}).get("lang", loser_lang or "en-US"))
+
+        self._finalize_room_runtime(ctx.room_id, trigger="match_end", forced_results=forced_results)
         await self._broadcast_room(ctx.room_id, payload)
 
-        winner_id = None
-        loser_id = None
-        loser_lang = "en-US"
-        for user_id in combatants:
-            metrics = per_user.get(user_id, {})
-            criticals = int(metrics.get("critical_hits", 0))
-            misses = int(metrics.get("misses", 0))
-            if criticals >= misses:
-                winner_id = user_id
-            else:
-                loser_id = user_id
-                loser_lang = str(metrics.get("lang", "en-US"))
-
-        if winner_id and loser_id:
+        if winner_id and loser_id and winner_id != loser_id:
             await self._broadcast_winner_interview_and_bgm(
                 ctx.room_id,
                 winner_id,

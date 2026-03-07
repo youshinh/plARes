@@ -22,6 +22,8 @@ import json
 import os
 import re
 import logging
+from urllib import error as urllib_error
+from urllib import request as urllib_request
 from typing import Optional
 
 from .utils import logger
@@ -40,6 +42,17 @@ GENERATION_MODEL = (
     or os.getenv("PLARES_LIGHT_MODEL")
     or "gemini-3-flash-preview"
 )
+FACE_TEXTURE_MODEL = (
+    os.getenv("PLARES_FACE_TEXTURE_MODEL")
+    or os.getenv("PLARES_IMAGEN_MODEL")
+    or "gemini-3.1-flash-image-preview"
+)
+FACE_TEXTURE_IMAGE_SIZES = tuple(
+    size.strip()
+    for size in os.getenv("PLARES_FACE_TEXTURE_IMAGE_SIZES", "512,1K").split(",")
+    if size.strip()
+)
+FACE_TEXTURE_TIMEOUT_SEC = max(5, int(os.getenv("PLARES_FACE_TEXTURE_TIMEOUT_SEC", "45")))
 
 STAT_KEYS = ("power", "speed", "vit", "talkSkill", "adlibSkill")
 STAT_CAP = 200          # 全パラメーター合計の上限
@@ -90,6 +103,14 @@ _TEXT_USER_PROMPT = """\
 {description}
 """
 
+_FACE_TEXTURE_PROMPT = """\
+Take the face from the provided image and generate a flat, unwrapped facial texture for a 3D head model.
+Erase the background and surrounding environment completely.
+The final image should look like a facial UV map with flat, neutral lighting, focusing only on the skin texture, eyes, nose, and mouth without any hair, neck, clothes, or accessories.
+Keep the face centered, front-facing, symmetric where possible, and ready for direct 1:1 texture projection.
+Return image only.
+"""
+
 # ── ヘルパー ──────────────────────────────────────────────────────────────────
 
 def _get_client() -> Optional[object]:
@@ -105,6 +126,136 @@ def _get_client() -> Optional[object]:
         return genai.Client(api_key=api_key)
     except Exception:
         return None
+
+
+def _extract_data_url_parts(data_url: str) -> tuple[str, str]:
+    text = str(data_url or "").strip()
+    if not text:
+        raise ValueError("empty_data_url")
+    if text.startswith("data:") and "," in text:
+        header, encoded = text.split(",", 1)
+        mime_match = re.match(r"data:([^;]+);base64$", header, re.IGNORECASE)
+        mime_type = mime_match.group(1) if mime_match else "image/jpeg"
+        return mime_type, encoded
+    return "image/jpeg", text
+
+
+def _extract_inline_image_from_response(payload: object) -> tuple[str, str] | None:
+    if not isinstance(payload, dict):
+        return None
+
+    candidates = payload.get("candidates")
+    if not isinstance(candidates, list):
+        return None
+
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        content = candidate.get("content")
+        if not isinstance(content, dict):
+            continue
+        parts = content.get("parts")
+        if not isinstance(parts, list):
+            continue
+        for part in parts:
+            if not isinstance(part, dict):
+                continue
+            inline_data = part.get("inlineData") or part.get("inline_data")
+            if not isinstance(inline_data, dict):
+                continue
+            image_b64 = inline_data.get("data")
+            if isinstance(image_b64, str) and image_b64:
+                mime_type = str(inline_data.get("mimeType") or inline_data.get("mime_type") or "image/png")
+                return mime_type, image_b64
+    return None
+
+
+def _apply_skin_url(result: dict, skin_url: Optional[str]) -> dict:
+    if not skin_url:
+        return result
+    for key in ("characterDna", "character_dna"):
+        dna = result.get(key)
+        if not isinstance(dna, dict):
+            dna = {}
+            result[key] = dna
+        dna["skinUrl"] = skin_url
+    return result
+
+
+def _generate_face_texture_data_url(face_image_base64: Optional[str]) -> Optional[str]:
+    if not face_image_base64:
+        return None
+
+    api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    if not api_key:
+        return None
+
+    try:
+        mime_type, image_b64 = _extract_data_url_parts(face_image_base64)
+    except ValueError:
+        return None
+
+    image_sizes = FACE_TEXTURE_IMAGE_SIZES or ("1K",)
+    last_error: Exception | None = None
+    for image_size in image_sizes:
+        request_payload = {
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [
+                        {
+                            "inlineData": {
+                                "mimeType": mime_type,
+                                "data": image_b64,
+                            }
+                        },
+                        {"text": _FACE_TEXTURE_PROMPT},
+                    ],
+                }
+            ],
+            "generationConfig": {
+                "responseModalities": ["IMAGE"],
+                "topP": 0.5,
+                "imageConfig": {
+                    "aspectRatio": "1:1",
+                    "imageSize": image_size,
+                },
+            },
+        }
+        body = json.dumps(request_payload).encode("utf-8")
+        req = urllib_request.Request(
+            url=(
+                f"https://generativelanguage.googleapis.com/v1beta/models/"
+                f"{FACE_TEXTURE_MODEL}:generateContent?key={api_key}"
+            ),
+            data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib_request.urlopen(req, timeout=FACE_TEXTURE_TIMEOUT_SEC) as response:
+                raw = response.read().decode("utf-8")
+            payload = json.loads(raw)
+            inline_image = _extract_inline_image_from_response(payload)
+            if inline_image is None:
+                raise RuntimeError("face_texture_missing_inline_image")
+            generated_mime, generated_b64 = inline_image
+            return f"data:{generated_mime};base64,{generated_b64}"
+        except (urllib_error.URLError, urllib_error.HTTPError, TimeoutError, RuntimeError, json.JSONDecodeError) as exc:
+            last_error = exc
+            continue
+
+    if last_error is not None:
+        logger.warning(
+            json.dumps(
+                {
+                    "event": "face_texture_generation",
+                    "error_code": "face_texture_generation_failed",
+                    "error": str(last_error),
+                }
+            )
+        )
+    return None
 
 
 def _cap_stats(raw: dict) -> dict:
@@ -352,9 +503,12 @@ async def generate_robot_stats(
           "talk_skill": int, "adlib_skill": int, "tone": str,
         }
     """
+    generated_skin_url = _generate_face_texture_data_url(face_image_base64)
+    resolved_skin_url = generated_skin_url or face_image_base64
     client = _get_client()
     if client is None:
         result = _fallback_result(preset_text, model_type)
+        _apply_skin_url(result, resolved_skin_url)
         result["error_code"] = "model_unavailable"
         result["is_fallback"] = True
         logger.warning(json.dumps({"event": "character_generation", "error_code": "model_unavailable"}))
@@ -404,7 +558,8 @@ async def generate_robot_stats(
             text = "".join(getattr(p, "text", "") for p in parts)
 
         raw = _extract_json(text)
-        return _normalize_result(raw, face_image_base64, preset_text, model_type)
+        result = _normalize_result(raw, face_image_base64, preset_text, model_type)
+        return _apply_skin_url(result, resolved_skin_url)
 
     except Exception as exc:
         # JSON解析失敗・API障害時はフォールバック
@@ -413,6 +568,7 @@ async def generate_robot_stats(
             error_code = "gemini_quota_exceeded"
         logger.error(json.dumps({"event": "character_generation", "error_code": error_code, "error": str(exc)}), exc_info=True)
         result = _fallback_result(preset_text, model_type)
+        _apply_skin_url(result, resolved_skin_url)
         result["error_code"] = error_code
         result["is_fallback"] = True
         return result

@@ -27,6 +27,7 @@ class DummyLogger:
 
 def build_app(*, get_genai_client=None, safe_json_loads=None):
     broadcast = BroadcastRecorder()
+    winner_interviews = BroadcastRecorder()
     events = []
     syncs = []
     logger = DummyLogger()
@@ -101,14 +102,14 @@ def build_app(*, get_genai_client=None, safe_json_loads=None):
         to_int=lambda value, default=0: int(value) if value is not None else default,
         room_runtime_state={},
         finalize_room_runtime=lambda *_args, **_kwargs: None,
-        broadcast_winner_interview_and_bgm=noop_async,
+        broadcast_winner_interview_and_bgm=winner_interviews,
     )
-    return GameApplication(deps), broadcast, logger
+    return GameApplication(deps), broadcast, logger, winner_interviews
 
 
 @pytest.mark.asyncio
 async def test_request_ui_translations_falls_back_to_base_keys():
-    app, broadcast, _logger = build_app()
+    app, broadcast, _logger, _winner_interviews = build_app()
 
     await app.process_packet(
         {
@@ -138,7 +139,7 @@ async def test_request_ui_translations_uses_response_text_json():
     class DummyClient:
         models = DummyModels()
 
-    app, broadcast, _logger = build_app(
+    app, broadcast, _logger, _winner_interviews = build_app(
         get_genai_client=lambda *_args: DummyClient(),
         safe_json_loads=lambda text: json.loads(text),
     )
@@ -161,7 +162,7 @@ async def test_request_ui_translations_uses_response_text_json():
 
 @pytest.mark.asyncio
 async def test_training_complete_broadcasts_profile_sync():
-    app, broadcast, _logger = build_app()
+    app, broadcast, _logger, _winner_interviews = build_app()
 
     await app.process_packet(
         {
@@ -181,7 +182,7 @@ async def test_training_complete_broadcasts_profile_sync():
 
 @pytest.mark.asyncio
 async def test_request_profile_sync_loads_and_broadcasts_profile():
-    app, broadcast, _logger = build_app()
+    app, broadcast, _logger, _winner_interviews = build_app()
 
     await app.process_packet(
         {
@@ -200,7 +201,7 @@ async def test_request_profile_sync_loads_and_broadcasts_profile():
 
 @pytest.mark.asyncio
 async def test_request_adk_status_broadcasts_result():
-    app, broadcast, _logger = build_app()
+    app, broadcast, _logger, _winner_interviews = build_app()
 
     await app.process_packet(
         {
@@ -220,8 +221,69 @@ async def test_request_adk_status_broadcasts_result():
 
 
 @pytest.mark.asyncio
+async def test_match_end_prefers_explicit_winner_and_loser_payloads():
+    forced_calls: list[dict[str, str] | None] = []
+    app, _broadcast, _logger, winner_interviews = build_app()
+    app._room_runtime_state["room-1"] = {  # type: ignore[attr-defined]
+        "combatants": ["u1"],
+        "per_user": defaultdict(
+            dict,
+            {
+                "u1": {"hp": 62, "critical_hits": 1, "misses": 4, "lang": "en-US"},
+            },
+        ),
+    }
+    app._finalize_room_runtime = lambda _room_id, **kwargs: forced_calls.append(kwargs.get("forced_results"))  # type: ignore[method-assign]
+
+    await app.process_packet(
+        {
+            "type": "event",
+            "data": {
+                "event": "match_end",
+                "payload": {"winner": "u1", "loser": "cpu_rival", "loser_lang": "ja-JP"},
+            },
+        },
+        GameSessionContext(websocket=object(), user_id="u1", room_id="room-1", lang="en-US", sync_rate=0.5),
+    )
+
+    assert forced_calls[-1] == {"u1": "WIN"}
+    assert winner_interviews.calls[-1][0] == ("room-1", "u1", "cpu_rival", "ja-JP")
+
+
+@pytest.mark.asyncio
+async def test_match_end_uses_hp_when_payload_is_missing():
+    forced_calls: list[dict[str, str] | None] = []
+    app, _broadcast, _logger, winner_interviews = build_app()
+    app._room_runtime_state["room-1"] = {  # type: ignore[attr-defined]
+        "combatants": ["u1", "u2"],
+        "per_user": defaultdict(
+            dict,
+            {
+                "u1": {"hp": 71, "critical_hits": 0, "misses": 3, "lang": "en-US"},
+                "u2": {"hp": 12, "critical_hits": 4, "misses": 0, "lang": "ja-JP"},
+            },
+        ),
+    }
+    app._finalize_room_runtime = lambda _room_id, **kwargs: forced_calls.append(kwargs.get("forced_results"))  # type: ignore[method-assign]
+
+    await app.process_packet(
+        {
+            "type": "event",
+            "data": {
+                "event": "match_end",
+                "payload": {},
+            },
+        },
+        GameSessionContext(websocket=object(), user_id="u1", room_id="room-1", lang="en-US", sync_rate=0.5),
+    )
+
+    assert forced_calls[-1] == {"u1": "WIN", "u2": "LOSE"}
+    assert winner_interviews.calls[-1][0] == ("room-1", "u1", "u2", "ja-JP")
+
+
+@pytest.mark.asyncio
 async def test_request_battle_state_snapshot_broadcasts_result():
-    app, broadcast, _logger = build_app()
+    app, broadcast, _logger, _winner_interviews = build_app()
 
     await app.process_packet(
         {
@@ -241,7 +303,7 @@ async def test_request_battle_state_snapshot_broadcasts_result():
 
 @pytest.mark.asyncio
 async def test_request_tactical_recommendation_broadcasts_result():
-    app, broadcast, _logger = build_app()
+    app, broadcast, _logger, _winner_interviews = build_app()
 
     await app.process_packet(
         {
@@ -263,7 +325,7 @@ async def test_request_tactical_recommendation_broadcasts_result():
 
 @pytest.mark.asyncio
 async def test_craft_request_can_generate_attachment_payload():
-    app, broadcast, _logger = build_app()
+    app, broadcast, _logger, _winner_interviews = build_app()
 
     await app.process_packet(
         {
@@ -300,7 +362,7 @@ async def test_craft_request_can_generate_attachment_payload():
 
 @pytest.mark.asyncio
 async def test_invalid_packet_is_rejected_before_processing():
-    app, broadcast, logger = build_app()
+    app, broadcast, logger, _winner_interviews = build_app()
 
     await app.process_packet(
         {
@@ -316,7 +378,7 @@ async def test_invalid_packet_is_rejected_before_processing():
 
 @pytest.mark.asyncio
 async def test_invalid_interaction_turn_payload_is_rejected():
-    app, broadcast, logger = build_app()
+    app, broadcast, logger, _winner_interviews = build_app()
 
     await app.process_packet(
         {

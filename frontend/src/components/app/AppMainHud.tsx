@@ -359,9 +359,12 @@ export const AppMainHud: FC<AppMainHudProps> = ({
     )}
 
     {showBattleHud && (
-      <div className="hud-health-bars">
-        <div className="hud-hp-side is-local">
-          <div className="hud-hp-label">{t.hp}</div>
+      <div className="hud-battle-status-rail">
+        <div className="hud-battle-status-block is-local">
+          <div className="hud-battle-status-head">
+            <span>{t.hp}</span>
+            <strong>{isSolo ? localHp : battleState.hp}/{battleState.maxHp}</strong>
+          </div>
           <div className="hud-hp-track">
             <div
               className={`hud-hp-fill ${localHp < 30 ? 'critical' : ''}`}
@@ -369,15 +372,40 @@ export const AppMainHud: FC<AppMainHudProps> = ({
             />
           </div>
         </div>
-        <div className="hud-hp-vs">VS</div>
-        <div className="hud-hp-side is-remote">
-          <div className="hud-hp-label">{t.enemyHp}</div>
+        <div className="hud-battle-status-center">
+          <div className="hud-hp-vs">VS</div>
+          <div className="hud-battle-status-ex">{`EX ${battleState.exGauge}/${EX_GAUGE.MAX}`}</div>
+        </div>
+        <div className="hud-battle-status-block is-remote">
+          <div className="hud-battle-status-head">
+            <span>{t.enemyHp}</span>
+            <strong>{isSolo ? enemyHp : battleState.opponentHp}/{battleState.opponentMaxHp}</strong>
+          </div>
           <div className="hud-hp-track">
             <div
               className={`hud-hp-fill ${enemyHp < 30 ? 'critical' : ''}`}
               style={{ width: `${isSolo ? enemyHp : (battleState.opponentMaxHp > 0 ? (battleState.opponentHp / battleState.opponentMaxHp) * 100 : 0)}%` }}
             />
           </div>
+        </div>
+      </div>
+    )}
+
+    {isARSessionActive && playMode === 'hub' && !showBattleHud && !isProfileOpen && (
+      <div className="hud-ar-session-bar">
+        <div className="hud-ar-session-copy">
+          <div className="hud-ar-session-mode">{modeLabel}</div>
+          <div className="hud-ar-session-note">
+            {alignmentReady ? (t.alignReady ?? 'Alignment ready') : (t.prepAlignGuide ?? 'Scan a surface and prepare the arena.')}
+          </div>
+        </div>
+        <div className="hud-ar-session-actions">
+          <button className="hud-btn hud-btn-mini hud-btn-blue" onClick={onOpenBattlePrep}>
+            {t.prepTitle}
+          </button>
+          <button className="hud-btn hud-btn-mini hud-btn-carbon" onClick={onOpenProfile}>
+            {t.menu}
+          </button>
         </div>
       </div>
     )}

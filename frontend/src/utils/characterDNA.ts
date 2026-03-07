@@ -210,6 +210,7 @@ export const normalizeCharacterDNA = (value: unknown): CharacterDNA | null => {
   const battlePatina = v.battlePatina;
   const materialType = v.materialType;
   const emblemUrl = v.emblemUrl;
+  const skinUrl = v.skinUrl;
   if (
     version !== 'v1' ||
     !isFiniteNumber(seed) ||
@@ -238,6 +239,7 @@ export const normalizeCharacterDNA = (value: unknown): CharacterDNA | null => {
         : 'clean',
     materialType: typeof materialType === 'string' ? materialType : 'plastic',
     emblemUrl: typeof emblemUrl === 'string' ? emblemUrl : '',
+    skinUrl: typeof skinUrl === 'string' ? skinUrl : undefined,
   };
 };
 

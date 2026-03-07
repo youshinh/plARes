@@ -42,12 +42,43 @@ def normalize_modalities(value: Any) -> list[str]:
     return normalized or ["AUDIO"]
 
 
+IGNORED_TEXT_KEYS = {
+    "thought",
+    "thought_signature",
+    "thoughtSignature",
+    "signature",
+    "inlineData",
+    "inline_data",
+    "data",
+    "model",
+    "modelVersion",
+    "name",
+    "id",
+    "mimeType",
+    "mime_type",
+}
+
+
+def _looks_like_metadata_text(text: str) -> bool:
+    stripped = text.strip()
+    if not stripped:
+        return True
+    lowered = stripped.lower()
+    if lowered.startswith("models/"):
+        return True
+    if " thought " in f" {lowered} " or lowered.startswith("thought") or lowered.startswith("incomplete"):
+        return True
+    if len(stripped) > 48 and all(ch.isalnum() or ch in "+/=_-" for ch in stripped):
+        return True
+    return False
+
+
 def collect_text_fragments(node: Any, fragments: list[str], depth: int = 0) -> None:
     if depth > 10:
         return
     if isinstance(node, str):
         text = node.strip()
-        if text:
+        if text and not _looks_like_metadata_text(text):
             fragments.append(text)
         return
     if isinstance(node, list):
@@ -56,9 +87,9 @@ def collect_text_fragments(node: Any, fragments: list[str], depth: int = 0) -> N
         return
     if isinstance(node, dict):
         text = node.get("text")
-        if isinstance(text, str) and text.strip():
+        if isinstance(text, str) and text.strip() and not _looks_like_metadata_text(text):
             fragments.append(text.strip())
         for key, value in node.items():
-            if key == "text":
+            if key == "text" or key in IGNORED_TEXT_KEYS:
                 continue
             collect_text_fragments(value, fragments, depth + 1)

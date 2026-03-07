@@ -8,11 +8,13 @@ class CharacterSessionService:
         *,
         safe_json_loads: Callable[[str], dict[str, Any] | None],
         generate_robot_stats: Callable[..., Any] | None,
+        persist_generated_profile: Callable[[str, dict[str, Any]], None] | None,
         logger: Any,
         connection_closed_exception: type[Exception],
     ) -> None:
         self._safe_json_loads = safe_json_loads
         self._generate_robot_stats = generate_robot_stats
+        self._persist_generated_profile = persist_generated_profile
         self._logger = logger
         self._connection_closed_exception = connection_closed_exception
 
@@ -47,6 +49,21 @@ class CharacterSessionService:
                 preset_text=preset_text,
                 model_type=model_type,
             )
+            user_id = str(request_data.get("user_id", "")).strip()
+            if user_id and self._persist_generated_profile is not None:
+                try:
+                    self._persist_generated_profile(user_id, result)
+                except Exception as exc:
+                    self._logger.error(
+                        json.dumps(
+                            {
+                                "event": "character_profile_persist",
+                                "error_code": "persist_failed",
+                                "error": str(exc),
+                            }
+                        ),
+                        exc_info=True,
+                    )
             await websocket.send(json.dumps(result, ensure_ascii=False))
         except self._connection_closed_exception:
             pass

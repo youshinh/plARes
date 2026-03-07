@@ -29,8 +29,10 @@ type UseEntryScreenPropsArgs = {
   onGenerateCharacter: AppEntryScreensProps['onGenerateCharacter'];
   isGenerating: boolean;
   arSupportState: ArSupportState;
+  isARSessionActive: boolean;
   onEnterAr: () => Promise<void> | void;
   onProceedToMain: () => void;
+  onResetSetup: () => void;
 };
 
 type UseMainHudPropsArgs = {
@@ -144,8 +146,10 @@ export const useEntryScreenProps = ({
   onGenerateCharacter,
   isGenerating,
   arSupportState,
+  isARSessionActive,
   onEnterAr,
   onProceedToMain,
+  onResetSetup,
 }: UseEntryScreenPropsArgs): AppEntryScreensProps =>
   useMemo(
     () => ({
@@ -161,10 +165,12 @@ export const useEntryScreenProps = ({
       onGenerateCharacter,
       isGenerating,
       arSupportState,
+      isARSessionActive,
       onEnterAr: () => {
         void onEnterAr();
       },
       onProceedToMain,
+      onResetSetup,
     }),
     [
       appPhase,
@@ -176,8 +182,10 @@ export const useEntryScreenProps = ({
       onGenerateCharacter,
       isGenerating,
       arSupportState,
+      isARSessionActive,
       onEnterAr,
       onProceedToMain,
+      onResetSetup,
     ],
   );
 

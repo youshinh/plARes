@@ -41,6 +41,7 @@ def default_character_dna(material: str = "Wood", tone: str = "balanced") -> dic
         "version": "v1",
         "seed": abs(hash(f"{material}|{tone}")) % (2**31),
         "silhouette": "ace",
+        "bodyType": "slim",
         "finish": "satin",
         "paletteFamily": palette,
         "eyeGlow": eye_glow_by_palette.get(palette, "#73E4FF"),
@@ -48,6 +49,8 @@ def default_character_dna(material: str = "Wood", tone: str = "balanced") -> dic
         "glowIntensity": 1.0,
         "evolutionStage": 0,
         "battlePatina": "clean",
+        "materialType": "plastic",
+        "emblemUrl": "",
     }
 
 
@@ -72,6 +75,16 @@ def normalize_character_dna(
     if silhouette not in {"striker", "tank", "ace"}:
         silhouette = base["silhouette"]
     dna["silhouette"] = silhouette
+
+    body_type = str(
+        raw.get(
+            "bodyType",
+            "heavy" if silhouette == "tank" or str(raw.get("materialType", "")).lower() == "metal" else base["bodyType"],
+        )
+    )
+    if body_type not in {"heavy", "slim"}:
+        body_type = base["bodyType"]
+    dna["bodyType"] = body_type
 
     finish = str(raw.get("finish", base["finish"]))
     if finish not in {"matte", "satin", "gloss"}:
@@ -103,6 +116,11 @@ def normalize_character_dna(
     if patina not in {"clean", "worn", "scarred", "legend"}:
         patina = "clean"
     dna["battlePatina"] = patina
+    dna["materialType"] = str(raw.get("materialType", base.get("materialType", "plastic")))[:32]
+    dna["emblemUrl"] = str(raw.get("emblemUrl", base.get("emblemUrl", "")))
+    skin_url = raw.get("skinUrl")
+    if isinstance(skin_url, str) and skin_url:
+        dna["skinUrl"] = skin_url
     return dna
 
 

@@ -12,8 +12,10 @@ export type AppEntryScreensProps = {
   onGenerateCharacter: (faceImageBase64?: string, presetText?: string) => Promise<void>;
   isGenerating: boolean;
   arSupportState: 'checking' | 'supported' | 'unsupported';
+  isARSessionActive: boolean;
   onEnterAr: () => void;
   onProceedToMain: () => void;
+  onResetSetup: () => void;
 };
 
 export const AppEntryScreens: FC<AppEntryScreensProps> = ({
@@ -25,8 +27,10 @@ export const AppEntryScreens: FC<AppEntryScreensProps> = ({
   onGenerateCharacter,
   isGenerating,
   arSupportState,
+  isARSessionActive,
   onEnterAr,
   onProceedToMain,
+  onResetSetup,
 }) => {
   const [languageDraft, setLanguageDraft] = useState(selectedLanguage);
 
@@ -106,13 +110,18 @@ export const AppEntryScreens: FC<AppEntryScreensProps> = ({
   return (
     <div className="summon-overlay">
       <h2>{t.summonTitle}</h2>
-      <p>{t.summonDesc}</p>
+      <p>
+        {isARSessionActive
+          ? (t.summonArReady ?? 'AR is ready. Start when you want to place the current robot.')
+          : t.summonDesc}
+      </p>
       <button
         id="btn-summon-ar"
         className={`hud-btn hud-btn-special ${arSupportState === 'checking' ? 'is-disabled' : ''}`}
         onClick={() => {
           if (arSupportState === 'supported') {
             onEnterAr();
+            return;
           }
           onProceedToMain();
         }}
@@ -123,11 +132,28 @@ export const AppEntryScreens: FC<AppEntryScreensProps> = ({
         {arSupportState === 'supported' ? t.enterAr : t.summonProceedNoAr}
       </button>
       {arSupportState === 'supported' && (
+        <>
+          <button
+            className={`hud-btn hud-btn-blue ${!isARSessionActive ? 'is-disabled' : ''}`}
+            onClick={onProceedToMain}
+            disabled={!isARSessionActive}
+          >
+            {t.summonStartInAr ?? 'Start in AR'}
+          </button>
+          <button
+            className="hud-btn hud-btn-carbon"
+            onClick={onProceedToMain}
+          >
+            {t.summonSkipAr}
+          </button>
+        </>
+      )}
+      {!isARSessionActive && (
         <button
-          className="hud-btn hud-btn-carbon"
-          onClick={onProceedToMain}
+          className="hud-btn hud-btn-steel"
+          onClick={onResetSetup}
         >
-          {t.summonSkipAr}
+          {t.summonRetakeFace ?? t.scanRetake ?? 'Retake Face'}
         </button>
       )}
     </div>

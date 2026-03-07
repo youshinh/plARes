@@ -44,3 +44,45 @@ def test_append_mode_log_persists_training_summary(tmp_path):
     assert profile["training_logs"][-1]["session_id"] == "training_1"
     assert "training#training_1" in profile["ai_memory_summary"]
     assert saved_profiles[-1]["user_id"] == "u1"
+
+
+def test_load_user_profile_preserves_skin_url_and_body_type(tmp_path):
+    service, _saved_profiles = build_service(tmp_path)
+    path = service.user_profile_path("u1")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        """
+{
+  "user_id": "u1",
+  "robot": {
+    "material": "Metal",
+    "personality": { "tone": "cool" },
+    "character_dna": {
+      "version": "v1",
+      "seed": 99,
+      "silhouette": "tank",
+      "bodyType": "heavy",
+      "finish": "gloss",
+      "paletteFamily": "marine",
+      "eyeGlow": "#73E4FF",
+      "scarLevel": 1,
+      "glowIntensity": 1.1,
+      "evolutionStage": 2,
+      "battlePatina": "scarred",
+      "materialType": "metal",
+      "emblemUrl": "https://example.com/emblem.png",
+      "skinUrl": "data:image/png;base64,abc"
+    }
+  }
+}
+""".strip(),
+        encoding="utf-8",
+    )
+
+    profile = service.load_user_profile("u1", "ja-JP", 0.6)
+    dna = profile["robot"]["character_dna"]
+
+    assert dna["bodyType"] == "heavy"
+    assert dna["materialType"] == "metal"
+    assert dna["emblemUrl"] == "https://example.com/emblem.png"
+    assert dna["skinUrl"] == "data:image/png;base64,abc"

@@ -215,7 +215,7 @@ export function useCharacterSetup() {
       const apiDna =
         normalizeCharacterDNA(data.characterDna as RobotGenerationResult['characterDna']) ??
         normalizeCharacterDNA(maybeSnakeCaseDna);
-      const faceTextureUrl = await createFaceTexture(faceImageBase64);
+      const faceTextureUrl = apiDna?.skinUrl || await createFaceTexture(faceImageBase64);
       const dna = apiDna
         ? evolveCharacterDNAByMatchCount(
             {

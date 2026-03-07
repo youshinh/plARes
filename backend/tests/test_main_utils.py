@@ -1,5 +1,6 @@
 import pytest
 from ai_core.utils import safe_json_loads
+from ai_core.genai_helpers import collect_text_fragments
 
 def test_safe_json_loads_valid_dict():
     message = '{"key": "value"}'
@@ -31,3 +32,26 @@ def test_safe_json_loads_non_string():
     assert result is None
     result = safe_json_loads(123)
     assert result is None
+
+
+def test_collect_text_fragments_skips_thought_and_model_metadata():
+    fragments: list[str] = []
+    collect_text_fragments(
+        {
+            "model": "models/gemini-3-flash-preview",
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [
+                            {"text": "右に回り込め。"},
+                            {"thoughtSignature": "EvkDCvYDAb4+9vua+rexPWp"},
+                        ]
+                    }
+                }
+            ],
+            "status": "incomplete",
+        },
+        fragments,
+    )
+
+    assert fragments == ["右に回り込め。"]
