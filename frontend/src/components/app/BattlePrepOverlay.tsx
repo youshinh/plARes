@@ -115,6 +115,7 @@ export const BattlePrepOverlay: FC<BattlePrepOverlayProps> = ({
                       type="button"
                       className={`battle-prep-option ${currentModelType === id ? 'is-active' : ''}`}
                       onClick={() => onSelectModelType(id)}
+                      aria-pressed={currentModelType === id}
                     >
                       <strong>{copy.title}</strong>
                       <span>{copy.description}</span>
@@ -135,6 +136,7 @@ export const BattlePrepOverlay: FC<BattlePrepOverlayProps> = ({
                       type="button"
                       className={`battle-prep-option battle-prep-palette ${activePalette === paletteFamily ? 'is-active' : ''}`}
                       onClick={() => onSelectPaletteFamily(paletteFamily)}
+                      aria-pressed={activePalette === paletteFamily}
                     >
                       <div className="battle-prep-swatch-row">
                         <span style={{ background: palette.white }} />
@@ -164,6 +166,7 @@ export const BattlePrepOverlay: FC<BattlePrepOverlayProps> = ({
                       type="button"
                       className={`battle-prep-option ${enemyModelType === id ? 'is-active' : ''}`}
                       onClick={() => onSelectEnemyModelType(id)}
+                      aria-pressed={enemyModelType === id}
                     >
                       <strong>{copy.title}</strong>
                       <span>{copy.description}</span>
@@ -184,6 +187,7 @@ export const BattlePrepOverlay: FC<BattlePrepOverlayProps> = ({
                       type="button"
                       className={`battle-prep-option battle-prep-palette ${activeEnemyPalette === paletteFamily ? 'is-active' : ''}`}
                       onClick={() => onSelectEnemyPaletteFamily(paletteFamily)}
+                      aria-pressed={activeEnemyPalette === paletteFamily}
                     >
                       <div className="battle-prep-swatch-row">
                         <span style={{ background: palette.white }} />
