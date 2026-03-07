@@ -10,6 +10,7 @@ import type { MountPointId } from '../robot/constants';
 type PlayModeScreenProps = {
   t: UiText;
   playMode: PlayMode;
+  isARSessionActive: boolean;
   walkSession: ModeSession | null;
   trainingSession: ModeSession | null;
   specialPhrase: string;
@@ -40,6 +41,7 @@ type PlayModeScreenProps = {
 export const PlayModeScreen: FC<PlayModeScreenProps> = ({
   t,
   playMode,
+  isARSessionActive,
   walkSession,
   trainingSession,
   specialPhrase,
@@ -79,6 +81,7 @@ export const PlayModeScreen: FC<PlayModeScreenProps> = ({
         <WalkModeScreen
           t={t}
           walkSession={walkSession}
+          isARSessionActive={isARSessionActive}
           isMenuOpen={isProfileOpen}
           showFusionCraft={showFusionCraft}
           fusionCraftFlow={fusionCraftFlow}

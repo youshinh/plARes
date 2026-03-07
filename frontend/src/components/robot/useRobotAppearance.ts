@@ -8,7 +8,12 @@ import {
   MATERIAL_PBR_TUNING,
   resolveRobotPalette,
 } from '../../utils/characterDNA';
-import { createHeadProjectionMaterial, isHeadProjectionTarget } from '../../utils/headProjectionMaterial';
+import {
+  createFaceDecal,
+  createHeadProjectionMaterial,
+  findFaceDecalAnchor,
+  isHeadProjectionTarget,
+} from '../../utils/headProjectionMaterial';
 import { createSurfaceMaps, disposeSurfaceMaps } from '../../utils/proceduralPBR';
 import { GROUND_CONTACT_BIAS } from './constants';
 
@@ -227,6 +232,7 @@ export const useRobotAppearance = ({
       }),
     ];
     const headMat = skinTex ? createHeadProjectionMaterial(skinTex, accentEmissiveColor) : null;
+    let faceDecal: THREE.Object3D | null = null;
 
     let idx = 0;
     let appliedHeadProjection = false;
@@ -244,17 +250,29 @@ export const useRobotAppearance = ({
     });
 
     if (headMat && !appliedHeadProjection) {
-      let fallbackApplied = false;
-      heroScene.traverse((node) => {
-        if (fallbackApplied) return;
-        const mesh = node as THREE.Mesh;
-        if (!mesh.isMesh) return;
-        mesh.material = headMat;
-        fallbackApplied = true;
-      });
+      const anchor = findFaceDecalAnchor(heroScene);
+      if (anchor) {
+        const heavyFrame = isHeavyModelType(modelType);
+        const isHeadFrontAnchor = /headfront/i.test(anchor.name);
+        faceDecal = createFaceDecal(skinTex!, {
+          width: heavyFrame ? 16.8 : 13.4,
+          height: heavyFrame ? 19.2 : 15.4,
+          offsetZ: isHeadFrontAnchor ? 0 : 8.4,
+          offsetY: /neck/i.test(anchor.name) ? 7.2 : 0.1,
+        });
+        anchor.add(faceDecal);
+        appliedHeadProjection = true;
+      }
     }
 
     return () => {
+      if (faceDecal) {
+        faceDecal.parent?.remove(faceDecal);
+        const faceSprite = faceDecal as THREE.Sprite;
+        const decalMaterial = faceSprite.material as THREE.SpriteMaterial;
+        decalMaterial.map?.dispose();
+        decalMaterial.dispose();
+      }
       baseMats.forEach((material) => material.dispose());
       headMat?.dispose();
     };

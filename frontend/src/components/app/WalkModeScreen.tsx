@@ -6,6 +6,7 @@ import type { MountPointId } from '../robot/constants';
 type WalkModeScreenProps = {
   t: UiText;
   walkSession: ModeSession | null;
+  isARSessionActive: boolean;
   isMenuOpen: boolean;
   showFusionCraft: boolean;
   fusionCraftFlow: FusionCraftFlowState;
@@ -26,6 +27,7 @@ type WalkModeScreenProps = {
 export const WalkModeScreen: FC<WalkModeScreenProps> = ({
   t,
   walkSession,
+  isARSessionActive,
   isMenuOpen,
   showFusionCraft,
   fusionCraftFlow,
@@ -44,6 +46,7 @@ export const WalkModeScreen: FC<WalkModeScreenProps> = ({
       <FusionCraftScreen
         t={t}
         flow={fusionCraftFlow}
+        isARSessionActive={isARSessionActive}
         onBack={onCloseFusionCraft}
         onSubmitFusionCraft={onSubmitFusionCraft}
       />

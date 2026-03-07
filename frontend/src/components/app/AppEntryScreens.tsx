@@ -13,7 +13,7 @@ export type AppEntryScreensProps = {
   isGenerating: boolean;
   arSupportState: 'checking' | 'supported' | 'unsupported';
   isARSessionActive: boolean;
-  onEnterAr: () => void;
+  onEnterAr: () => Promise<boolean> | boolean;
   onProceedToMain: () => void;
   onResetSetup: () => void;
 };
@@ -118,9 +118,16 @@ export const AppEntryScreens: FC<AppEntryScreensProps> = ({
       <button
         id="btn-summon-ar"
         className={`hud-btn hud-btn-special ${arSupportState === 'checking' ? 'is-disabled' : ''}`}
-        onClick={() => {
+        onClick={async () => {
           if (arSupportState === 'supported') {
-            onEnterAr();
+            if (isARSessionActive) {
+              onProceedToMain();
+              return;
+            }
+            const entered = await onEnterAr();
+            if (entered) {
+              onProceedToMain();
+            }
             return;
           }
           onProceedToMain();
@@ -129,17 +136,12 @@ export const AppEntryScreens: FC<AppEntryScreensProps> = ({
         title={arSupportState === 'checking' ? 'Checking AR support...' : ''}
         style={{ marginBottom: '1rem', background: 'linear-gradient(135deg, #FF9A9E 0%, #FECFEF 100%)', color: '#333' }}
       >
-        {arSupportState === 'supported' ? t.enterAr : t.summonProceedNoAr}
+        {arSupportState === 'supported'
+          ? (isARSessionActive ? (t.summonStartInAr ?? 'Start in AR') : t.enterAr)
+          : t.summonProceedNoAr}
       </button>
       {arSupportState === 'supported' && (
         <>
-          <button
-            className={`hud-btn hud-btn-blue ${!isARSessionActive ? 'is-disabled' : ''}`}
-            onClick={onProceedToMain}
-            disabled={!isARSessionActive}
-          >
-            {t.summonStartInAr ?? 'Start in AR'}
-          </button>
           <button
             className="hud-btn hud-btn-carbon"
             onClick={onProceedToMain}

@@ -91,6 +91,12 @@
 | 2026-03-07 | Codex    | T1-29  | /frontend/src                   | DONE   | 機体タイプ定義を list-driven 化し、Battle Prep と FaceScanner の描画を定義リスト参照へ変更     | なし    |
 | 2026-03-07 | Codex    | T1-30  | /frontend/src, /.playwright-cli | DONE   | 非内蔵locale選択時に言語画面から進めない不具合を修正し、pending translation を main接続後に遅延要求するよう変更。Playwrightで `Français` 選択後に summon へ進むことを確認 | なし    |
 | 2026-03-07 | Codex    | T1-35  | /frontend/src, /backend/ai_core, /backend/tests | DONE | manual/CPU `match_end` の勝敗明示化、勝者インタビューのWeb Speech TTS、BGM未取得時のフォールバック音、Flow Hub/MenuのモバイルUI再設計と背景色差分・アニメーション修正 | pytest未導入のため自動実行不可 |
+| 2026-03-07 | Codex    | T1-36  | /frontend/src, /frontend/.env.production | DONE | 召喚フロー修正: FaceScanner の camera readiness 検出強化、character WS 15秒 timeout、production backend WS URL を現行 Cloud Run へ更新 | なし    |
+| 2026-03-07 | Codex    | T1-37  | /frontend/src                   | DONE   | AR 初回ヒット位置をローカル機体アンカーへ反映して召喚直後の非表示を修正。Fusion Craft は walk セッション専用に制限し、モード遷移時の残留 submit 状態をリセット、画像圧縮失敗時は元画像へフォールバック | なし    |
+| 2026-03-07 | Codex    | T1-38  | /frontend/src                   | DONE   | mobile AR 用に HUD を XR DOM overlay へ移して main/summon 画面の操作ガイドを常時表示。単一メッシュモデルでも `Head/headfront` ボーンへ face decal を追加して顔ラッピングを可視化し、face texture fallback 圧縮も load event ベースへ修正 | なし    |
+| 2026-03-07 | Codex    | T1-39  | /frontend/src                   | DONE   | summon 画面で `MainScene` 未マウント中でも `renderer.xr.isPresenting` から AR セッション状態を監視し、`AR開始` 成功時にそのまま main へ遷移するよう修正。`START IN AR` 依存を解消 | なし    |
+| 2026-03-07 | Codex    | T1-40  | /frontend/src                   | DONE   | Fusion Craft を `写真を撮る / 画像を選ぶ` に分離し、AR 中のカメラ capture を停止して gallery 選択を優先。単一メッシュ機体の顔表示 fallback を plane から sprite へ変更して頭部ボーン追従時の視認性を改善 | なし    |
+| 2026-03-07 | Codex    | T1-41  | /frontend/src                   | DONE   | Fusion Craft の即時圧縮をやめて `File` 保持 + submit 直前の data URL 化へ変更し、`image/*,.heic,.heif` を許可。`profile_sync` では既存 `skinUrl` を保持し、顔 sprite のサイズ・位置を `headfront` ベースで再調整 | なし    |
 
 ## ステータス定義
 

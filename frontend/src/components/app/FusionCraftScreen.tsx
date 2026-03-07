@@ -6,6 +6,7 @@ import { ScanEquipmentFlow } from '../ui/ScanEquipmentFlow';
 type FusionCraftScreenProps = {
   t: UiText;
   flow: FusionCraftFlowState;
+  isARSessionActive: boolean;
   onBack: () => void;
   onSubmitFusionCraft: (payload: {
     requestId: string;
@@ -16,8 +17,6 @@ type FusionCraftScreenProps = {
   }) => void;
 };
 
-const MAX_IMAGE_EDGE = 1280;
-const JPEG_QUALITY = 0.82;
 const SUBMIT_TIMEOUT_MS = 15000;
 
 const createFusionRequestId = () => `fusion_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
@@ -30,31 +29,16 @@ const readFileAsDataUrl = (file: File) =>
     reader.readAsDataURL(file);
   });
 
-const compressDataUrl = async (dataUrl: string): Promise<string> => {
-  const image = new Image();
-  image.src = dataUrl;
-  await image.decode();
-
-  const ratio = Math.min(1, MAX_IMAGE_EDGE / Math.max(image.width, image.height));
-  const width = Math.max(1, Math.round(image.width * ratio));
-  const height = Math.max(1, Math.round(image.height * ratio));
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
-  const context = canvas.getContext('2d');
-  if (!context) return dataUrl;
-  context.drawImage(image, 0, 0, width, height);
-  return canvas.toDataURL('image/jpeg', JPEG_QUALITY);
-};
-
 export const FusionCraftScreen: React.FC<FusionCraftScreenProps> = ({
   t,
   flow,
+  isARSessionActive,
   onBack,
   onSubmitFusionCraft,
 }) => {
   const [concept, setConcept] = useState('');
-  const [image, setImage] = useState<string | null>(null);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [localRequestId, setLocalRequestId] = useState('');
   const [localStatus, setLocalStatus] = useState<FusionCraftFlowState['status']>('idle');
   const [errorText, setErrorText] = useState('');
@@ -90,9 +74,12 @@ export const FusionCraftScreen: React.FC<FusionCraftScreenProps> = ({
     if (submitTimerRef.current) {
       window.clearTimeout(submitTimerRef.current);
     }
-  }, []);
+    if (imagePreviewUrl?.startsWith('blob:')) {
+      URL.revokeObjectURL(imagePreviewUrl);
+    }
+  }, [imagePreviewUrl]);
 
-  const canSubmit = Boolean(image && concept.trim()) && localStatus !== 'submitting';
+  const canSubmit = Boolean(imageFile && concept.trim()) && localStatus !== 'submitting';
   const statusText = useMemo(() => {
     if (localStatus === 'submitting') return t.fusionWaiting;
     if (localStatus === 'success') return flow.message || t.fusionSuccessBody;
@@ -104,15 +91,23 @@ export const FusionCraftScreen: React.FC<FusionCraftScreenProps> = ({
     const file = event.target.files?.[0];
     if (!file) return;
 
-    setErrorText('');
-    setLocalStatus('captured');
-    const raw = await readFileAsDataUrl(file);
-    const compressed = await compressDataUrl(raw);
-    setImage(compressed);
+    try {
+      setErrorText('');
+      setImageFile(file);
+      setImagePreviewUrl((prev) => {
+        if (prev?.startsWith('blob:')) URL.revokeObjectURL(prev);
+        return URL.createObjectURL(file);
+      });
+      setLocalStatus('captured');
+    } catch (error) {
+      console.error('[FusionCraft] Capture handling failed', error);
+      setLocalStatus('error');
+      setErrorText(t.fusionError);
+    }
   };
 
-  const handleCraft = () => {
-    if (!image || !concept.trim()) {
+  const handleCraft = async () => {
+    if (!imageFile || !concept.trim()) {
       setErrorText(t.fusionValidation);
       setLocalStatus('error');
       return;
@@ -122,13 +117,25 @@ export const FusionCraftScreen: React.FC<FusionCraftScreenProps> = ({
     setErrorText('');
     setLocalRequestId(requestId);
     setLocalStatus('submitting');
-    onSubmitFusionCraft({
-      requestId,
-      concept: concept.trim(),
-      referenceImage: image.split(',')[1] ?? image,
-      craftKind,
-      mountPoint,
-    });
+
+    try {
+      await new Promise<void>((resolve) => {
+        window.requestAnimationFrame(() => resolve());
+      });
+      const raw = await readFileAsDataUrl(imageFile);
+      onSubmitFusionCraft({
+        requestId,
+        concept: concept.trim(),
+        referenceImage: raw.split(',')[1] ?? raw,
+        craftKind,
+        mountPoint,
+      });
+    } catch (error) {
+      console.error('[FusionCraft] Failed to prepare image payload', error);
+      setLocalStatus('error');
+      setErrorText(t.fusionError);
+      return;
+    }
 
     submitTimerRef.current = window.setTimeout(() => {
       setLocalStatus('error');
@@ -137,7 +144,11 @@ export const FusionCraftScreen: React.FC<FusionCraftScreenProps> = ({
   };
 
   const handleRetake = () => {
-    setImage(null);
+    if (imagePreviewUrl?.startsWith('blob:')) {
+      URL.revokeObjectURL(imagePreviewUrl);
+    }
+    setImageFile(null);
+    setImagePreviewUrl(null);
     setLocalStatus('idle');
     setErrorText('');
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -146,15 +157,15 @@ export const FusionCraftScreen: React.FC<FusionCraftScreenProps> = ({
 
   const openPicker = (input: HTMLInputElement | null) => {
     if (!input || localStatus === 'submitting') return;
-    const picker = input as HTMLInputElement & { showPicker?: () => void };
-    if (typeof picker.showPicker === 'function') {
-      picker.showPicker();
-      return;
-    }
+    input.value = '';
     input.click();
   };
 
-  const disableBack = localStatus === 'submitting';
+  const cameraLockedMessage =
+    t.fusionArCameraLocked ||
+    'AR使用中はカメラ撮影を停止しています。画像選択を使ってください。';
+  const cameraButtonLabel = t.fusionCaptureNow || '写真を撮る';
+  const uploadButtonLabel = t.fusionUploadFromLibrary || '画像を選ぶ';
 
   return (
     <section className="play-mode-screen hud-animate is-walk is-fusion-craft" aria-label={t.fusionTitle}>
@@ -172,18 +183,9 @@ export const FusionCraftScreen: React.FC<FusionCraftScreenProps> = ({
           />
           <div
             className={`image-capture-zone ${localStatus === 'submitting' ? 'is-disabled' : ''}`}
-            role="button"
-            tabIndex={localStatus === 'submitting' ? -1 : 0}
-            onClick={() => openPicker(cameraInputRef.current)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault();
-                openPicker(cameraInputRef.current);
-              }
-            }}
           >
-            {image ? (
-              <img src={image} alt="Captured" className="captured-preview" />
+            {imagePreviewUrl ? (
+              <img src={imagePreviewUrl} alt="Captured" className="captured-preview" />
             ) : (
               <div className="capture-placeholder">
                 <span className="icon">📷</span>
@@ -193,29 +195,42 @@ export const FusionCraftScreen: React.FC<FusionCraftScreenProps> = ({
           </div>
           <input
             type="file"
-            accept="image/*"
+            accept="image/*,.heic,.heif"
             capture="environment"
             ref={cameraInputRef}
             style={{ display: 'none' }}
             onChange={handleFileChange}
-            disabled={localStatus === 'submitting'}
+            disabled={localStatus === 'submitting' || isARSessionActive}
           />
           <input
             type="file"
-            accept="image/*"
+            accept="image/*,.heic,.heif"
             ref={fileInputRef}
             style={{ display: 'none' }}
             onChange={handleFileChange}
             disabled={localStatus === 'submitting'}
           />
-          <button
-            type="button"
-            className="hud-btn hud-btn-carbon fusion-picker-btn"
-            onClick={() => openPicker(fileInputRef.current)}
-            disabled={localStatus === 'submitting'}
-          >
-            {t.fusionCapturePrompt}
-          </button>
+          <div className="fusion-picker-grid">
+            <button
+              type="button"
+              className="hud-btn hud-btn-carbon fusion-picker-btn"
+              onClick={() => openPicker(cameraInputRef.current)}
+              disabled={localStatus === 'submitting' || isARSessionActive}
+            >
+              {cameraButtonLabel}
+            </button>
+            <button
+              type="button"
+              className="hud-btn hud-btn-blue fusion-picker-btn"
+              onClick={() => openPicker(fileInputRef.current)}
+              disabled={localStatus === 'submitting'}
+            >
+              {uploadButtonLabel}
+            </button>
+          </div>
+          {isARSessionActive && (
+            <div className="play-mode-banner fusion-picker-lock">{cameraLockedMessage}</div>
+          )}
 
           <div className="input-group">
             <label>{craftKind === 'attachment' ? t.scanEquipmentPromptLabel : t.fusionConceptLabel}</label>
@@ -242,7 +257,7 @@ export const FusionCraftScreen: React.FC<FusionCraftScreenProps> = ({
             <button className="hud-btn hud-btn-blue" onClick={handleCraft} disabled={!canSubmit}>
               {localStatus === 'submitting' ? t.fusionGenerating : t.fusionBegin}
             </button>
-            <button className="hud-btn hud-btn-teal" onClick={onBack} disabled={disableBack}>
+            <button className="hud-btn hud-btn-teal" onClick={onBack}>
               {t.fusionClose}
             </button>
           </div>

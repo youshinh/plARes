@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Canvas } from "@react-three/fiber";
-import { XR, createXRStore } from "@react-three/xr";
+import { XR, XRDomOverlay, createXRStore } from "@react-three/xr";
 import { OrbitControls } from "@react-three/drei";
 import { ServerDrivenPanel } from "./components/ui/ServerDrivenPanel";
 import { AnimationDebugPanel } from "./components/ui/AnimationDebugPanel";
@@ -82,6 +82,16 @@ const xrResizeGuardInstalled = new WeakSet<THREE.WebGLRenderer>();
 
 const createModeSessionId = (prefix: "training" | "walk") =>
   `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+
+const createIdleFusionCraftFlow = (): FusionCraftFlowState => ({
+  status: "idle",
+  requestId: "",
+  concept: "",
+  message: "",
+  textureUrl: "",
+  craftKind: "skin",
+  mountPoint: "WEAPON_R",
+});
 
 const installXrPresentationGuards = (renderer: THREE.WebGLRenderer) => {
   if (xrResizeGuardInstalled.has(renderer)) return;
@@ -359,6 +369,9 @@ const UI_TEXT: Record<UiLang, Record<string, string>> = {
     fusionTitle: "Real-World Fusion Craft",
     fusionHint: "現実の物体を撮影し、機体へ取り込むコンセプトを指定します。",
     fusionCapturePrompt: "撮影またはアップロード",
+    fusionCaptureNow: "写真を撮る",
+    fusionUploadFromLibrary: "画像を選ぶ",
+    fusionArCameraLocked: "AR使用中はカメラを再起動できません。画像選択を使ってください。",
     fusionConceptLabel: "融合コンセプト",
     fusionConceptPlaceholder: "例: レーザー聖剣 / 木目シールド / 漆黒装甲",
     fusionBegin: "BEGIN FUSION",
@@ -615,6 +628,9 @@ const UI_TEXT: Record<UiLang, Record<string, string>> = {
     fusionHint:
       "Capture a real object, then define the concept you want your robot to absorb.",
     fusionCapturePrompt: "Capture or Upload",
+    fusionCaptureNow: "Take Photo",
+    fusionUploadFromLibrary: "Choose Image",
+    fusionArCameraLocked: "Camera capture is paused during AR. Use image selection instead.",
     fusionConceptLabel: "Fusion Concept",
     fusionConceptPlaceholder:
       "e.g. Laser holy sword / Timber shield / Carbon armor",
@@ -869,6 +885,9 @@ const UI_TEXT: Record<UiLang, Record<string, string>> = {
     fusionHint:
       "Captura un objeto real y define el concepto que quieres fusionar con tu robot.",
     fusionCapturePrompt: "Capturar o subir",
+    fusionCaptureNow: "Tomar foto",
+    fusionUploadFromLibrary: "Elegir imagen",
+    fusionArCameraLocked: "La camara queda bloqueada durante AR. Usa la seleccion de imagen.",
     fusionConceptLabel: "Concepto de fusion",
     fusionConceptPlaceholder:
       "ej. Espada sagrada laser / Escudo de madera / Armadura de carbono",
@@ -964,10 +983,14 @@ function App() {
   };
   const returnToHub = () => {
     setIsBattlePrepOpen(false);
+    setShowFusionCraft(false);
+    setFusionCraftFlow(createIdleFusionCraftFlow());
     switchMode("hub");
   };
   const enterBattleMode = () => {
     setIsBattlePrepOpen(false);
+    setShowFusionCraft(false);
+    setFusionCraftFlow(createIdleFusionCraftFlow());
     setTrainingSession(null);
     setWalkSession(null);
     setLocalRouteProgress((prev) => ({ ...prev, battle: prev.battle + 1 }));
@@ -1010,13 +1033,6 @@ function App() {
   const [bgmUrl, setBgmUrl] = useState("");
   const [bgmFallbackCue, setBgmFallbackCue] = useState(0);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
-  const overlayRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (overlayRef.current) {
-      store.setState({ domOverlayRoot: overlayRef.current });
-    }
-  }, []);
 
   // Debug panel toggle (visible to all, toggled by header button)
   const [debugVisible, setDebugVisible] = useState(DEBUG_UI);
@@ -1060,20 +1076,22 @@ function App() {
     battleStateRef.current = battleState;
   }, [battleState]);
   const [showFusionCraft, setShowFusionCraft] = useState(false);
-  const [fusionCraftFlow, setFusionCraftFlow] = useState<FusionCraftFlowState>({
-    status: "idle",
-    requestId: "",
-    concept: "",
-    message: "",
-    textureUrl: "",
-    craftKind: "skin",
-    mountPoint: "WEAPON_R",
-  });
+  const [fusionCraftFlow, setFusionCraftFlow] = useState<FusionCraftFlowState>(
+    createIdleFusionCraftFlow,
+  );
   useEffect(() => {
-    if (playMode !== "walk") {
+    if (playMode !== "walk" || !walkSession) {
       setShowFusionCraft(false);
+      setFusionCraftFlow((prev) =>
+        prev.status === "idle" &&
+        !prev.requestId &&
+        !prev.message &&
+        !prev.textureUrl
+          ? prev
+          : createIdleFusionCraftFlow(),
+      );
     }
-  }, [playMode]);
+  }, [playMode, walkSession]);
   const {
     connectLiveDirect,
     disconnectLiveDirect,
@@ -1364,6 +1382,8 @@ function App() {
 
   const startTraining = () => {
     setIsBattlePrepOpen(false);
+    setShowFusionCraft(false);
+    setFusionCraftFlow(createIdleFusionCraftFlow());
     setWalkSession(null);
     const session: ModeSession = {
       id: createModeSessionId("training"),
@@ -1419,6 +1439,8 @@ function App() {
     });
     setLocalRouteProgress((prev) => ({ ...prev, training: prev.training + 1 }));
     setTrainingSession(null);
+    setShowFusionCraft(false);
+    setFusionCraftFlow(createIdleFusionCraftFlow());
     switchMode("hub");
     window.dispatchEvent(
       new CustomEvent("show_subtitle", {
@@ -1429,6 +1451,7 @@ function App() {
 
   const startWalk = () => {
     setIsBattlePrepOpen(false);
+    setFusionCraftFlow(createIdleFusionCraftFlow());
     setTrainingSession(null);
     const session: ModeSession = {
       id: createModeSessionId("walk"),
@@ -1471,6 +1494,8 @@ function App() {
     });
     setLocalRouteProgress((prev) => ({ ...prev, walk: prev.walk + 1 }));
     setWalkSession(null);
+    setShowFusionCraft(false);
+    setFusionCraftFlow(createIdleFusionCraftFlow());
     switchMode("hub");
     window.dispatchEvent(
       new CustomEvent("show_subtitle", {
@@ -1647,6 +1672,24 @@ function App() {
     craftKind: "skin" | "attachment";
     mountPoint: "WEAPON_R" | "WEAPON_L" | "HEAD_ACCESSORY" | "BACKPACK";
   }) => {
+    if (playMode !== "walk" || !walkSession) {
+      setFusionCraftFlow({
+        ...createIdleFusionCraftFlow(),
+        status: "error",
+        requestId: payload.requestId,
+        concept: payload.concept,
+        message: t.walkOnlyHint,
+        craftKind: payload.craftKind,
+        mountPoint: payload.mountPoint,
+      });
+      window.dispatchEvent(
+        new CustomEvent("show_subtitle", {
+          detail: { text: t.walkOnlyHint },
+        }),
+      );
+      return;
+    }
+
     setFusionCraftFlow({
       status: "submitting",
       requestId: payload.requestId,
@@ -1850,7 +1893,17 @@ function App() {
     onOpenBattlePrep: openBattlePrep,
     onCloseBattlePrep: () => setIsBattlePrepOpen(false),
     onEnterBattleMode: enterBattleMode,
-    onOpenFusionCraft: () => setShowFusionCraft(true),
+    onOpenFusionCraft: () => {
+      if (playMode !== "walk" || !walkSession) {
+        window.dispatchEvent(
+          new CustomEvent("show_subtitle", {
+            detail: { text: t.walkOnlyHint },
+          }),
+        );
+        return;
+      }
+      setShowFusionCraft(true);
+    },
     onCloseFusionCraft: () => setShowFusionCraft(false),
     onSubmitFusionCraft: submitFusionCraftRequest,
     onRequestProfileSync: requestProfileSync,
@@ -1887,13 +1940,15 @@ function App() {
   });
 
   return (
-    <div className="arena-shell" ref={overlayRef}>
+    <div className="arena-shell">
       <div className="arena-atmosphere" aria-hidden />
-      <AppOverlayRouter
-        isMainPhase={isMainPhase}
-        entryScreensProps={entryScreensProps}
-        mainHudProps={mainHudProps}
-      />
+      {!isARSessionActive && (
+        <AppOverlayRouter
+          isMainPhase={isMainPhase}
+          entryScreensProps={entryScreensProps}
+          mainHudProps={mainHudProps}
+        />
+      )}
       <Canvas
         className="arena-canvas"
         shadows={SHADOWS_ENABLED ? { type: THREE.PCFShadowMap } : false}
@@ -1906,6 +1961,24 @@ function App() {
         }}
       >
         <XR store={store}>
+          {isARSessionActive && (
+            <XRDomOverlay className="xr-dom-overlay-shell">
+              <AppOverlayRouter
+                isMainPhase={isMainPhase}
+                entryScreensProps={entryScreensProps}
+                mainHudProps={mainHudProps}
+              />
+              {appPhase === "main" && <DynamicSubtitle />}
+              {voiceAckText && (
+                <div className="hud-voice-ack" aria-live="polite">
+                  {voiceAckText}
+                </div>
+              )}
+              {(appPhase === "summon" || appPhase === "main") && (
+                <ScanGuideOverlay scanState={scanState} pointCount={scanPointCount} />
+              )}
+            </XRDomOverlay>
+          )}
           {appPhase === "main" && (
             <>
               <MainScene shadowsEnabled={SHADOWS_ENABLED} />
@@ -1923,20 +1996,20 @@ function App() {
       {appPhase === "main" && (
         <>
           {showBattleHud && <ServerDrivenPanel />}
-          <DynamicSubtitle />
+          {!isARSessionActive && <DynamicSubtitle />}
           {showBattleHud && <RemoteStreamView />}
         </>
       )}
 
       {debugVisible && showBattleHud && <AnimationDebugPanel />}
 
-      {voiceAckText && (
+      {!isARSessionActive && voiceAckText && (
         <div className="hud-voice-ack" aria-live="polite">
           {voiceAckText}
         </div>
       )}
 
-      {(appPhase === "summon" || appPhase === "main") && isARSessionActive && (
+      {!isARSessionActive && (appPhase === "summon" || appPhase === "main") && isARSessionActive && (
         <ScanGuideOverlay scanState={scanState} pointCount={scanPointCount} />
       )}
 

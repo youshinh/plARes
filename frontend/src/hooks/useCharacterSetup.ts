@@ -32,8 +32,13 @@ const defaultBackendHost = (() => {
   return h === 'localhost' || h === '::1' ? '127.0.0.1' : h;
 })();
 const backendProtocol = window.location.protocol === 'https:' ? 'https' : 'http';
+const configuredGameWsUrl = import.meta.env.VITE_WS_URL as string | undefined;
+const derivedCharacterWsUrl = configuredGameWsUrl
+  ? configuredGameWsUrl.replace(/\/ws\/game(?:\?.*)?$/i, '/ws/character')
+  : undefined;
 const CHARACTER_WS_URL =
   import.meta.env.VITE_CHARACTER_WS_URL ??
+  derivedCharacterWsUrl ??
   `${backendProtocol === 'https' ? 'wss' : 'ws'}://${defaultBackendHost}:8000/ws/character`;
 
 type NormalizedGenerationResult = {
@@ -163,6 +168,17 @@ export function useCharacterSetup() {
 
       const data = await new Promise<NormalizedGenerationResult>((resolve, reject) => {
         const ws = new WebSocket(CHARACTER_WS_URL);
+        const timeoutId = window.setTimeout(() => {
+          try {
+            ws.close();
+          } catch {}
+          reject(new Error('Character generation timed out'));
+        }, 15000);
+
+        const settle = (fn: () => void) => {
+          window.clearTimeout(timeoutId);
+          fn();
+        };
         
         ws.onopen = () => {
           ws.send(JSON.stringify(req));
@@ -171,7 +187,7 @@ export function useCharacterSetup() {
         ws.onmessage = (event) => {
           try {
             const result = JSON.parse(event.data);
-            if (result.error) reject(new Error(result.error));
+            if (result.error) settle(() => reject(new Error(result.error)));
             else {
               // T2-3: If the result is a fallback, warn the user but still resolve
               if (result.is_fallback || result.error_code) {
@@ -181,17 +197,21 @@ export function useCharacterSetup() {
                   detail: { text: `AI生成が一時的に利用不可のためデフォルト値を使用しました (${code})` }
                 }));
               }
-              resolve(normalizeGenerationResult(result));
+              settle(() => resolve(normalizeGenerationResult(result)));
             }
           } catch { // 'e' is removed as it was unused in the error message
-            reject(new Error('Failed to parse generation result'));
+            settle(() => reject(new Error('Failed to parse generation result')));
           } finally {
             ws.close();
           }
         };
         
         ws.onerror = () => {
-          reject(new Error('WebSocket connection failed during character generation'));
+          settle(() => reject(new Error('WebSocket connection failed during character generation')));
+        };
+
+        ws.onclose = () => {
+          window.clearTimeout(timeoutId);
         };
       });
       const photoHints = await photoHintsPromise;
@@ -215,7 +235,8 @@ export function useCharacterSetup() {
       const apiDna =
         normalizeCharacterDNA(data.characterDna as RobotGenerationResult['characterDna']) ??
         normalizeCharacterDNA(maybeSnakeCaseDna);
-      const faceTextureUrl = apiDna?.skinUrl || await createFaceTexture(faceImageBase64);
+      const localFaceTextureUrl = await createFaceTexture(faceImageBase64);
+      const faceTextureUrl = localFaceTextureUrl || apiDna?.skinUrl || '';
       const dna = apiDna
         ? evolveCharacterDNAByMatchCount(
             {
@@ -255,7 +276,7 @@ export function useCharacterSetup() {
     } finally {
       setIsGenerating(false);
     }
-  }, [modelType, setRobotStats, setRobotDna]);
+  }, [modelType, setRobotStats, setRobotDna, createFaceTexture]);
 
   /** デバッグ用：初期化フラグをリセットして再度FaceScannerを表示させる */
   const resetSetup = useCallback(() => {

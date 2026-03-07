@@ -74,6 +74,18 @@
     linear-gradient(180deg, transparent 30%, hsl(218 28% 4% / 0.4) 100%);
 }
 
+.xr-dom-overlay-shell {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+}
+
+.xr-dom-overlay-shell > * {
+  pointer-events: auto;
+}
+
 /* ── Entrance animation ───────────────────────────────────── */
 
 .hud-animate {
@@ -2357,12 +2369,10 @@
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  cursor: pointer;
 }
 
 .image-capture-zone.is-disabled {
   opacity: 0.55;
-  cursor: not-allowed;
 }
 
 .capture-placeholder {
@@ -2385,6 +2395,16 @@
 
 .fusion-picker-btn {
   width: 100%;
+}
+
+.fusion-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.fusion-picker-lock {
+  margin-top: 0;
 }
 
 .fusion-flow-error {

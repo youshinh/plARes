@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useFSMStore } from '../store/useFSMStore';
 import * as THREE from 'three';
 import { useRobotAssetBundle } from './robot/useRobotAssetBundle';
@@ -28,6 +28,7 @@ export const RobotCharacter: React.FC = () => {
   const robotDna = useFSMStore(s => s.robotDna);
   const modelType = useFSMStore(s => s.modelType);
   const playMode = useFSMStore(s => s.playMode);
+  const localRobotPosition = useFSMStore(s => s.localRobotPosition);
   const attachments = useFSMStore(s => s.attachments);
   const { heroAnimations, heroBaseMinY, heroScene } = useRobotAssetBundle(modelType);
   const {
@@ -66,6 +67,17 @@ export const RobotCharacter: React.FC = () => {
     targetPosition,
     worldScaleRef,
   });
+
+  useEffect(() => {
+    const group = groupRef.current;
+    if (!group || !localRobotPosition) return;
+    if (group.position.distanceToSquared(localRobotPosition) < 1e-8) return;
+
+    group.position.copy(localRobotPosition);
+    if (playMode !== 'match') {
+      group.rotation.set(0, 0, 0);
+    }
+  }, [localRobotPosition, playMode]);
 
   return (
     <group ref={groupRef} position={[0, 0, -1]} scale={[bodyScale, bodyScale, bodyScale]}>

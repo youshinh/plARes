@@ -95,6 +95,14 @@ export const useAppArUi = ({
   }, []);
 
   useEffect(() => {
+    const timer = window.setInterval(() => {
+      const presenting = Boolean(rendererRef.current?.xr?.isPresenting);
+      setIsARSessionActive((prev) => (prev === presenting ? prev : presenting));
+    }, 250);
+    return () => window.clearInterval(timer);
+  }, [rendererRef]);
+
+  useEffect(() => {
     const renderer = rendererRef.current;
     if (!renderer) return;
     const enableShadows = shadowsEnabled && !isARSessionActive;
@@ -105,14 +113,17 @@ export const useAppArUi = ({
   const handleEnterAr = useCallback(async () => {
     if (arSupportState !== 'supported') {
       showSubtitle(unsupportedHintText);
-      return;
+      return false;
     }
 
     try {
       await xrStore.enterAR();
+      setIsARSessionActive(true);
+      return true;
     } catch (error) {
       console.error('[XR] enterAR failed:', error);
       showSubtitle(formatArEnterError(error, preferJapanese));
+      return false;
     }
   }, [arSupportState, preferJapanese, unsupportedHintText, xrStore]);
 

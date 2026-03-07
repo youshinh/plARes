@@ -30,7 +30,7 @@ type UseEntryScreenPropsArgs = {
   isGenerating: boolean;
   arSupportState: ArSupportState;
   isARSessionActive: boolean;
-  onEnterAr: () => Promise<void> | void;
+  onEnterAr: () => Promise<boolean> | boolean;
   onProceedToMain: () => void;
   onResetSetup: () => void;
 };
@@ -92,7 +92,7 @@ type UseMainHudPropsArgs = {
   enemyHp: number;
   routeNextStep: RouteStepKey | 'complete';
   routeSteps: Array<{ key: RouteStepKey; label: string; status: RouteStatus }>;
-  onEnterAr: () => Promise<void> | void;
+  onEnterAr: () => Promise<boolean> | boolean;
   onRequestMatchEnd: () => void;
   onPublishArenaCalibration: () => void;
   onToggleProfile: () => void;
@@ -166,9 +166,7 @@ export const useEntryScreenProps = ({
       isGenerating,
       arSupportState,
       isARSessionActive,
-      onEnterAr: () => {
-        void onEnterAr();
-      },
+      onEnterAr,
       onProceedToMain,
       onResetSetup,
     }),

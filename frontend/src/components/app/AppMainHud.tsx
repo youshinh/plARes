@@ -230,6 +230,7 @@ export const AppMainHud: FC<AppMainHudProps> = ({
     <PlayModeScreen
       t={t}
       playMode={playMode}
+      isARSessionActive={isARSessionActive}
       walkSession={walkSession}
       trainingSession={trainingSession}
       specialPhrase={specialPhrase}

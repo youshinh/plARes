@@ -1,4 +1,4 @@
-import { useEffect, type FC } from 'react';
+import { useEffect, useRef, type FC } from 'react';
 import { Environment } from '@react-three/drei';
 import { useXR } from '@react-three/xr';
 import * as THREE from 'three';
@@ -21,10 +21,26 @@ export const MainScene: FC<MainSceneProps> = ({ shadowsEnabled }) => {
   const { session } = useXR();
   const { hoverMatrix, depthTexture, depthRawToMeters } = useWebXRScanner();
   const playMode = useFSMStore(s => s.playMode);
+  const setLocalRobotPosition = useFSMStore(s => s.setLocalRobotPosition);
   const showOpponent = playMode === 'match';
+  const sessionAnchorLockedRef = useRef(false);
 
   useVoiceController();
   useAICommandListener();
+
+  useEffect(() => {
+    sessionAnchorLockedRef.current = false;
+  }, [session]);
+
+  useEffect(() => {
+    if (!session || !hoverMatrix || sessionAnchorLockedRef.current) return;
+
+    const anchor = new THREE.Vector3().setFromMatrixPosition(hoverMatrix);
+    if (![anchor.x, anchor.y, anchor.z].every(Number.isFinite)) return;
+
+    setLocalRobotPosition(anchor);
+    sessionAnchorLockedRef.current = true;
+  }, [hoverMatrix, session, setLocalRobotPosition]);
 
   useEffect(() => {
     const handler = async (event: Event) => {

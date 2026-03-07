@@ -46,6 +46,7 @@ export const FaceScanner: React.FC<FaceScannerProps> = ({ t, onGenerate, isGener
   useEffect(() => {
     if (mode !== 'camera') return;
     let active = true;
+    let readinessTimer: number | null = null;
     setIsCameraReady(false);
     setCameraError(null);
 
@@ -55,8 +56,23 @@ export const FaceScanner: React.FC<FaceScannerProps> = ({ t, onGenerate, isGener
         if (!active) { stream.getTracks().forEach(t => t.stop()); return; }
         streamRef.current = stream;
         if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.play().catch(() => {});
+          const video = videoRef.current;
+          video.srcObject = stream;
+          const updateReadiness = () => {
+            if (!active || !videoRef.current) return;
+            const ready =
+              video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+              video.videoWidth > 0 &&
+              video.videoHeight > 0;
+            if (ready) {
+              setIsCameraReady(true);
+              return;
+            }
+            readinessTimer = window.setTimeout(updateReadiness, 120);
+          };
+
+          video.play().catch(() => {});
+          updateReadiness();
         }
       })
       .catch((err) => {
@@ -67,6 +83,9 @@ export const FaceScanner: React.FC<FaceScannerProps> = ({ t, onGenerate, isGener
 
     return () => {
       active = false;
+      if (readinessTimer !== null) {
+        window.clearTimeout(readinessTimer);
+      }
       streamRef.current?.getTracks().forEach(t => t.stop());
       streamRef.current = null;
     };
@@ -84,10 +103,17 @@ export const FaceScanner: React.FC<FaceScannerProps> = ({ t, onGenerate, isGener
   const handleCapture = useCallback(() => {
     const video  = videoRef.current;
     const canvas = canvasRef.current;
-    if (!video || !canvas || !isCameraReady) return;
+    if (!video || !canvas) return;
 
-    canvas.width  = video.videoWidth  || 480;
-    canvas.height = video.videoHeight || 480;
+    const width = video.videoWidth || 480;
+    const height = video.videoHeight || 480;
+    if (width <= 0 || height <= 0) {
+      setCameraError(t.scanCameraDenied);
+      return;
+    }
+
+    canvas.width  = width;
+    canvas.height = height;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
@@ -96,7 +122,7 @@ export const FaceScanner: React.FC<FaceScannerProps> = ({ t, onGenerate, isGener
     // カメラ停止
     streamRef.current?.getTracks().forEach(t => t.stop());
     streamRef.current = null;
-  }, []);
+  }, [t.scanCameraDenied]);
 
   // 撮り直し
   const handleRetake = useCallback(() => {
@@ -137,6 +163,8 @@ export const FaceScanner: React.FC<FaceScannerProps> = ({ t, onGenerate, isGener
                   playsInline
                   muted
                   autoPlay
+                  onCanPlay={() => setIsCameraReady(true)}
+                  onPlaying={() => setIsCameraReady(true)}
                   onLoadedMetadata={() => setIsCameraReady(true)}
                 />
                 <canvas ref={canvasRef} style={{ display: 'none' }} />
@@ -146,7 +174,7 @@ export const FaceScanner: React.FC<FaceScannerProps> = ({ t, onGenerate, isGener
                   onClick={handleCapture}
                   disabled={!isCameraReady}
                 >
-                  {t.scanCapture}
+                  {isCameraReady ? t.scanCapture : (t.arChecking ?? 'Preparing camera...')}
                 </button>
               </div>
             ) : (

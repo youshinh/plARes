@@ -177,8 +177,12 @@ export const useRemoteBattleEvents = ({
             normalizeCharacterDNA(profile.character_dna) ??
             normalizeCharacterDNA(profile.characterDna);
           if (candidateDna) {
+            const mergedDna = {
+              ...candidateDna,
+              skinUrl: robotDna.skinUrl || candidateDna.skinUrl,
+            };
             setRobotDna(
-              evolveCharacterDNAByMatchCount(candidateDna, totalMatches),
+              evolveCharacterDNAByMatchCount(mergedDna, totalMatches),
             );
           }
           const stats = profile.robot_stats;
