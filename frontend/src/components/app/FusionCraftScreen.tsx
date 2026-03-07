@@ -1,11 +1,19 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { FusionCraftFlowState, UiText } from '../../types/app';
+import type { MountPointId } from '../robot/constants';
+import { ScanEquipmentFlow } from '../ui/ScanEquipmentFlow';
 
 type FusionCraftScreenProps = {
   t: UiText;
   flow: FusionCraftFlowState;
   onBack: () => void;
-  onSubmitFusionCraft: (payload: { requestId: string; concept: string; referenceImage: string }) => void;
+  onSubmitFusionCraft: (payload: {
+    requestId: string;
+    concept: string;
+    referenceImage: string;
+    craftKind: 'skin' | 'attachment';
+    mountPoint: MountPointId;
+  }) => void;
 };
 
 const MAX_IMAGE_EDGE = 1280;
@@ -50,6 +58,8 @@ export const FusionCraftScreen: React.FC<FusionCraftScreenProps> = ({
   const [localRequestId, setLocalRequestId] = useState('');
   const [localStatus, setLocalStatus] = useState<FusionCraftFlowState['status']>('idle');
   const [errorText, setErrorText] = useState('');
+  const [craftKind, setCraftKind] = useState<FusionCraftFlowState['craftKind']>(flow.craftKind || 'skin');
+  const [mountPoint, setMountPoint] = useState<FusionCraftFlowState['mountPoint']>(flow.mountPoint || 'WEAPON_R');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const submitTimerRef = useRef<number | null>(null);
@@ -58,6 +68,8 @@ export const FusionCraftScreen: React.FC<FusionCraftScreenProps> = ({
     setLocalStatus('idle');
     setErrorText('');
     setLocalRequestId('');
+    setCraftKind(flow.craftKind || 'skin');
+    setMountPoint(flow.mountPoint || 'WEAPON_R');
   }, []);
 
   useEffect(() => {
@@ -114,6 +126,8 @@ export const FusionCraftScreen: React.FC<FusionCraftScreenProps> = ({
       requestId,
       concept: concept.trim(),
       referenceImage: image.split(',')[1] ?? image,
+      craftKind,
+      mountPoint,
     });
 
     submitTimerRef.current = window.setTimeout(() => {
@@ -149,6 +163,13 @@ export const FusionCraftScreen: React.FC<FusionCraftScreenProps> = ({
         <h2>{t.fusionTitle}</h2>
         <p>{statusText}</p>
         <div className="fusion-flow-body">
+          <ScanEquipmentFlow
+            t={t}
+            craftKind={craftKind}
+            mountPoint={mountPoint}
+            onChangeCraftKind={setCraftKind}
+            onChangeMountPoint={setMountPoint}
+          />
           <div
             className={`image-capture-zone ${localStatus === 'submitting' ? 'is-disabled' : ''}`}
             role="button"
@@ -197,10 +218,10 @@ export const FusionCraftScreen: React.FC<FusionCraftScreenProps> = ({
           </button>
 
           <div className="input-group">
-            <label>{t.fusionConceptLabel}</label>
+            <label>{craftKind === 'attachment' ? t.scanEquipmentPromptLabel : t.fusionConceptLabel}</label>
             <input
               type="text"
-              placeholder={t.fusionConceptPlaceholder}
+              placeholder={craftKind === 'attachment' ? t.scanEquipmentPromptPlaceholder : t.fusionConceptPlaceholder}
               value={concept}
               onChange={(event) => setConcept(event.target.value)}
               disabled={localStatus === 'submitting'}

@@ -16,7 +16,7 @@ import { useAudioStreamer } from './hooks/useAudioStreamer';
 import { useBgmAudio } from './hooks/useBgmAudio';
 import { useCharacterSetup } from './hooks/useCharacterSetup';
 import { useLiveSessionControls } from './hooks/useLiveSessionControls';
-import { useLiveRouteSelector } from './hooks/useLiveRouteSelector';
+import { resolveConfiguredLivePolicyPhase, useLiveRouteSelector } from './hooks/useLiveRouteSelector';
 import { useEntryScreenProps, useMainHudProps } from './hooks/useAppOverlayProps';
 import { useRemoteBattleEvents } from './hooks/useRemoteBattleEvents';
 import { rtcService } from './services/WebRTCDataChannelService';
@@ -59,6 +59,7 @@ const DEBUG_UI = import.meta.env.VITE_ENABLE_DEBUG_UI === 'true';
 const CHARACTER_LAB_UI = import.meta.env.VITE_ENABLE_CHARACTER_LAB !== 'false';
 const STORAGE_LANG_KEY = 'plares_lang';
 const STORAGE_LANG_SELECTED_KEY = 'plares_lang_selected';
+const STORAGE_PENDING_TRANSLATION_KEY = 'plares_pending_translation_locale';
 const STORAGE_ROBOT_INITIALIZED_KEY = 'plares_robot_initialized';
 const STORAGE_PLAY_MODE_KEY = 'plares_play_mode';
 const STORAGE_ROUTE_PROGRESS_KEY = 'plares_route_progress';
@@ -247,6 +248,8 @@ const UI_TEXT: Record<UiLang, Record<string, string>> = {
     languageSettingHint: 'あとで言語を変えたい時は、ここからいつでも切り替えられます。',
     languageChangeAfterMatch: '対戦中は言語を変更できません。ハブに戻ってから変更してください。',
     debugSection: 'Live / Debug',
+    debugBattleState: '戦況スナップショット',
+    debugAdkTactic: 'ADK戦術提案',
     routeGuideTitle: '初回おすすめルート',
     routeGuideDesc: '散歩 → 修行 → 対戦 の順で進むと、機体の理解とシンクロが安定します。',
     routeStepWalk: '散歩を1回完了',
@@ -274,11 +277,14 @@ const UI_TEXT: Record<UiLang, Record<string, string>> = {
     prepGuide: '確認',
     prepMissing: '未達',
     prepAlignGuide: '開始後に位置合わせ',
-    prepSelectFrame: '機体タイプ',
-    prepModelTypeA: 'Type A',
-    prepModelTypeADesc: '軽快でヒーロー寄り',
-    prepModelTypeB: 'Type B',
-    prepModelTypeBDesc: '重厚でパワー寄り',
+    prepSelectFrame: '機体リスト',
+    prepMaterialWood: '木材',
+    prepMaterialResin: '樹脂',
+    prepMaterialMetal: '金属',
+    prepBodyHeavy: 'ヘビー',
+    prepBodySlim: 'スリム',
+    prepBodyHeavyDesc: '重装甲でパワー寄り',
+    prepBodySlimDesc: '軽快でヒーロー寄り',
     prepPaletteMarine: 'マリン',
     prepPaletteEmber: 'エンバー',
     prepPaletteForest: 'フォレスト',
@@ -330,6 +336,13 @@ const UI_TEXT: Record<UiLang, Record<string, string>> = {
     fusionClose: '散歩に戻る',
     fusionValidation: '画像とコンセプトの両方が必要です',
     fusionError: 'Fusion Craft に失敗しました',
+    scanEquipmentModeLabel: 'スキャン用途',
+    scanEquipmentModeSkin: 'スキン化',
+    scanEquipmentModeAttachment: '装備化',
+    scanEquipmentMountLabel: '装備スロット',
+    scanEquipmentPromptLabel: '装備コンセプト',
+    scanEquipmentPromptPlaceholder: '例: 春巻きソード / 額バイザー / バックパック',
+    scanEquipmentGenerating: '装備化中… 取り付け素材を生成しています',
   },
   en: {
     brandSub: 'Next-Gen AI Agent Arena',
@@ -465,6 +478,8 @@ const UI_TEXT: Record<UiLang, Record<string, string>> = {
     languageSettingHint: 'You can come back here later whenever you want to change the UI language.',
     languageChangeAfterMatch: 'Language changes are locked during a match. Return to the hub first.',
     debugSection: 'Live / Debug',
+    debugBattleState: 'Battle Snapshot',
+    debugAdkTactic: 'ADK Tactic',
     routeGuideTitle: 'Recommended First Route',
     routeGuideDesc: 'Follow Walk → Training → Battle once to build stable sync and context.',
     routeStepWalk: 'Complete Walk once',
@@ -492,11 +507,14 @@ const UI_TEXT: Record<UiLang, Record<string, string>> = {
     prepGuide: 'Check',
     prepMissing: 'Missing',
     prepAlignGuide: 'Align arena after match starts',
-    prepSelectFrame: 'Frame Type',
-    prepModelTypeA: 'Type A',
-    prepModelTypeADesc: 'Lighter heroic frame',
-    prepModelTypeB: 'Type B',
-    prepModelTypeBDesc: 'Heavier power frame',
+    prepSelectFrame: 'Machine List',
+    prepMaterialWood: 'Wood',
+    prepMaterialResin: 'Resin',
+    prepMaterialMetal: 'Metal',
+    prepBodyHeavy: 'Heavy',
+    prepBodySlim: 'Slim',
+    prepBodyHeavyDesc: 'Power-focused heavy frame',
+    prepBodySlimDesc: 'Mobile heroic frame',
     prepPaletteMarine: 'Marine',
     prepPaletteEmber: 'Ember',
     prepPaletteForest: 'Forest',
@@ -549,6 +567,13 @@ const UI_TEXT: Record<UiLang, Record<string, string>> = {
     fusionClose: 'Back to Walk',
     fusionValidation: 'Both an image and a concept are required.',
     fusionError: 'Fusion Craft failed',
+    scanEquipmentModeLabel: 'Scan Output',
+    scanEquipmentModeSkin: 'Skin',
+    scanEquipmentModeAttachment: 'Attachment',
+    scanEquipmentMountLabel: 'Mount Slot',
+    scanEquipmentPromptLabel: 'Attachment Concept',
+    scanEquipmentPromptPlaceholder: 'e.g. Spring-roll sword / Visor crest / Jet backpack',
+    scanEquipmentGenerating: 'Generating attachment material…',
   },
   es: {
     brandSub: 'Arena de Agentes IA',
@@ -684,6 +709,8 @@ const UI_TEXT: Record<UiLang, Record<string, string>> = {
     languageSettingHint: 'Puedes volver aqui mas tarde para cambiar el idioma cuando quieras.',
     languageChangeAfterMatch: 'No puedes cambiar el idioma durante una batalla. Vuelve al hub primero.',
     debugSection: 'Live / Debug',
+    debugBattleState: 'Estado de batalla',
+    debugAdkTactic: 'Tactica ADK',
     routeGuideTitle: 'Ruta inicial recomendada',
     routeGuideDesc: 'Sigue Paseo → Entreno → Batalla una vez para mejorar sincronia y contexto.',
     routeStepWalk: 'Completar Paseo una vez',
@@ -711,11 +738,14 @@ const UI_TEXT: Record<UiLang, Record<string, string>> = {
     prepGuide: 'Revisar',
     prepMissing: 'Pendiente',
     prepAlignGuide: 'Alinear arena al iniciar batalla',
-    prepSelectFrame: 'Tipo de armazon',
-    prepModelTypeA: 'Type A',
-    prepModelTypeADesc: 'Mas agil y heroico',
-    prepModelTypeB: 'Type B',
-    prepModelTypeBDesc: 'Mas pesado y potente',
+    prepSelectFrame: 'Lista de maquinas',
+    prepMaterialWood: 'Madera',
+    prepMaterialResin: 'Resina',
+    prepMaterialMetal: 'Metal',
+    prepBodyHeavy: 'Pesado',
+    prepBodySlim: 'Ligero',
+    prepBodyHeavyDesc: 'Armazon pesado orientado a potencia',
+    prepBodySlimDesc: 'Armazon agil y heroico',
     prepPaletteMarine: 'Marino',
     prepPaletteEmber: 'Ascua',
     prepPaletteForest: 'Bosque',
@@ -768,6 +798,13 @@ const UI_TEXT: Record<UiLang, Record<string, string>> = {
     fusionClose: 'Volver al paseo',
     fusionValidation: 'Se requieren imagen y concepto.',
     fusionError: 'Fusion Craft fallo',
+    scanEquipmentModeLabel: 'Salida del escaneo',
+    scanEquipmentModeSkin: 'Piel',
+    scanEquipmentModeAttachment: 'Accesorio',
+    scanEquipmentMountLabel: 'Punto de montaje',
+    scanEquipmentPromptLabel: 'Concepto del accesorio',
+    scanEquipmentPromptPlaceholder: 'ej. Espada de rollito / Visor frontal / Mochila propulsora',
+    scanEquipmentGenerating: 'Generando el accesorio…',
   },
 };
 
@@ -899,6 +936,7 @@ function App() {
       })(),
     )
   );
+  const requestedTranslationLocaleRef = useRef('');
   const languagePresets = mergeLanguagePresets(selectedLanguage);
   const [battleState, setBattleState] = useState<BattleUiState>({
     hp: 100,
@@ -920,6 +958,8 @@ function App() {
     concept: '',
     message: '',
     textureUrl: '',
+    craftKind: 'skin',
+    mountPoint: 'WEAPON_R',
   });
   useEffect(() => {
     if (playMode !== 'walk') {
@@ -933,15 +973,18 @@ function App() {
     isLiveMicActive,
     liveDebugInfo,
     pendingLiveConnectRef,
+    requestBattleCoaching,
+    requestBattleStateSnapshot,
     requestInteractionTurn,
     requestLiveEphemeralToken,
+    requestTacticalRecommendation,
     sendLiveTextPing,
     setLiveDebugInfo,
     toggleLiveMic,
   } = useLiveSessionControls({
     liveNeedConnectionText: t.liveNeedConnection,
   });
-  const liveRouteSelector = useLiveRouteSelector('current');
+  const liveRouteSelector = useLiveRouteSelector(resolveConfiguredLivePolicyPhase());
   const voiceAckText = useVoiceAckFeedback(t);
   const {
     arSupportState,
@@ -957,6 +1000,14 @@ function App() {
     xrStore: store,
   });
   const alignmentReady = matchAlignmentReady;
+  useEffect(() => {
+    if (playMode !== 'match' || isMatchPaused || !matchAlignmentReady) return;
+    requestBattleCoaching();
+    const timer = window.setInterval(() => {
+      requestBattleCoaching();
+    }, 12000);
+    return () => window.clearInterval(timer);
+  }, [isMatchPaused, matchAlignmentReady, playMode, requestBattleCoaching]);
   const profileView = profileInfo ?? {
     totalMatches: 0,
     totalTrainingSessions: 0,
@@ -1021,8 +1072,43 @@ function App() {
     setAppPhase('main');
   };
 
+  const queuePendingTranslation = (langCode: string) => {
+    try {
+      localStorage.setItem(STORAGE_PENDING_TRANSLATION_KEY, canonicalizeLocale(langCode));
+    } catch {
+      // noop
+    }
+  };
+
+  const clearPendingTranslation = (langCode?: string) => {
+    try {
+      const pending = localStorage.getItem(STORAGE_PENDING_TRANSLATION_KEY);
+      if (!pending) return;
+      if (!langCode || canonicalizeLocale(pending) === canonicalizeLocale(langCode)) {
+        localStorage.removeItem(STORAGE_PENDING_TRANSLATION_KEY);
+      }
+    } catch {
+      // noop
+    }
+  };
+
+  const requestUiTranslations = (langCode: string) => {
+    const canonical = canonicalizeLocale(langCode);
+    const baseDict = UI_TEXT[resolveBaseUiLang(canonical)];
+    requestedTranslationLocaleRef.current = canonical;
+    wsService.sendEvent({
+      event: 'request_ui_translations',
+      user: PLAYER_ID,
+      payload: { lang: canonical, base_keys: baseDict as unknown as Record<string, string> },
+    });
+    window.dispatchEvent(new CustomEvent('show_subtitle', {
+      detail: { text: `Generating ${canonical} translations…` }
+    }));
+  };
+
   const applyLanguage = (langCode: string, markAsChosen: boolean) => {
     const canonical = canonicalizeLocale(langCode);
+    setSelectedLanguage(canonical);
     rememberRecentLocale(canonical);
     try {
       localStorage.setItem(STORAGE_LANG_KEY, canonical);
@@ -1037,20 +1123,51 @@ function App() {
     const existingCache = loadCachedTranslations(canonical);
     console.info(`[App] Checking translation for ${canonical} - BuiltIn: ${hasBuiltIn}, Cached: ${!!existingCache}`);
     if (hasBuiltIn || existingCache) {
+      clearPendingTranslation(canonical);
       console.info(`[App] Reloading to apply translations immediately`);
       window.location.reload();
       return;
     }
-    const baseDict = UI_TEXT[resolveBaseUiLang(canonical)];
-    wsService.sendEvent({
-      event: 'request_ui_translations',
-      user: PLAYER_ID,
-      payload: { lang: canonical, base_keys: baseDict as unknown as Record<string, string> },
-    });
-    window.dispatchEvent(new CustomEvent('show_subtitle', {
-      detail: { text: `Generating ${canonical} translations…` }
-    }));
+    if (appPhase === 'main' && wsService.isConnected()) {
+      requestUiTranslations(canonical);
+      return;
+    }
+    queuePendingTranslation(canonical);
+    window.location.reload();
   };
+
+  useEffect(() => {
+    const selectedCanonical = canonicalizeLocale(selectedLanguage);
+    const maybeRequestPendingTranslation = () => {
+      let pendingLocale = '';
+      try {
+        pendingLocale = localStorage.getItem(STORAGE_PENDING_TRANSLATION_KEY) || '';
+      } catch {
+        pendingLocale = '';
+      }
+      const canonical = canonicalizeLocale(pendingLocale || selectedCanonical, selectedCanonical);
+      if (localeUsesBuiltinDictionary(canonical) || loadCachedTranslations(canonical)) {
+        requestedTranslationLocaleRef.current = '';
+        clearPendingTranslation(canonical);
+        return;
+      }
+      if (appPhase !== 'main' || !wsService.isConnected()) return;
+      if (requestedTranslationLocaleRef.current === canonical) return;
+      requestUiTranslations(canonical);
+    };
+
+    maybeRequestPendingTranslation();
+    const onSocketStatus = (event: Event) => {
+      const detail = (event as CustomEvent<{ connected?: boolean }>).detail;
+      if (detail?.connected) {
+        maybeRequestPendingTranslation();
+      }
+    };
+    window.addEventListener('plares_ws_status', onSocketStatus as EventListener);
+    return () => {
+      window.removeEventListener('plares_ws_status', onSocketStatus as EventListener);
+    };
+  }, [appPhase, selectedLanguage]);
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_PLAY_MODE_KEY, playMode);
@@ -1317,13 +1434,17 @@ function App() {
     requestId: string;
     concept: string;
     referenceImage: string;
+    craftKind: 'skin' | 'attachment';
+    mountPoint: 'WEAPON_R' | 'WEAPON_L' | 'HEAD_ACCESSORY' | 'BACKPACK';
   }) => {
     setFusionCraftFlow({
       status: 'submitting',
       requestId: payload.requestId,
       concept: payload.concept,
-      message: t.fusionGenerating,
+      message: payload.craftKind === 'attachment' ? t.scanEquipmentGenerating : t.fusionGenerating,
       textureUrl: '',
+      craftKind: payload.craftKind,
+      mountPoint: payload.mountPoint,
     });
     wsService.sendEvent({
       event: 'item_dropped',
@@ -1335,6 +1456,8 @@ function App() {
         concept: payload.concept,
         image_data: payload.referenceImage,
         reference_image: payload.referenceImage,
+        craft_kind: payload.craftKind,
+        mount_point: payload.mountPoint,
       },
     });
   };
@@ -1499,6 +1622,8 @@ function App() {
     onToggleLiveConnection: isLiveConnected ? disconnectLiveDirect : connectLiveDirect,
     onToggleLiveMic: toggleLiveMic,
     onSendLiveTextPing: sendLiveTextPing,
+    onRequestBattleStateSnapshot: requestBattleStateSnapshot,
+    onRequestTacticalRecommendation: () => requestTacticalRecommendation('take_cover'),
     onReturnToHub: returnToHub,
     onWalkVisionOrProfileSync: playMode === 'walk' ? sendWalkVisionTrigger : requestProfileSync,
     onSendWalkVisionTrigger: sendWalkVisionTrigger,

@@ -56,6 +56,30 @@ def test_validate_inbound_packet_accepts_request_adk_status():
     assert validate_inbound_packet(payload) == payload
 
 
+def test_validate_inbound_packet_accepts_request_battle_state_snapshot():
+    payload = {
+        "type": "event",
+        "data": {
+            "event": "request_battle_state_snapshot",
+            "payload": {"request_id": "req_state"},
+        },
+    }
+
+    assert validate_inbound_packet(payload) == payload
+
+
+def test_validate_inbound_packet_accepts_request_tactical_recommendation():
+    payload = {
+        "type": "event",
+        "data": {
+            "event": "request_tactical_recommendation",
+            "payload": {"request_id": "req_tactic", "action": "take_cover"},
+        },
+    }
+
+    assert validate_inbound_packet(payload) == payload
+
+
 def test_validate_inbound_packet_rejects_interaction_without_input():
     payload = {
         "type": "event",

@@ -1522,17 +1522,39 @@
   color: var(--color-primary);
 }
 
-.battle-prep-option-grid {
+.battle-prep-selection-summary {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--glass-border);
+  background: hsl(218 24% 11% / 0.72);
+}
+
+.battle-prep-selection-summary strong {
+  display: block;
+  font-size: 15px;
+}
+
+.battle-prep-selection-summary span {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.model-type-list {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
+  max-height: 300px;
+  overflow-y: auto;
+  padding-right: 2px;
 }
 
-.battle-prep-option-grid.is-duo {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+.model-type-list.is-compact {
+  max-height: 220px;
 }
 
-.battle-prep-option {
+.model-type-item {
   width: 100%;
   min-width: 0;
   padding: 12px;
@@ -1544,27 +1566,79 @@
   cursor: pointer;
 }
 
-.battle-prep-option strong {
-  display: block;
-  font-size: 14px;
+.model-type-item-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
 }
 
-.battle-prep-option span {
+.model-type-item strong {
   display: block;
-  margin-top: 4px;
+  font-size: 15px;
+}
+
+.model-type-item span {
+  display: block;
+  margin-top: 6px;
   font-size: 12px;
   color: var(--color-text-secondary);
 }
 
-.battle-prep-option.is-active {
+.model-type-chip-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.model-type-chip {
+  margin-top: 0;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid hsl(191 42% 35% / 0.42);
+  background: hsl(191 32% 13% / 0.48);
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.model-type-item.is-active {
   border-color: hsl(191 90% 63% / 0.55);
   background: hsl(191 52% 16% / 0.45);
   box-shadow: 0 0 0 1px hsl(191 90% 63% / 0.18) inset;
 }
 
-.battle-prep-palette strong {
-  margin-top: 8px;
+.battle-prep-palette-grid.compact {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
 }
+
+.battle-prep-palette-chip {
+  width: 100%;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--glass-border);
+  background: hsl(218 24% 11% / 0.78);
+  color: var(--color-text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.battle-prep-palette-chip strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.battle-prep-palette-chip.is-active {
+  border-color: hsl(191 90% 63% / 0.55);
+  background: hsl(191 52% 16% / 0.45);
+  box-shadow: 0 0 0 1px hsl(191 90% 63% / 0.18) inset;
+}
+
 
 .battle-prep-swatch-row {
   display: flex;
@@ -1600,7 +1674,20 @@
     padding-bottom: calc(4px + env(safe-area-inset-bottom));
     background: linear-gradient(180deg, hsl(218 24% 13% / 0), hsl(218 24% 13% / 0.96) 30%);
   }
+
+  .battle-prep-palette-grid.compact {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .model-type-item-head {
+    flex-direction: column;
+  }
+
+  .model-type-chip-row {
+    justify-content: flex-start;
+  }
 }
+
 
 .summon-overlay {
   position: fixed;
@@ -2030,6 +2117,38 @@
   gap: 14px;
 }
 
+.scan-equipment-flow {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.scan-equipment-kind-picker,
+.scan-equipment-mount-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.scan-equipment-mounts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.scan-equipment-mounts label {
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.scan-equipment-flow .hud-btn.is-selected {
+  border-color: hsl(188 88% 56% / 0.72);
+  box-shadow: 0 0 0 1px hsl(188 88% 56% / 0.48) inset, 0 10px 24px hsl(188 88% 18% / 0.28);
+  background: linear-gradient(135deg, hsl(192 60% 22% / 0.9), hsl(223 55% 16% / 0.9));
+}
+
 .image-capture-zone {
   width: 100%;
   aspect-ratio: 16 / 9;
@@ -2455,6 +2574,10 @@
     left: 12px;
     right: 12px;
     top: max(76px, calc(68px + env(safe-area-inset-top)));
+  }
+
+  .scan-equipment-mount-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .anim-debug-panel {

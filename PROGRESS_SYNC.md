@@ -10,6 +10,12 @@
 
 | Date       | Owner    | TaskID | Directory                       | Status | NextAction                                                                                      | Blocker |
 | ---------- | -------- | ------ | ------------------------------- | ------ | ----------------------------------------------------------------------------------------------- | ------- |
+| 2026-03-07 | Codex    | T1-33  | /frontend/src, /backend/ai_core, /backend/tests, /shared/types | DONE   | Fusion Craft を `skin / attachment` の二系統へ拡張し、mount point選択・装備画像アタッチ・inventory記録・backend helperを追加 | なし    |
+| 2026-03-07 | Codex    | T1-32  | /frontend/src                   | DONE   | `useRobotBoneScaling.ts` / `useAttachmentManager.ts` / `headProjectionMaterial.ts` を実装し、骨スケーリング・マウントポイント装備・顔テクスチャの頭部投影を追加 | なし    |
+| 2026-03-07 | Codex    | T1-31  | /frontend/src, /backend/ai_core, /shared/types | DONE   | `bodyType` を shared/frontend/backend に通し、6機体の `model_type` に基づく初期ステータス・PBR差・character generation反映を追加 | なし    |
+| 2026-03-07 | Codex    | T1-30  | /frontend/src, /shared/types    | DONE   | 機体タイプを `A/B` 固定から `wood/resin/metal × heavy/slim` の6種カタログに拡張し、Battle Prep / FaceScanner を共通リスト selector へ変更 | なし    |
+| 2026-03-07 | Codex    | T2-22  | /frontend/src, /backend/ai_core, /shared | DONE   | `battle_coaching` の configured policy を frontend の自動 request に反映し、ADK tactic / backend interaction fallback を主従付きで接続 | なし    |
+| 2026-03-07 | Codex    | T2-21  | /frontend/src, /backend/ai_core, /backend/tests | DONE   | `request_battle_state_snapshot` / `request_tactical_recommendation` を追加し、ADK bridge結果を debug UI と tactical panel に反映 | なし    |
 | 2026-03-07 | Codex    | T2-20  | /backend/ai_core, /backend/tests | DONE   | `ADKBridge` を追加し、`articulation_agent.py` の tool が battle snapshot / tactical recommendation を返せる形へ更新 | なし    |
 | 2026-03-07 | Codex    | T2-19  | /frontend/src, /backend/ai_core, /backend/tests | DONE   | `audio_ws` に `recognized_phrase / expected_phrase` を通し、`AudioJudgeService` が transcript similarity を accuracy に反映するよう改善 | なし    |
 | 2026-03-07 | Codex    | T2-18  | /frontend/src, /backend/ai_core | DONE   | 修行の `incantation_submitted` に `expected_phrase / recognized_phrase` を通し、音声判定の第一段を仕様寄せ | なし    |
@@ -81,6 +87,7 @@
 | 2026-03-07 | Codex    | T0-5   | /frontend, /backend, /cloudbuild | DONE  | backend起動下で `English -> Hub -> Walk -> Fusion Craft -> Training -> Battle Prep` を再確認し、Cloud Runへ再デプロイ | なし    |
 | 2026-03-07 | Codex    | T1-28  | /frontend/src, /.playwright-cli | DONE   | mobile対戦UIを再整理し、`Menu` を `Quick / Settings` 化、`Tactical Options` を mobile下部drawer化して Playwright 390x844 で確認 | なし    |
 | 2026-03-07 | Codex    | T1-29  | /frontend/src                   | DONE   | 機体タイプ定義を list-driven 化し、Battle Prep と FaceScanner の描画を定義リスト参照へ変更     | なし    |
+| 2026-03-07 | Codex    | T1-30  | /frontend/src, /.playwright-cli | DONE   | 非内蔵locale選択時に言語画面から進めない不具合を修正し、pending translation を main接続後に遅延要求するよう変更。Playwrightで `Français` 選択後に summon へ進むことを確認 | なし    |
 
 ## ステータス定義
 

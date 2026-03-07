@@ -1,17 +1,18 @@
 import { create } from 'zustand';
 import * as THREE from 'three';
 import type { CharacterDNA } from '../../../shared/types/firestore';
-import type { ModelTypeId } from '../constants/modelTypes';
+import { normalizeModelTypeId, type ModelTypeId } from '../constants/modelTypes';
 import { DEFAULT_CHARACTER_DNA, normalizeCharacterDNA } from '../utils/characterDNA';
+import type { AttachmentSlot, MountPointId } from '../components/robot/constants';
 
 export type PlayMode = 'hub' | 'match' | 'training' | 'walk';
 const MODEL_TYPE_STORAGE_KEY = 'plares_model_type';
 const loadInitialModelType = (): ModelTypeId => {
-  if (typeof window === 'undefined') return 'A';
+  if (typeof window === 'undefined') return 'wood_slim';
   try {
-    return localStorage.getItem(MODEL_TYPE_STORAGE_KEY) === 'B' ? 'B' : 'A';
+    return normalizeModelTypeId(localStorage.getItem(MODEL_TYPE_STORAGE_KEY));
   } catch {
-    return 'A';
+    return 'wood_slim';
   }
 };
 
@@ -47,7 +48,7 @@ export enum State {
   REJECT_ITEM = 'REJECT_ITEM',
 }
 
-interface RobotStats {
+export interface RobotStats {
   power: number;
   speed: number;
   vit: number;
@@ -97,6 +98,9 @@ interface FSMState {
   setEnemyModelType: (type: ModelTypeId) => void;
   enemyRobotDna: CharacterDNA;
   setEnemyRobotDna: (dna: CharacterDNA | null | undefined) => void;
+  attachments: AttachmentSlot[];
+  setAttachment: (slot: AttachmentSlot) => void;
+  removeAttachment: (mountPoint: MountPointId) => void;
   debugSetState: (nextState: State) => void;
   debugSetHp: (target: 'local' | 'enemy', value: number) => void;
   // ── Mode Management ──
@@ -127,8 +131,9 @@ export const useFSMStore = create<FSMState>((set, get) => ({
   }),
 
   modelType: loadInitialModelType(),
-  enemyModelType: 'B',
+  enemyModelType: 'metal_heavy',
   enemyRobotDna: { ...DEFAULT_CHARACTER_DNA, paletteFamily: 'ember', eyeGlow: '#FFB86E' },
+  attachments: [],
   prioritySource: 'system' as const,
   transitionLog: [],
   setModelType: (type) => {
@@ -141,6 +146,14 @@ export const useFSMStore = create<FSMState>((set, get) => ({
   },
   setEnemyModelType: (type) => set({ enemyModelType: type }),
   setEnemyRobotDna: (dna) => set({ enemyRobotDna: normalizeCharacterDNA(dna) ?? { ...DEFAULT_CHARACTER_DNA, paletteFamily: 'ember', eyeGlow: '#FFB86E' } }),
+  setAttachment: (slot) => set((state) => {
+    const next = state.attachments.filter((item) => item.mountPoint !== slot.mountPoint);
+    next.push(slot);
+    return { attachments: next };
+  }),
+  removeAttachment: (mountPoint) => set((state) => ({
+    attachments: state.attachments.filter((item) => item.mountPoint !== mountPoint),
+  })),
   debugSetState: (nextState) => {
     const prev = get().currentState;
     get().clearEvadeTimeout();

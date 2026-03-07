@@ -20,6 +20,7 @@ import type {
 import type { LanguagePreset } from '../../i18n/runtime';
 import type { PlayMode } from '../../store/useFSMStore';
 import type { ModelTypeId } from '../../constants/modelTypes';
+import type { MountPointId } from '../robot/constants';
 
 export type AppMainHudProps = {
   t: UiText;
@@ -95,11 +96,19 @@ export type AppMainHudProps = {
   onEnterBattleMode: () => void;
   onOpenFusionCraft: () => void;
   onCloseFusionCraft: () => void;
-  onSubmitFusionCraft: (payload: { requestId: string; concept: string; referenceImage: string }) => void;
+  onSubmitFusionCraft: (payload: {
+    requestId: string;
+    concept: string;
+    referenceImage: string;
+    craftKind: 'skin' | 'attachment';
+    mountPoint: MountPointId;
+  }) => void;
   onRequestProfileSync: () => void;
   onToggleLiveConnection: () => void;
   onToggleLiveMic: () => void;
   onSendLiveTextPing: () => void;
+  onRequestBattleStateSnapshot: () => void;
+  onRequestTacticalRecommendation: () => void;
   onReturnToHub: () => void;
   onWalkVisionOrProfileSync: () => void;
   onSendWalkVisionTrigger: () => void;
@@ -191,6 +200,8 @@ export const AppMainHud: FC<AppMainHudProps> = ({
   onToggleLiveConnection,
   onToggleLiveMic,
   onSendLiveTextPing,
+  onRequestBattleStateSnapshot,
+  onRequestTacticalRecommendation,
   onReturnToHub,
   onWalkVisionOrProfileSync,
   onSendWalkVisionTrigger,
@@ -333,7 +344,6 @@ export const AppMainHud: FC<AppMainHudProps> = ({
         enemyModelType={enemyModelType}
         robotDna={robotDna}
         enemyRobotDna={enemyRobotDna}
-        robotMaterial={robotMaterial}
         alignmentReady={alignmentReady}
         hasWalkMilestone={hasWalkMilestone}
         hasTrainingMilestone={hasTrainingMilestone}
@@ -385,6 +395,8 @@ export const AppMainHud: FC<AppMainHudProps> = ({
       onToggleLiveConnection={onToggleLiveConnection}
       onToggleLiveMic={onToggleLiveMic}
       onSendLiveTextPing={onSendLiveTextPing}
+      onRequestBattleStateSnapshot={onRequestBattleStateSnapshot}
+      onRequestTacticalRecommendation={onRequestTacticalRecommendation}
       playMode={playMode}
       onReturnToHub={onReturnToHub}
       onOpenBattlePrep={onOpenBattlePrep}

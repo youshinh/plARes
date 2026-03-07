@@ -6,6 +6,8 @@ export type EventType =
   | "milestone_reached"
   | "request_ephemeral_token"
   | "request_adk_status"
+  | "request_battle_state_snapshot"
+  | "request_tactical_recommendation"
   | "interaction_turn"
   | "match_end"
   | "winner_interview"
@@ -75,6 +77,9 @@ export interface FusedItem {
   requested_by: string;
   concept: string;
   texture_url: string;
+  action?: "equip" | "attach";
+  mount_point?: "WEAPON_R" | "WEAPON_L" | "HEAD_ACCESSORY" | "BACKPACK";
+  scale?: number;
 }
 
 export interface MemoryUpdate {

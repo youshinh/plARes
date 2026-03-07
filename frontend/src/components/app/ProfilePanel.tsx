@@ -72,6 +72,8 @@ type ProfilePanelProps = {
   onToggleLiveConnection: () => void;
   onToggleLiveMic: () => void;
   onSendLiveTextPing: () => void;
+  onRequestBattleStateSnapshot: () => void;
+  onRequestTacticalRecommendation: () => void;
   playMode: PlayMode;
   onReturnToHub: () => void;
   onOpenBattlePrep: () => void;
@@ -110,6 +112,8 @@ export const ProfilePanel: FC<ProfilePanelProps> = ({
   onToggleLiveConnection,
   onToggleLiveMic,
   onSendLiveTextPing,
+  onRequestBattleStateSnapshot,
+  onRequestTacticalRecommendation,
   playMode,
   onReturnToHub,
   onOpenBattlePrep,
@@ -360,6 +364,18 @@ export const ProfilePanel: FC<ProfilePanelProps> = ({
               title={liveActionDisabled ? t.liveNeedConnection : ''}
             >
               {t.sendLiveText}
+            </button>
+            <button
+              className="hud-btn hud-btn-steel hud-btn-mini"
+              onClick={onRequestBattleStateSnapshot}
+            >
+              {t.debugBattleState ?? 'Battle Snapshot'}
+            </button>
+            <button
+              className="hud-btn hud-btn-steel hud-btn-mini"
+              onClick={onRequestTacticalRecommendation}
+            >
+              {t.debugAdkTactic ?? 'ADK Tactic'}
             </button>
             <button
               className="hud-btn hud-btn-steel hud-btn-mini"

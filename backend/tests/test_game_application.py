@@ -43,6 +43,9 @@ def build_app():
     async def run_articulation_judge(*_args, **_kwargs):
         return {"ok": True, "sync_gain": 0.1, "phrase": "Burst", "accuracy": 0.8, "speed": 0.7, "passion": 0.9, "verdict": "critical"}
 
+    async def generate_fusion_texture(*_args, **_kwargs):
+        return "https://example.com/fused.png"
+
     def append_mode_log(**kwargs):
         return {"user_id": kwargs["user_id"], "robot": {}, "match_logs": [], "training_logs": [], "walk_logs": [], "dna_ab_tests": []}
 
@@ -66,6 +69,14 @@ def build_app():
         issue_ephemeral_token=issue_ephemeral_token,
         run_interaction=run_interaction,
         get_adk_status=lambda: {"kind": "adk_status", "available": True, "detail": ""},
+        query_battle_state=lambda _room_id, user_id: {"kind": "battle_state_snapshot", "ok": True, "user_id": user_id, "hp": 100},
+        propose_tactic=lambda _room_id, user_id, action, target=None: {
+            "kind": "tactical_recommendation",
+            "ok": True,
+            "user_id": user_id,
+            "action": action,
+            "target": target,
+        },
         room_user_lang=lambda _room_id, _user_id, default="en-US": default,
         room_user_meta=room_user_meta,
         clamp01=lambda value: max(0.0, min(1.0, float(value))),
@@ -84,7 +95,7 @@ def build_app():
         append_mode_log=append_mode_log,
         consume_spectator_intervention=lambda *_args: (True, "", None),
         intervention_rejected_payload=lambda *_args: {"type": "event", "data": {"event": "intervention_rejected"}},
-        generate_fusion_texture=lambda *_args: "https://example.com/fused.png",
+        generate_fusion_texture=generate_fusion_texture,
         reject_item_distrust_threshold=3,
         to_int=lambda value, default=0: int(value) if value is not None else default,
         room_runtime_state={},
@@ -172,6 +183,85 @@ async def test_request_adk_status_broadcasts_result():
     assert wrapped["data"]["payload"]["kind"] == "adk_status"
     assert wrapped["data"]["payload"]["available"] is True
     assert wrapped["data"]["payload"]["request_id"] == "req_123"
+
+
+@pytest.mark.asyncio
+async def test_request_battle_state_snapshot_broadcasts_result():
+    app, broadcast, _logger = build_app()
+
+    await app.process_packet(
+        {
+            "type": "event",
+            "data": {
+                "event": "request_battle_state_snapshot",
+                "payload": {"request_id": "req_state"},
+            },
+        },
+        GameSessionContext(websocket=object(), user_id="u1", room_id="room-1", lang="en-US", sync_rate=0.5),
+    )
+
+    wrapped = broadcast.calls[-1][0][1]
+    assert wrapped["data"]["payload"]["kind"] == "battle_state_snapshot"
+    assert wrapped["data"]["payload"]["request_id"] == "req_state"
+
+
+@pytest.mark.asyncio
+async def test_request_tactical_recommendation_broadcasts_result():
+    app, broadcast, _logger = build_app()
+
+    await app.process_packet(
+        {
+            "type": "event",
+            "data": {
+                "event": "request_tactical_recommendation",
+                "payload": {"request_id": "req_tactic", "action": "take_cover", "target": "u2"},
+            },
+        },
+        GameSessionContext(websocket=object(), user_id="u1", room_id="room-1", lang="en-US", sync_rate=0.5),
+    )
+
+    wrapped = broadcast.calls[-1][0][1]
+    assert wrapped["data"]["payload"]["kind"] == "tactical_recommendation"
+    assert wrapped["data"]["payload"]["action"] == "take_cover"
+    assert wrapped["data"]["payload"]["target"] == "u2"
+    assert wrapped["data"]["payload"]["request_id"] == "req_tactic"
+
+
+@pytest.mark.asyncio
+async def test_craft_request_can_generate_attachment_payload():
+    app, broadcast, _logger = build_app()
+
+    await app.process_packet(
+        {
+            "type": "event",
+            "data": {
+                "event": "item_dropped",
+                "user": "u1",
+                "payload": {
+                    "craft_request": True,
+                    "request_id": "req_attach",
+                    "concept": "spring roll blade",
+                    "craft_kind": "attachment",
+                    "mount_point": "HEAD_ACCESSORY",
+                    "image_data": "ZmFrZQ==",
+                },
+            },
+        },
+        GameSessionContext(websocket=object(), user_id="u1", room_id="room-1", lang="en-US", sync_rate=0.5),
+    )
+
+    payload = next(
+        call_args[1]["data"]["payload"]
+        for call_args, _call_kwargs in broadcast.calls
+        if len(call_args) > 1
+        and isinstance(call_args[1], dict)
+        and isinstance(call_args[1].get("data"), dict)
+        and isinstance(call_args[1]["data"].get("payload"), dict)
+        and call_args[1]["data"]["payload"].get("kind") == "fused_item"
+    )
+    assert payload["kind"] == "fused_item"
+    assert payload["action"] == "attach"
+    assert payload["mount_point"] == "HEAD_ACCESSORY"
 
 
 @pytest.mark.asyncio

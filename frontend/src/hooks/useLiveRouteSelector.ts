@@ -22,6 +22,8 @@ export type LiveRouteDecision = {
   note: string;
 };
 
+export const LIVE_POLICY_STORAGE_KEY = 'plares_live_policy_phase';
+
 export const CURRENT_LIVE_ROUTE_POLICY: Record<LiveResponsibility, LiveRouteDecision> = {
   conversation: {
     primary: 'browser_direct',
@@ -78,6 +80,30 @@ export const resolveLiveRoute = (
   phase: LivePolicyPhase = 'current',
 ): LiveRouteDecision =>
   (phase === 'target' ? TARGET_LIVE_ROUTE_POLICY : CURRENT_LIVE_ROUTE_POLICY)[responsibility];
+
+export const resolveConfiguredLivePolicyPhase = (): LivePolicyPhase => {
+  if (typeof window !== 'undefined') {
+    try {
+      const stored = window.localStorage.getItem(LIVE_POLICY_STORAGE_KEY);
+      if (stored === 'current' || stored === 'target') {
+        return stored;
+      }
+    } catch {
+      // noop
+    }
+  }
+  const envPhase = import.meta.env.VITE_LIVE_POLICY_PHASE;
+  return envPhase === 'target' ? 'target' : 'current';
+};
+
+export const setConfiguredLivePolicyPhase = (phase: LivePolicyPhase) => {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(LIVE_POLICY_STORAGE_KEY, phase);
+  } catch {
+    // noop
+  }
+};
 
 export const useLiveRouteSelector = (phase: LivePolicyPhase = 'current') => {
   return useMemo(() => {

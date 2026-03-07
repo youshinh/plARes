@@ -183,6 +183,22 @@ class WebSocketService {
     });
   }
 
+  requestBattleStateSnapshot(payload: Record<string, unknown> = {}) {
+    this.sendEvent({
+      event: 'request_battle_state_snapshot',
+      user: this.userId,
+      payload,
+    });
+  }
+
+  requestTacticalRecommendation(payload: Record<string, unknown>) {
+    this.sendEvent({
+      event: 'request_tactical_recommendation',
+      user: this.userId,
+      payload,
+    });
+  }
+
   private _send(payload: WebRTCDataChannelPayload) {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(payload));

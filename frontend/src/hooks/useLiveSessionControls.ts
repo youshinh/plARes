@@ -3,7 +3,7 @@ import { geminiLiveService } from '../services/GeminiLiveService';
 import { wsService } from '../services/WebSocketService';
 import { showSubtitle } from '../utils/uiEvents';
 import type { LiveDebugInfo } from '../types/app';
-import { useLiveRouteSelector } from './useLiveRouteSelector';
+import { resolveConfiguredLivePolicyPhase, useLiveRouteSelector } from './useLiveRouteSelector';
 
 type UseLiveSessionControlsArgs = {
   liveNeedConnectionText: string;
@@ -25,7 +25,8 @@ const DEFAULT_LIVE_DEBUG_INFO: Omit<
 export const useLiveSessionControls = ({
   liveNeedConnectionText,
 }: UseLiveSessionControlsArgs) => {
-  const liveRouteSelector = useLiveRouteSelector('current');
+  const livePolicyPhase = resolveConfiguredLivePolicyPhase();
+  const liveRouteSelector = useLiveRouteSelector(livePolicyPhase);
   const routeInfo = useMemo(() => ({
     conversationRoute: liveRouteSelector.resolve('conversation').fallback
       ? `${liveRouteSelector.resolve('conversation').primary} -> ${liveRouteSelector.resolve('conversation').fallback}`
@@ -50,6 +51,17 @@ export const useLiveSessionControls = ({
 
   const requestAdkStatus = useCallback(() => {
     wsService.requestAdkStatus({ request_id: `req_${Date.now()}` });
+  }, []);
+
+  const requestBattleStateSnapshot = useCallback(() => {
+    wsService.requestBattleStateSnapshot({ request_id: `req_${Date.now()}` });
+  }, []);
+
+  const requestTacticalRecommendation = useCallback((action = 'take_cover') => {
+    wsService.requestTacticalRecommendation({
+      request_id: `req_${Date.now()}`,
+      action,
+    });
   }, []);
 
   useEffect(() => {
@@ -91,6 +103,43 @@ export const useLiveSessionControls = ({
       max_output_tokens: 120,
     });
   }, [liveDebugInfo.interactionId, liveRouteSelector, routeInfo]);
+
+  const requestBattleCoaching = useCallback(() => {
+    const route = liveRouteSelector.resolve('battle_coaching');
+    if (route.primary === 'adk_live_ws') {
+      if (liveDebugInfo.adkStatus === 'available') {
+        setLiveDebugInfo((prev) => ({
+          ...prev,
+          ...routeInfo,
+          lastStatus: 'requesting_adk_tactical_recommendation',
+          degradedReason: '',
+        }));
+        requestTacticalRecommendation('take_cover');
+        return;
+      }
+      if (route.fallback === 'backend_interaction') {
+        setLiveDebugInfo((prev) => ({
+          ...prev,
+          ...routeInfo,
+          lastStatus: 'battle_coaching_fallback_backend_interaction',
+          degradedReason: prev.adkStatus.startsWith('unavailable')
+            ? prev.adkStatus
+            : 'ADK unavailable, using backend interaction fallback.',
+        }));
+        requestInteractionTurn();
+        return;
+      }
+      setLiveDebugInfo((prev) => ({
+        ...prev,
+        ...routeInfo,
+        lastStatus: 'route_blocked',
+        degradedReason: route.note,
+      }));
+      showSubtitle(route.note);
+      return;
+    }
+    requestInteractionTurn();
+  }, [liveDebugInfo.adkStatus, liveRouteSelector, requestInteractionTurn, requestTacticalRecommendation, routeInfo]);
 
   const connectLiveDirect = useCallback(async () => {
     const route = liveRouteSelector.resolve('conversation');
@@ -282,9 +331,12 @@ export const useLiveSessionControls = ({
     isLiveMicActive,
     liveDebugInfo,
     pendingLiveConnectRef,
+    requestBattleCoaching,
     requestInteractionTurn,
     requestAdkStatus,
+    requestBattleStateSnapshot,
     requestLiveEphemeralToken,
+    requestTacticalRecommendation,
     sendLiveTextPing,
     setLiveDebugInfo,
     toggleLiveMic,

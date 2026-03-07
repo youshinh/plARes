@@ -1,8 +1,9 @@
-import { useState, type FC } from 'react';
+import { useMemo, useState, type FC } from 'react';
 import type { CharacterDNA } from '../../../../shared/types/firestore';
-import { getModelTypeCopy, MODEL_TYPE_OPTIONS, type ModelTypeId } from '../../constants/modelTypes';
+import { getModelTypeCopy, getModelTypeMeta, type ModelTypeId } from '../../constants/modelTypes';
 import { resolveRobotPalette, type PaletteFamily } from '../../utils/characterDNA';
 import type { UiText } from '../../types/app';
+import { ModelTypeList } from './ModelTypeList';
 
 const PREP_PALETTES: PaletteFamily[] = ['marine', 'ember', 'forest', 'royal', 'obsidian', 'sunset'];
 
@@ -24,7 +25,6 @@ type BattlePrepOverlayProps = {
   enemyModelType: ModelTypeId;
   robotDna: CharacterDNA;
   enemyRobotDna: CharacterDNA;
-  robotMaterial: 'Wood' | 'Metal' | 'Resin';
   alignmentReady: boolean;
   hasWalkMilestone: boolean;
   hasTrainingMilestone: boolean;
@@ -46,7 +46,6 @@ export const BattlePrepOverlay: FC<BattlePrepOverlayProps> = ({
   enemyModelType,
   robotDna,
   enemyRobotDna,
-  robotMaterial,
   alignmentReady,
   hasWalkMilestone,
   hasTrainingMilestone,
@@ -59,9 +58,15 @@ export const BattlePrepOverlay: FC<BattlePrepOverlayProps> = ({
   onEnterBattleMode,
   onCloseBattlePrep,
 }) => {
+  const [activeTab, setActiveTab] = useState<'self' | 'enemy'>('self');
   const activePalette = robotDna.paletteFamily;
   const activeEnemyPalette = enemyRobotDna.paletteFamily;
-  const [activeTab, setActiveTab] = useState<'self' | 'enemy'>('self');
+  const activeType = activeTab === 'enemy' ? enemyModelType : currentModelType;
+  const activeDna = activeTab === 'enemy' ? enemyRobotDna : robotDna;
+  const activeTypeCopy = useMemo(() => getModelTypeCopy(activeType, t), [activeType, t]);
+  const activePaletteValue = activeTab === 'enemy' ? activeEnemyPalette : activePalette;
+  const handleTypeChange = activeTab === 'enemy' ? onSelectEnemyModelType : onSelectModelType;
+  const handlePaletteChange = activeTab === 'enemy' ? onSelectEnemyPaletteFamily : onSelectPaletteFamily;
 
   return (
     <section className="battle-prep-overlay hud-animate" aria-label={t.prepTitle}>
@@ -75,7 +80,7 @@ export const BattlePrepOverlay: FC<BattlePrepOverlayProps> = ({
           </li>
           <li className="battle-prep-item is-ready">
             <span>{t.prepStepModel}</span>
-            <strong>{`Type ${currentModelType}`}</strong>
+            <strong>{activeTypeCopy.title}</strong>
           </li>
           <li className={`battle-prep-item ${alignmentReady ? 'is-ready' : 'is-guide'}`}>
             <span>{t.prepStepAlign}</span>
@@ -102,103 +107,43 @@ export const BattlePrepOverlay: FC<BattlePrepOverlayProps> = ({
           </div>
         )}
 
-        {(!isSolo || activeTab === 'self') && (
-          <>
-            <div className="battle-prep-section">
-              <div className="battle-prep-section-label">{t.prepSelectFrame}</div>
-              <div className="battle-prep-option-grid is-duo">
-                {MODEL_TYPE_OPTIONS.map(({ id }) => {
-                  const copy = getModelTypeCopy(id, t);
-                  return (
-                    <button
-                      key={id}
-                      type="button"
-                      className={`battle-prep-option ${currentModelType === id ? 'is-active' : ''}`}
-                      onClick={() => onSelectModelType(id)}
-                    >
-                      <strong>{copy.title}</strong>
-                      <span>{copy.description}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
+        <div className="battle-prep-section">
+          <div className="battle-prep-section-label">
+            {activeTab === 'enemy' ? t.prepEnemyFrame : t.prepSelectFrame}
+          </div>
+          <div className="battle-prep-selection-summary">
+            <strong>{activeTypeCopy.title}</strong>
+            <span>{activeTypeCopy.description}</span>
+          </div>
+          <ModelTypeList t={t} value={activeType} onChange={handleTypeChange} />
+        </div>
 
-            <div className="battle-prep-section">
-              <div className="battle-prep-section-label">{t.prepStepPalette}</div>
-              <div className="battle-prep-option-grid">
-                {PREP_PALETTES.map((paletteFamily) => {
-                  const palette = resolveRobotPalette(robotMaterial, { ...robotDna, paletteFamily });
-                  return (
-                    <button
-                      key={paletteFamily}
-                      type="button"
-                      className={`battle-prep-option battle-prep-palette ${activePalette === paletteFamily ? 'is-active' : ''}`}
-                      onClick={() => onSelectPaletteFamily(paletteFamily)}
-                    >
-                      <div className="battle-prep-swatch-row">
-                        <span style={{ background: palette.white }} />
-                        <span style={{ background: palette.blue }} />
-                        <span style={{ background: palette.red }} />
-                        <span style={{ background: palette.cyan }} />
-                      </div>
-                      <strong>{paletteLabel(paletteFamily, t)}</strong>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </>
-        )}
-
-        {isSolo && activeTab === 'enemy' && (
-          <>
-            <div className="battle-prep-section">
-              <div className="battle-prep-section-label">{t.prepEnemyFrame}</div>
-              <div className="battle-prep-option-grid is-duo">
-                {MODEL_TYPE_OPTIONS.map(({ id }) => {
-                  const copy = getModelTypeCopy(id, t);
-                  return (
-                    <button
-                      key={`enemy-${id}`}
-                      type="button"
-                      className={`battle-prep-option ${enemyModelType === id ? 'is-active' : ''}`}
-                      onClick={() => onSelectEnemyModelType(id)}
-                    >
-                      <strong>{copy.title}</strong>
-                      <span>{copy.description}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="battle-prep-section">
-              <div className="battle-prep-section-label">{t.prepEnemyPalette}</div>
-              <div className="battle-prep-option-grid">
-                {PREP_PALETTES.map((paletteFamily) => {
-                  const palette = resolveRobotPalette(robotMaterial, { ...enemyRobotDna, paletteFamily });
-                  return (
-                    <button
-                      key={`enemy-palette-${paletteFamily}`}
-                      type="button"
-                      className={`battle-prep-option battle-prep-palette ${activeEnemyPalette === paletteFamily ? 'is-active' : ''}`}
-                      onClick={() => onSelectEnemyPaletteFamily(paletteFamily)}
-                    >
-                      <div className="battle-prep-swatch-row">
-                        <span style={{ background: palette.white }} />
-                        <span style={{ background: palette.blue }} />
-                        <span style={{ background: palette.red }} />
-                        <span style={{ background: palette.cyan }} />
-                      </div>
-                      <strong>{paletteLabel(paletteFamily, t)}</strong>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </>
-        )}
+        <div className="battle-prep-section">
+          <div className="battle-prep-section-label">
+            {activeTab === 'enemy' ? t.prepEnemyPalette : t.prepStepPalette}
+          </div>
+          <div className="battle-prep-palette-grid compact">
+            {PREP_PALETTES.map((paletteFamily) => {
+              const palette = resolveRobotPalette(getModelTypeMeta(activeType).material, { ...activeDna, paletteFamily });
+              return (
+                <button
+                  key={`${activeTab}-${paletteFamily}`}
+                  type="button"
+                  className={`battle-prep-palette-chip ${activePaletteValue === paletteFamily ? 'is-active' : ''}`}
+                  onClick={() => handlePaletteChange(paletteFamily)}
+                >
+                  <div className="battle-prep-swatch-row">
+                    <span style={{ background: palette.white }} />
+                    <span style={{ background: palette.blue }} />
+                    <span style={{ background: palette.red }} />
+                    <span style={{ background: palette.cyan }} />
+                  </div>
+                  <strong>{paletteLabel(paletteFamily, t)}</strong>
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
         <div className="battle-prep-actions">
           {!hasWalkMilestone && (

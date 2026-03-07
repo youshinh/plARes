@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js';
-import type { ModelTypeId } from '../../constants/modelTypes';
+import { resolveFallbackModelGlbPath, resolveModelGlbPath, type ModelTypeId } from '../../constants/modelTypes';
 import { collectCharacterClips } from '../../utils/characterAnimation';
 import { ROOT_DRIVE_BONE_RE } from './constants';
 
@@ -27,8 +27,8 @@ export const useRobotAssetBundle = (modelType: ModelTypeId) => {
   const [heroScene, setHeroScene] = useState<THREE.Group | null>(null);
   const [heroAnimations, setHeroAnimations] = useState<THREE.AnimationClip[]>([]);
   const [heroBaseMinY, setHeroBaseMinY] = useState<number | null>(null);
-  const heroModelUrl = `/models/${modelType}/Character_output.glb`;
-  const fallbackModelUrl = `/models/${modelType === 'A' ? 'B' : 'A'}/Character_output.glb`;
+  const heroModelUrl = resolveModelGlbPath(modelType);
+  const fallbackModelUrl = resolveFallbackModelGlbPath(modelType);
 
   useEffect(() => {
     let disposed = false;

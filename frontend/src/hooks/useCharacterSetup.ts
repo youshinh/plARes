@@ -16,6 +16,8 @@ import type { RobotGenerationRequest, RobotGenerationResult } from '../../../sha
 import { PLAYER_ID } from '../utils/identity';
 import { analyzePhotoForDNA } from '../utils/photoDNAAnalyzer';
 import { analyzeFaceLandmarksForDNA } from '../utils/faceLandmarkAnalyzer';
+import { getModelTypeMeta } from '../constants/modelTypes';
+import { useFaceTexture } from './useFaceTexture';
 import {
   buildCharacterDNA,
   evolveCharacterDNAByMatchCount,
@@ -126,6 +128,7 @@ export function useCharacterSetup() {
   const setRobotStats = useFSMStore(s => s.setRobotStats);
   const setRobotDna = useFSMStore(s => s.setRobotDna);
   const modelType = useFSMStore(s => s.modelType);
+  const { createFaceTexture } = useFaceTexture();
 
   // 既に初期化済みかどうか
   const [isSetupDone, setIsSetupDone] = useState<boolean>(() => {
@@ -193,6 +196,7 @@ export function useCharacterSetup() {
       });
       const photoHints = await photoHintsPromise;
       const landmarkHints = await landmarkHintsPromise;
+      const modelMeta = getModelTypeMeta(modelType);
 
       setRobotStats(
         {
@@ -202,7 +206,7 @@ export function useCharacterSetup() {
         },
         {
           name:     data.name,
-          material: data.material,
+          material: modelMeta.material,
           tone:     data.personality.tone,
         },
       );
@@ -211,25 +215,33 @@ export function useCharacterSetup() {
       const apiDna =
         normalizeCharacterDNA(data.characterDna as RobotGenerationResult['characterDna']) ??
         normalizeCharacterDNA(maybeSnakeCaseDna);
+      const faceTextureUrl = await createFaceTexture(faceImageBase64);
       const dna = apiDna
         ? evolveCharacterDNAByMatchCount(
-            refineCharacterDNAWithPhotoHints(apiDna, photoHints, data.personality.tone, landmarkHints),
+            {
+              ...refineCharacterDNAWithPhotoHints(apiDna, photoHints, data.personality.tone, landmarkHints),
+              skinUrl: faceTextureUrl || apiDna.skinUrl,
+            },
             0,
           )
         :
           buildCharacterDNA({
             playerId: PLAYER_ID,
             name: data.name,
-            material: data.material,
+            material: modelMeta.material,
             tone: data.personality.tone,
             power: data.stats.power,
             speed: data.stats.speed,
             vit: data.stats.vit,
+            modelType,
             faceImageBase64,
             presetText,
             photoHints,
             landmarkHints,
           });
+      if (!apiDna && faceTextureUrl) {
+        dna.skinUrl = faceTextureUrl;
+      }
       setRobotDna(dna);
 
       localStorage.setItem(INIT_KEY, 'done');

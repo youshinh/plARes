@@ -24,6 +24,8 @@ import {
 } from '../utils/characterAnimation';
 import { patchDepthOcclusionMaterial, updateDepthOcclusionUniforms } from '../utils/depthOcclusion';
 import { resolveRobotPalette } from '../utils/characterDNA';
+import { getBaseStatPreset, getModelTypeMeta, isHeavyModelType, resolveFallbackModelGlbPath, resolveModelGlbPath } from '../constants/modelTypes';
+import { useRobotBoneScaling } from './robot/useRobotBoneScaling';
 
 const HEIGHT_DEBUG = import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEBUG_UI === 'true';
 const GROUND_CLEARANCE_EPSILON = 0.004;
@@ -103,7 +105,7 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
   const localModelType = useFSMStore(s => s.modelType);
   const enemyModelType = useFSMStore(s => s.enemyModelType);
   const enemyRobotDna = useFSMStore(s => s.enemyRobotDna);
-  const robotMaterial = useFSMStore(s => s.robotMeta.material);
+  const localRobotStats = useFSMStore(s => s.robotStats);
   const remoteBaseOffsetY = (modelBaseMinY !== null ? (-modelBaseMinY * 0.62) : 0) + GROUND_CONTACT_BIAS;
 
   // Sync effect (when connected to someone)
@@ -157,7 +159,15 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
   }, []);
 
   const opponentModelType = hasRemotePeer ? localModelType : enemyModelType;
-  const enemyPalette = resolveRobotPalette(robotMaterial, enemyRobotDna);
+  const enemyPalette = resolveRobotPalette(getModelTypeMeta(opponentModelType).material, enemyRobotDna);
+  const remoteStats = hasRemotePeer
+    ? localRobotStats
+    : {
+        power: getBaseStatPreset(opponentModelType).power,
+        speed: getBaseStatPreset(opponentModelType).speed,
+        vit: getBaseStatPreset(opponentModelType).hp,
+      };
+  useRobotBoneScaling(modelScene, remoteStats, enemyRobotDna);
 
   // Load Model
   useEffect(() => {
@@ -167,8 +177,8 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
     allMaterialsRef.current = [];
     const loader = new GLTFLoader();
 
-    const finalBaseUrl = `/models/${opponentModelType}/Character_output.glb`;
-    const fallbackBaseUrl = `/models/${opponentModelType === 'A' ? 'B' : 'A'}/Character_output.glb`;
+    const finalBaseUrl = resolveModelGlbPath(opponentModelType);
+    const fallbackBaseUrl = resolveFallbackModelGlbPath(opponentModelType);
     const sharedAnimationsUrl = '/animations/shared_animations.glb';
 
     type LoadedGLTF = { scene: THREE.Group; animations: THREE.AnimationClip[] };
@@ -187,8 +197,9 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
     loadBaseWithFallback().then(async (baseGltf) => {
       if (disposed) return;
       const scene = cloneSkeleton(baseGltf.scene) as THREE.Group;
-      const bodyColor = opponentModelType === 'B' ? enemyPalette.red : enemyPalette.blue;
-      const emissiveColor = opponentModelType === 'B' ? enemyPalette.redD : enemyPalette.blueL;
+      const useHeavyPalette = isHeavyModelType(opponentModelType);
+      const bodyColor = useHeavyPalette ? enemyPalette.red : enemyPalette.blue;
+      const emissiveColor = useHeavyPalette ? enemyPalette.redD : enemyPalette.blueL;
       scene.traverse((child) => {
         if ((child as THREE.Mesh).isMesh) {
           const mesh = child as THREE.Mesh;

@@ -3,6 +3,7 @@ import type { FaceLandmarkHints } from './faceLandmarkAnalyzer';
 
 export type RobotMaterial = 'Wood' | 'Metal' | 'Resin';
 export type CharacterSilhouette = 'striker' | 'tank' | 'ace';
+export type CharacterBodyType = 'heavy' | 'slim';
 export type CharacterFinish = 'matte' | 'satin' | 'gloss';
 export type PaletteFamily = 'ember' | 'marine' | 'forest' | 'royal' | 'obsidian' | 'sunset';
 
@@ -10,6 +11,7 @@ export interface CharacterDNA {
   version: 'v1';
   seed: number;
   silhouette: CharacterSilhouette;
+  bodyType: CharacterBodyType;
   finish: CharacterFinish;
   paletteFamily: PaletteFamily;
   eyeGlow: string;
@@ -30,6 +32,7 @@ export interface CharacterDNAInput {
   power: number;
   speed: number;
   vit: number;
+  modelType?: string;
   faceImageBase64?: string;
   presetText?: string;
   photoHints?: PhotoDNAHints | null;
@@ -113,6 +116,7 @@ const PALETTE_PRESETS: Record<PaletteFamily, PalettePreset> = {
 };
 
 const SILHOUETTE_OPTIONS: CharacterSilhouette[] = ['striker', 'tank', 'ace'];
+const BODY_TYPE_OPTIONS: CharacterBodyType[] = ['heavy', 'slim'];
 const FINISH_OPTIONS: CharacterFinish[] = ['matte', 'satin', 'gloss'];
 const PALETTE_OPTIONS: PaletteFamily[] = ['ember', 'marine', 'forest', 'royal', 'obsidian', 'sunset'];
 
@@ -176,6 +180,7 @@ export const DEFAULT_CHARACTER_DNA: CharacterDNA = {
   version: 'v1',
   seed: 1024,
   silhouette: 'ace',
+  bodyType: 'slim',
   finish: 'satin',
   paletteFamily: 'marine',
   eyeGlow: '#73E4FF',
@@ -193,6 +198,9 @@ export const normalizeCharacterDNA = (value: unknown): CharacterDNA | null => {
   const version = v.version;
   const seed = v.seed;
   const silhouette = v.silhouette;
+  const bodyType =
+    v.bodyType ??
+    ((v.silhouette === 'tank' || String(v.materialType || '').toLowerCase() === 'metal') ? 'heavy' : 'slim');
   const finish = v.finish;
   const paletteFamily = v.paletteFamily;
   const eyeGlow = v.eyeGlow;
@@ -206,6 +214,7 @@ export const normalizeCharacterDNA = (value: unknown): CharacterDNA | null => {
     version !== 'v1' ||
     !isFiniteNumber(seed) ||
     !SILHOUETTE_OPTIONS.includes(silhouette as CharacterSilhouette) ||
+    !BODY_TYPE_OPTIONS.includes(bodyType as CharacterBodyType) ||
     !FINISH_OPTIONS.includes(finish as CharacterFinish) ||
     !PALETTE_OPTIONS.includes(paletteFamily as PaletteFamily) ||
     typeof eyeGlow !== 'string'
@@ -216,6 +225,7 @@ export const normalizeCharacterDNA = (value: unknown): CharacterDNA | null => {
     version: 'v1',
     seed: Math.max(1, Math.floor(seed)),
     silhouette: silhouette as CharacterSilhouette,
+    bodyType: bodyType as CharacterBodyType,
     finish: finish as CharacterFinish,
     paletteFamily: paletteFamily as PaletteFamily,
     eyeGlow,
@@ -248,6 +258,7 @@ export const buildCharacterDNA = (input: CharacterDNAInput): CharacterDNA => {
   const seed = hashFNV1a(key);
   const rand = createRng(seed);
   const material = normalizeMaterial(input.material);
+  const modelType = String(input.modelType || '').toLowerCase();
 
   let silhouette: CharacterSilhouette = 'ace';
   if (input.power >= input.speed + 12) silhouette = 'tank';
@@ -258,6 +269,14 @@ export const buildCharacterDNA = (input: CharacterDNAInput): CharacterDNA => {
   }
 
   if (rand() > 0.82) silhouette = pick(SILHOUETTE_OPTIONS, rand);
+
+  let bodyType: CharacterBodyType = material === 'Metal' || input.power >= input.speed + 10 ? 'heavy' : 'slim';
+  if (modelType.includes('heavy')) bodyType = 'heavy';
+  else if (modelType.includes('slim')) bodyType = 'slim';
+  else if (input.landmarkHints) {
+    if (input.landmarkHints.jawWidthRatio >= 0.68) bodyType = 'heavy';
+    else if (input.landmarkHints.faceAspectRatio >= 0.66) bodyType = 'slim';
+  }
 
   const finishByMaterial: Record<RobotMaterial, CharacterFinish[]> = {
     Wood: ['matte', 'satin', 'satin'],
@@ -293,6 +312,7 @@ export const buildCharacterDNA = (input: CharacterDNAInput): CharacterDNA => {
     version: 'v1',
     seed,
     silhouette,
+    bodyType,
     finish,
     paletteFamily,
     eyeGlow: PALETTE_PRESETS[paletteFamily].eyeGlow,
@@ -407,17 +427,46 @@ export const resolveRobotPalette = (material: string, dna: CharacterDNA): RobotP
 };
 
 export const getSilhouetteScales = (dna: CharacterDNA) => {
+  const base =
+    dna.bodyType === 'heavy'
+      ? { body: 1.12, arm: 1.2, legY: 0.92, legXZ: 1.15 }
+      : { body: 0.94, arm: 0.88, legY: 1.1, legXZ: 0.9 };
+
   if (dna.silhouette === 'tank') {
-    return { body: 1.08, arm: 1.15, legY: 0.94, legXZ: 1.1 };
+    return {
+      body: base.body * 1.03,
+      arm: base.arm * 1.08,
+      legY: base.legY,
+      legXZ: base.legXZ * 1.05,
+    };
   }
   if (dna.silhouette === 'striker') {
-    return { body: 0.96, arm: 0.93, legY: 1.12, legXZ: 0.9 };
+    return {
+      body: base.body * 0.97,
+      arm: base.arm * 0.95,
+      legY: base.legY * 1.06,
+      legXZ: base.legXZ,
+    };
   }
-  return { body: 1.0, arm: 1.0, legY: 1.0, legXZ: 1.0 };
+  return base;
 };
 
 export const getFinishMaterialTuning = (finish: CharacterFinish) => {
   if (finish === 'matte') return { roughnessBias: 0.12, metalBias: -0.1 };
   if (finish === 'gloss') return { roughnessBias: -0.12, metalBias: 0.1 };
   return { roughnessBias: 0.0, metalBias: 0.0 };
+};
+
+export const MATERIAL_PBR_TUNING: Record<
+  RobotMaterial,
+  {
+    roughnessBase: number;
+    metalnessBase: number;
+    clearcoat: number;
+    envMapIntensity: number;
+  }
+> = {
+  Wood: { roughnessBase: 0.55, metalnessBase: 0.1, clearcoat: 0.15, envMapIntensity: 0.3 },
+  Resin: { roughnessBase: 0.3, metalnessBase: 0.25, clearcoat: 0.6, envMapIntensity: 0.6 },
+  Metal: { roughnessBase: 0.18, metalnessBase: 0.85, clearcoat: 0.8, envMapIntensity: 1.0 },
 };

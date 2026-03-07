@@ -307,8 +307,19 @@ export const useRemoteBattleEvents = ({
           const action = typeof payload.action === 'string' ? payload.action : '';
           const url = typeof payload.texture_url === 'string' ? payload.texture_url : '';
           const requestId = typeof payload.request_id === 'string' ? payload.request_id : '';
+          const mountPoint = typeof payload.mount_point === 'string' ? payload.mount_point : '';
+          const scale = Number(payload.scale ?? 0.28);
 
-          if (action === 'equip' && url) {
+          if (action === 'attach' && url && mountPoint) {
+            useFSMStore.getState().setAttachment({
+              mountPoint: mountPoint as 'WEAPON_R' | 'WEAPON_L' | 'HEAD_ACCESSORY' | 'BACKPACK',
+              glbUrl: '',
+              label: concept,
+              scale: Number.isFinite(scale) ? scale : 0.28,
+              sourceImageUrl: url,
+            });
+            showSubtitle(`Attachment Ready: ${concept}`);
+          } else if (action === 'equip' && url) {
             const currentDna = useFSMStore.getState().robotDna;
             setRobotDna({ ...currentDna, skinUrl: url });
             showSubtitle(`Equipped Fusion Drop: ${concept}`);
@@ -323,6 +334,8 @@ export const useRemoteBattleEvents = ({
                   concept,
                   message: `${t.fusionSuccess}: ${concept}`,
                   textureUrl: url,
+                  craftKind: action === 'attach' ? 'attachment' : 'skin',
+                  mountPoint: mountPoint === 'WEAPON_L' || mountPoint === 'HEAD_ACCESSORY' || mountPoint === 'BACKPACK' ? mountPoint : 'WEAPON_R',
                 }
               : prev
           ));
@@ -340,6 +353,8 @@ export const useRemoteBattleEvents = ({
                   concept: prev.concept,
                   message,
                   textureUrl: '',
+                  craftKind: prev.craftKind,
+                  mountPoint: prev.mountPoint,
                 }
               : prev
           ));
@@ -357,6 +372,8 @@ export const useRemoteBattleEvents = ({
                   concept: prev.concept,
                   message,
                   textureUrl: '',
+                  craftKind: prev.craftKind,
+                  mountPoint: prev.mountPoint,
                 }
               : prev
           ));
@@ -455,6 +472,31 @@ export const useRemoteBattleEvents = ({
             lastStatus: available ? 'adk_status_ok' : 'adk_status_unavailable',
             degradedReason: available ? prev.degradedReason : (detail || prev.degradedReason),
           }));
+          return;
+        }
+        if (payload.kind === 'battle_state_snapshot' && (!target || target === PLAYER_ID)) {
+          const hp = Number(payload.hp ?? 0);
+          const maxHp = Number(payload.max_hp ?? 0);
+          const exGauge = Number(payload.ex_gauge ?? 0);
+          const syncRate = Number(payload.sync_rate ?? 0);
+          setLiveDebugInfo(prev => ({
+            ...prev,
+            lastStatus: 'battle_state_snapshot_ok',
+            degradedReason: '',
+            interactionText: `HP ${hp}/${maxHp} / EX ${exGauge} / Sync ${Math.round(syncRate * 100)}%`,
+          }));
+          showSubtitle(`Battle snapshot: HP ${hp}/${maxHp}, EX ${exGauge}, Sync ${Math.round(syncRate * 100)}%`);
+          return;
+        }
+        if (payload.kind === 'tactical_recommendation' && (!target || target === PLAYER_ID)) {
+          const action = String(payload.action ?? 'observe');
+          setLiveDebugInfo(prev => ({
+            ...prev,
+            lastStatus: 'tactical_recommendation_ok',
+            degradedReason: '',
+            interactionText: `ADK tactic: ${action}`,
+          }));
+          showSubtitle(`ADK tactic: ${action}`);
           return;
         }
       }

@@ -29,6 +29,7 @@ class CharacterSessionService:
 
             face_image_base64 = request_data.get("face_image_base64")
             preset_text = request_data.get("preset_text")
+            model_type = request_data.get("model_type")
 
             if self._generate_robot_stats is None:
                 await websocket.send(
@@ -44,6 +45,7 @@ class CharacterSessionService:
             result = await self._generate_robot_stats(
                 face_image_base64=face_image_base64,
                 preset_text=preset_text,
+                model_type=model_type,
             )
             await websocket.send(json.dumps(result, ensure_ascii=False))
         except self._connection_closed_exception:

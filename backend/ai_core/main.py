@@ -967,13 +967,15 @@ battle_service = BattleService(
     broadcast_winner_interview_and_bgm=_broadcast_winner_interview_and_bgm,
 )
 
+runtime_adk_bridge = RuntimeAdkBridge(
+    ensure_runtime_state=_ensure_runtime_state,
+    room_user_map=room_user_map,
+    room_user_meta=room_user_meta,
+    clamp01=clamp01,
+)
+
 set_adk_bridge(
-    RuntimeAdkBridge(
-        ensure_runtime_state=_ensure_runtime_state,
-        room_user_map=room_user_map,
-        room_user_meta=room_user_meta,
-        clamp01=clamp01,
-    )
+    runtime_adk_bridge
 )
 
 
@@ -998,6 +1000,16 @@ game_application = GameApplication(
         issue_ephemeral_token=_issue_ephemeral_token,
         run_interaction=_run_interaction,
         get_adk_status=_get_adk_status,
+        query_battle_state=lambda room_id, user_id: runtime_adk_bridge.query_battle_state(
+            room_id=room_id,
+            user_id=user_id,
+        ),
+        propose_tactic=lambda room_id, user_id, action, target=None: runtime_adk_bridge.propose_tactic(
+            room_id=room_id,
+            user_id=user_id,
+            action=action,
+            target=target,
+        ),
         room_user_lang=_room_user_lang,
         room_user_meta=room_user_meta,
         clamp01=clamp01,

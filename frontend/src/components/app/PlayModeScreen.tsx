@@ -5,6 +5,7 @@ import { TrainingModeScreen } from './TrainingModeScreen';
 import { WalkModeScreen } from './WalkModeScreen';
 import type { BattleUiState, FusionCraftFlowState, ModeSession, UiText } from '../../types/app';
 import type { PlayMode } from '../../store/useFSMStore';
+import type { MountPointId } from '../robot/constants';
 
 type PlayModeScreenProps = {
   t: UiText;
@@ -20,7 +21,13 @@ type PlayModeScreenProps = {
   fusionCraftFlow: FusionCraftFlowState;
   onOpenFusionCraft: () => void;
   onCloseFusionCraft: () => void;
-  onSubmitFusionCraft: (payload: { requestId: string; concept: string; referenceImage: string }) => void;
+  onSubmitFusionCraft: (payload: {
+    requestId: string;
+    concept: string;
+    referenceImage: string;
+    craftKind: 'skin' | 'attachment';
+    mountPoint: MountPointId;
+  }) => void;
   onCompleteWalk: () => void;
   onSendWalkVisionTrigger: () => void;
   onStartTraining: () => void;

@@ -4,6 +4,8 @@ import * as THREE from 'three';
 import { useRobotAssetBundle } from './robot/useRobotAssetBundle';
 import { useRobotAnimationController } from './robot/useRobotAnimationController';
 import { useRobotAppearance } from './robot/useRobotAppearance';
+import { useRobotBoneScaling } from './robot/useRobotBoneScaling';
+import { useAttachmentManager } from './robot/useAttachmentManager';
 import { useRobotFrameLoop } from './robot/useRobotFrameLoop';
 
 /**
@@ -26,6 +28,7 @@ export const RobotCharacter: React.FC = () => {
   const robotDna = useFSMStore(s => s.robotDna);
   const modelType = useFSMStore(s => s.modelType);
   const playMode = useFSMStore(s => s.playMode);
+  const attachments = useFSMStore(s => s.attachments);
   const { heroAnimations, heroBaseMinY, heroScene } = useRobotAssetBundle(modelType);
   const {
     actionRef,
@@ -44,6 +47,8 @@ export const RobotCharacter: React.FC = () => {
     robotMaterial: robotMeta.material,
     vit: robotStats.vit,
   });
+  useRobotBoneScaling(heroScene, robotStats, robotDna);
+  useAttachmentManager(heroScene, attachments);
   useRobotFrameLoop({
     actionRef,
     bodyScale,

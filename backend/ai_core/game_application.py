@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable
 
+from .equipment_generator import build_equipment_payload, normalize_craft_kind
 from .message_contracts import validate_inbound_packet
 
 
@@ -38,6 +39,8 @@ class GameApplicationDeps:
     issue_ephemeral_token: Callable[[dict[str, Any], str, str], Any]
     run_interaction: Callable[[dict[str, Any], str, str], Any]
     get_adk_status: Callable[[], dict[str, Any]]
+    query_battle_state: Callable[[str, str], dict[str, Any]]
+    propose_tactic: Callable[[str, str, str, str | None], dict[str, Any]]
     room_user_lang: Callable[[str, str, str], str]
     room_user_meta: dict[str, dict[str, dict[str, Any]]]
     clamp01: Callable[[float], float]
@@ -86,6 +89,8 @@ class GameApplication:
         self._issue_ephemeral_token = deps.issue_ephemeral_token
         self._run_interaction = deps.run_interaction
         self._get_adk_status = deps.get_adk_status
+        self._query_battle_state = deps.query_battle_state
+        self._propose_tactic = deps.propose_tactic
         self._room_user_lang = deps.room_user_lang
         self._room_user_meta = deps.room_user_meta
         self._clamp01 = deps.clamp01
@@ -257,6 +262,49 @@ class GameApplication:
                     "user": "server",
                     "target": ctx.user_id,
                     "payload": status_result,
+                },
+            }
+            await self._broadcast_room(ctx.room_id, wrapped, target_user=ctx.user_id)
+            self._record_room_event(ctx.room_id, ctx.user_id, wrapped["data"])
+            return
+
+        if (
+            event_data.get("event") == "request_battle_state_snapshot"
+            and isinstance(payload_obj, dict)
+        ):
+            snapshot_result = self._query_battle_state(ctx.room_id, ctx.user_id)
+            snapshot_result["request_id"] = payload_obj.get("request_id")
+            wrapped = {
+                "type": "event",
+                "data": {
+                    "event": "buff_applied",
+                    "user": "server",
+                    "target": ctx.user_id,
+                    "payload": snapshot_result,
+                },
+            }
+            await self._broadcast_room(ctx.room_id, wrapped, target_user=ctx.user_id)
+            self._record_room_event(ctx.room_id, ctx.user_id, wrapped["data"])
+            return
+
+        if (
+            event_data.get("event") == "request_tactical_recommendation"
+            and isinstance(payload_obj, dict)
+        ):
+            tactic_result = self._propose_tactic(
+                ctx.room_id,
+                ctx.user_id,
+                str(payload_obj.get("action", "observe")),
+                str(payload_obj.get("target")) if payload_obj.get("target") is not None else None,
+            )
+            tactic_result["request_id"] = payload_obj.get("request_id")
+            wrapped = {
+                "type": "event",
+                "data": {
+                    "event": "buff_applied",
+                    "user": "server",
+                    "target": ctx.user_id,
+                    "payload": tactic_result,
                 },
             }
             await self._broadcast_room(ctx.room_id, wrapped, target_user=ctx.user_id)
@@ -775,10 +823,12 @@ class GameApplication:
 
         target_id = str(event_data.get("target", ctx.user_id) or ctx.user_id)
         concept = str(payload_obj.get("concept", "legendary item"))
+        craft_kind = normalize_craft_kind(payload_obj.get("craft_kind"))
+        equipment_payload = build_equipment_payload(craft_kind, payload_obj.get("mount_point"))
         target_lang = self._room_user_lang(ctx.room_id, target_id, default="ja-JP")
         target_sync_rate = self._target_sync_rate(ctx.room_id, target_id, 0.5)
 
-        generated = {
+        generated_event = {
             "event": "item_dropped",
             "user": "server",
             "target": target_id,
@@ -788,8 +838,14 @@ class GameApplication:
                 "request_id": request_id,
                 "concept": concept,
                 "texture_url": texture_url,
-                "action": "equip",
+                "action": equipment_payload["action"],
+                "mount_point": equipment_payload["mount_point"],
+                "scale": equipment_payload["scale"],
             },
+        }
+        generated = {
+            "type": "event",
+            "data": generated_event,
         }
         await self._broadcast_room(ctx.room_id, generated)
 
@@ -802,7 +858,9 @@ class GameApplication:
                 "id": f"fused_{int(time.time())}",
                 "name": f"Fused: {concept}",
                 "url": texture_url,
-                "type": "skin",
+                "type": equipment_payload["inventory_type"],
+                "mount_point": equipment_payload["mount_point"],
+                "action": equipment_payload["action"],
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
         )
@@ -814,7 +872,7 @@ class GameApplication:
             self._profile_sync_payload(target_id, profile),
             target_user=target_id,
         )
-        self._record_room_event(ctx.room_id, ctx.user_id, generated)
+        self._record_room_event(ctx.room_id, ctx.user_id, generated_event)
 
     async def _handle_match_end(
         self,

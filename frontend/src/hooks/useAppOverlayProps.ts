@@ -3,6 +3,7 @@ import { canonicalizeLocale, type LanguagePreset } from '../i18n/runtime';
 import type { AppEntryScreensProps } from '../components/app/AppEntryScreens';
 import type { AppMainHudProps } from '../components/app/AppMainHud';
 import type { ModelTypeId } from '../constants/modelTypes';
+import type { MountPointId } from '../components/robot/constants';
 import type {
   ArSupportState,
   BattleUiState,
@@ -107,11 +108,19 @@ type UseMainHudPropsArgs = {
   onEnterBattleMode: () => void;
   onOpenFusionCraft: () => void;
   onCloseFusionCraft: () => void;
-  onSubmitFusionCraft: (payload: { requestId: string; concept: string; referenceImage: string }) => void;
+  onSubmitFusionCraft: (payload: {
+    requestId: string;
+    concept: string;
+    referenceImage: string;
+    craftKind: 'skin' | 'attachment';
+    mountPoint: MountPointId;
+  }) => void;
   onRequestProfileSync: () => void;
   onToggleLiveConnection: () => void;
   onToggleLiveMic: () => void;
   onSendLiveTextPing: () => void;
+  onRequestBattleStateSnapshot: () => void;
+  onRequestTacticalRecommendation: () => void;
   onReturnToHub: () => void;
   onWalkVisionOrProfileSync: () => void;
   onSendWalkVisionTrigger: () => void;

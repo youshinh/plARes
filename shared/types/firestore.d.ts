@@ -25,6 +25,7 @@ export interface CharacterDNA {
   version: "v1";
   seed: number;
   silhouette: "striker" | "tank" | "ace";
+  bodyType: "heavy" | "slim";
   finish: "matte" | "satin" | "gloss";
   paletteFamily: "ember" | "marine" | "forest" | "royal" | "obsidian" | "sunset";
   eyeGlow: string;
@@ -55,7 +56,7 @@ export interface RobotGenerationRequest {
   /** スキップ時にユーザーが入力したテキストプロンプト */
   preset_text?: string;
   /** フロントで選択した機体タイプ */
-  model_type?: "A" | "B";
+  model_type?: "wood_heavy" | "wood_slim" | "resin_heavy" | "resin_slim" | "metal_heavy" | "metal_slim";
 }
 
 /** バックエンドがGemini Visionから生成したロボット初期パラメータ */

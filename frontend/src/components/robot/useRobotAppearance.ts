@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import * as THREE from 'three';
 import type { CharacterDNA } from '../../../../shared/types/firestore';
-import type { ModelTypeId } from '../../constants/modelTypes';
+import { getModelTypeMeta, isHeavyModelType, type ModelTypeId } from '../../constants/modelTypes';
 import {
   getFinishMaterialTuning,
   getSilhouetteScales,
+  MATERIAL_PBR_TUNING,
   resolveRobotPalette,
 } from '../../utils/characterDNA';
+import { createHeadProjectionMaterial, isHeadProjectionTarget } from '../../utils/headProjectionMaterial';
 import { createSurfaceMaps, disposeSurfaceMaps } from '../../utils/proceduralPBR';
 import { GROUND_CONTACT_BIAS } from './constants';
 
@@ -27,13 +29,18 @@ export const useRobotAppearance = ({
   robotMaterial,
   vit,
 }: UseRobotAppearanceArgs) => {
+  const paletteMaterial = getModelTypeMeta(modelType).material ?? robotMaterial;
   const palette = useMemo(
-    () => resolveRobotPalette(robotMaterial, robotDna),
-    [robotDna, robotMaterial],
+    () => resolveRobotPalette(paletteMaterial, robotDna),
+    [paletteMaterial, robotDna],
   );
   const finishTuning = useMemo(
     () => getFinishMaterialTuning(robotDna.finish),
     [robotDna.finish],
+  );
+  const materialPbrTuning = useMemo(
+    () => MATERIAL_PBR_TUNING[paletteMaterial],
+    [paletteMaterial],
   );
   const bodyScale = useMemo(() => getSilhouetteScales(robotDna).body, [robotDna]);
   const dnaGlowIntensity = Math.max(0.9, Math.min(1.8, robotDna.glowIntensity || 1.0));
@@ -141,10 +148,11 @@ export const useRobotAppearance = ({
 
     const roughBias = finishTuning.roughnessBias;
     const metalBias = finishTuning.metalBias;
-    const primaryBodyColor = modelType === 'B' ? palette.red : palette.blue;
-    const secondaryBodyColor = modelType === 'B' ? palette.yellow : palette.white;
-    const accentEmissiveColor = modelType === 'B' ? palette.redD : palette.blueL;
-    const visorGlowColor = modelType === 'B' ? palette.yellow : palette.cyan;
+    const useHeavyPalette = isHeavyModelType(modelType);
+    const primaryBodyColor = useHeavyPalette ? palette.red : palette.blue;
+    const secondaryBodyColor = useHeavyPalette ? palette.yellow : palette.white;
+    const accentEmissiveColor = useHeavyPalette ? palette.redD : palette.blueL;
+    const visorGlowColor = useHeavyPalette ? palette.yellow : palette.cyan;
     const applyRough = (value: number) =>
       Math.max(0.02, Math.min(0.98, value + roughBias));
     const applyMetal = (value: number) =>
@@ -164,44 +172,44 @@ export const useRobotAppearance = ({
     const whiteMaps = withMaps('white');
     const blueMaps = withMaps('blue');
     const darkMaps = withMaps('dark');
-    const mats = [
+    const baseMats = [
       buildHeroMat({
-        color: skinTex ? 0xffffff : primaryBodyColor,
-        map: skinTex || blueMaps.map,
+        color: primaryBodyColor,
+        map: blueMaps.map,
         roughnessMap: blueMaps.roughnessMap,
         metalnessMap: blueMaps.metalnessMap,
         emissiveMap: blueMaps.emissiveMap,
-        roughness: applyRough(0.34),
-        metalness: applyMetal(0.58),
+        roughness: applyRough(materialPbrTuning.roughnessBase + 0.04),
+        metalness: applyMetal(materialPbrTuning.metalnessBase + 0.08),
         emissive: new THREE.Color(accentEmissiveColor),
         emissiveIntensity: 0.06,
-        clearcoat: 0.22,
+        clearcoat: materialPbrTuning.clearcoat,
         clearcoatRoughness: 0.34,
       }),
       buildHeroMat({
-        color: skinTex ? 0xffffff : secondaryBodyColor,
-        map: skinTex || whiteMaps.map,
+        color: secondaryBodyColor,
+        map: whiteMaps.map,
         roughnessMap: whiteMaps.roughnessMap,
         metalnessMap: whiteMaps.metalnessMap,
         emissiveMap: whiteMaps.emissiveMap,
-        roughness: applyRough(0.28),
-        metalness: applyMetal(0.45),
+        roughness: applyRough(materialPbrTuning.roughnessBase),
+        metalness: applyMetal(materialPbrTuning.metalnessBase),
         emissive: new THREE.Color(palette.whiteB),
         emissiveIntensity: 0.04,
-        clearcoat: 0.5,
+        clearcoat: Math.max(0.2, materialPbrTuning.clearcoat),
         clearcoatRoughness: 0.2,
       }),
       buildHeroMat({
-        color: skinTex ? 0xffffff : palette.black,
-        map: skinTex || darkMaps.map,
+        color: palette.black,
+        map: darkMaps.map,
         roughnessMap: darkMaps.roughnessMap,
         metalnessMap: darkMaps.metalnessMap,
         emissiveMap: darkMaps.emissiveMap,
-        roughness: applyRough(0.56),
-        metalness: applyMetal(0.62),
+        roughness: applyRough(materialPbrTuning.roughnessBase + 0.18),
+        metalness: applyMetal(materialPbrTuning.metalnessBase + 0.12),
         emissive: new THREE.Color(palette.blackM),
         emissiveIntensity: 0.03,
-        clearcoat: 0.12,
+        clearcoat: Math.max(0.08, materialPbrTuning.clearcoat * 0.4),
         clearcoatRoughness: 0.5,
       }),
       buildHeroMat({
@@ -209,29 +217,48 @@ export const useRobotAppearance = ({
         emissive: new THREE.Color(visorGlowColor),
         emissiveMap: surfaceMaps.blue?.emissive,
         emissiveIntensity: Math.max(0.9, dnaGlowIntensity),
-        roughness: applyRough(0.08),
-        metalness: applyMetal(0.82),
+        roughness: applyRough(Math.max(0.04, materialPbrTuning.roughnessBase - 0.1)),
+        metalness: applyMetal(Math.max(0.4, materialPbrTuning.metalnessBase)),
         transmission: 0,
         thickness: 0.5,
         ior: 1.23,
-        clearcoat: 0.82,
+        clearcoat: Math.max(0.6, materialPbrTuning.clearcoat),
         clearcoatRoughness: 0.06,
       }),
     ];
+    const headMat = skinTex ? createHeadProjectionMaterial(skinTex, accentEmissiveColor) : null;
 
     let idx = 0;
+    let appliedHeadProjection = false;
     heroScene.traverse((node) => {
       const mesh = node as THREE.Mesh;
       if (!mesh.isMesh) return;
       mesh.frustumCulled = false;
-      mesh.material = mats[idx % mats.length];
+      if (headMat && isHeadProjectionTarget(mesh.name)) {
+        mesh.material = headMat;
+        appliedHeadProjection = true;
+      } else {
+        mesh.material = baseMats[idx % baseMats.length];
+      }
       idx += 1;
     });
 
+    if (headMat && !appliedHeadProjection) {
+      let fallbackApplied = false;
+      heroScene.traverse((node) => {
+        if (fallbackApplied) return;
+        const mesh = node as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        mesh.material = headMat;
+        fallbackApplied = true;
+      });
+    }
+
     return () => {
-      mats.forEach((material) => material.dispose());
+      baseMats.forEach((material) => material.dispose());
+      headMat?.dispose();
     };
-  }, [dnaGlowIntensity, finishTuning, heroScene, modelType, palette, skinTex, surfaceMaps, withMaps]);
+  }, [dnaGlowIntensity, finishTuning, heroScene, materialPbrTuning, modelType, palette, skinTex, surfaceMaps, withMaps]);
 
   return {
     bodyScale,

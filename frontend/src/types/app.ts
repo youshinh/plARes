@@ -1,4 +1,5 @@
 import type { CharacterDNA } from '../../../shared/types/firestore';
+import type { MountPointId } from '../components/robot/constants';
 
 export type AppPhase = 'lang' | 'scan' | 'summon' | 'main';
 export type ArSupportState = 'checking' | 'supported' | 'unsupported';
@@ -65,6 +66,8 @@ export type FusionCraftFlowState = {
   concept: string;
   message: string;
   textureUrl: string;
+  craftKind: 'skin' | 'attachment';
+  mountPoint: MountPointId;
 };
 
 export type DnaAbFeedbackPayload = {

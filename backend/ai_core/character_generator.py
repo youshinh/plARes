@@ -46,8 +46,18 @@ STAT_CAP = 200          # 全パラメーター合計の上限
 DEFAULT_SYNC_RATE = 10.0
 DEFAULT_UNISON = 100.0
 DNA_SILHOUETTES = ("striker", "tank", "ace")
+DNA_BODY_TYPES = ("heavy", "slim")
 DNA_FINISHES = ("matte", "satin", "gloss")
 DNA_PALETTES = ("ember", "marine", "forest", "royal", "obsidian", "sunset")
+
+MODEL_TYPE_PRESETS = {
+    "wood_heavy": {"material": "Wood", "bodyType": "heavy", "power": 65, "speed": 30, "vit": 80},
+    "wood_slim": {"material": "Wood", "bodyType": "slim", "power": 50, "speed": 55, "vit": 55},
+    "resin_heavy": {"material": "Resin", "bodyType": "heavy", "power": 85, "speed": 35, "vit": 60},
+    "resin_slim": {"material": "Resin", "bodyType": "slim", "power": 35, "speed": 95, "vit": 35},
+    "metal_heavy": {"material": "Metal", "bodyType": "heavy", "power": 80, "speed": 20, "vit": 99},
+    "metal_slim": {"material": "Metal", "bodyType": "slim", "power": 75, "speed": 80, "vit": 40},
+}
 
 # ── プロンプト ────────────────────────────────────────────────────────────────
 
@@ -134,6 +144,7 @@ def _build_character_dna(
     face_image_base64: Optional[str],
     preset_text: Optional[str],
     material_type: str = "plastic",
+    body_type: str | None = None,
 ) -> dict:
     face_hint = (face_image_base64 or "")[:512]
     seed_source = "|".join(
@@ -157,6 +168,8 @@ def _build_character_dna(
         silhouette = "tank"
     elif speed >= power + 12:
         silhouette = "striker"
+
+    resolved_body_type = body_type if body_type in DNA_BODY_TYPES else ("heavy" if material == "Metal" or power >= speed + 10 else "slim")
 
     finish = "satin"
     if material == "Metal":
@@ -185,6 +198,7 @@ def _build_character_dna(
         "version": "v1",
         "seed": seed,
         "silhouette": silhouette if silhouette in DNA_SILHOUETTES else "ace",
+        "bodyType": resolved_body_type if resolved_body_type in DNA_BODY_TYPES else "slim",
         "finish": finish if finish in DNA_FINISHES else "satin",
         "paletteFamily": palette if palette in DNA_PALETTES else "marine",
         "eyeGlow": eye_glow_by_palette.get(palette, "#73E4FF"),
@@ -197,11 +211,14 @@ def _build_character_dna(
     }
 
 
-def _normalize_result(raw: dict, face_image_base64: Optional[str], preset_text: Optional[str]) -> dict:
+def _normalize_result(raw: dict, face_image_base64: Optional[str], preset_text: Optional[str], model_type: Optional[str]) -> dict:
     """Geminiの出力を正規化・バリデーションし、フロントエンド向けdictを返す"""
+    model_preset = MODEL_TYPE_PRESETS.get(str(model_type or "").strip())
     material = raw.get("material", "Wood")
     if material not in {"Wood", "Metal", "Resin"}:
         material = "Wood"
+    if model_preset:
+        material = model_preset["material"]
 
     stats = {
         "power":      max(1, min(99, int(raw.get("power", 40)))),
@@ -211,6 +228,10 @@ def _normalize_result(raw: dict, face_image_base64: Optional[str], preset_text: 
         "adlibSkill": max(1, min(99, int(raw.get("adlibSkill", 30)))),
     }
     stats = _cap_stats(stats)
+    if model_preset:
+        stats["power"] = model_preset["power"]
+        stats["speed"] = model_preset["speed"]
+        stats["vit"] = model_preset["vit"]
 
     name = str(raw.get("suggestedName", "レスラーMk1"))[:20]
     tone = str(raw.get("tone", "balanced"))[:50]
@@ -228,6 +249,7 @@ def _normalize_result(raw: dict, face_image_base64: Optional[str], preset_text: 
             face_image_base64=face_image_base64,
             preset_text=preset_text,
             material_type=material_type,
+            body_type=(model_preset or {}).get("bodyType"),
         )
 
     # Canonical contract-first shape (frontend/shared types) + legacy flat keys.
@@ -261,19 +283,20 @@ def _normalize_result(raw: dict, face_image_base64: Optional[str], preset_text: 
     }
 
 
-def _fallback_result(preset_text: Optional[str]) -> dict:
+def _fallback_result(preset_text: Optional[str], model_type: Optional[str] = None) -> dict:
     """APIが使えない場合のフォールバック（テキストヒューリスティック）"""
     tone = preset_text or "balanced"
     # 簡易キーワードマッピング
     kw = (preset_text or "").lower()
-    power      = 60 if any(w in kw for w in ("力", "パワー", "攻撃", "ゴリラ")) else 40
-    speed      = 60 if any(w in kw for w in ("速", "スピード", "俊足", "機敏")) else 40
-    vit        = 60 if any(w in kw for w in ("耐久", "タフ", "防御", "守り")) else 40
+    model_preset = MODEL_TYPE_PRESETS.get(str(model_type or "").strip())
+    power      = model_preset["power"] if model_preset else (60 if any(w in kw for w in ("力", "パワー", "攻撃", "ゴリラ")) else 40)
+    speed      = model_preset["speed"] if model_preset else (60 if any(w in kw for w in ("速", "スピード", "俊足", "機敏")) else 40)
+    vit        = model_preset["vit"] if model_preset else (60 if any(w in kw for w in ("耐久", "タフ", "防御", "守り")) else 40)
     talk_skill = 60 if any(w in kw for w in ("話す", "愛嬌", "面白", "トーク")) else 30
     adlib      = 30
     result = {
         "name": "レスラーMk1",
-        "material": "Wood",
+        "material": model_preset["material"] if model_preset else "Wood",
         "power": power,
         "speed": speed,
         "vit": vit,
@@ -291,6 +314,7 @@ def _fallback_result(preset_text: Optional[str]) -> dict:
         face_image_base64=None,
         preset_text=preset_text,
         material_type="plastic",
+        body_type=(model_preset or {}).get("bodyType"),
     )
     result["character_dna"] = character_dna
     result["characterDna"] = character_dna
@@ -316,6 +340,7 @@ def _fallback_result(preset_text: Optional[str]) -> dict:
 async def generate_robot_stats(
     face_image_base64: Optional[str] = None,
     preset_text: Optional[str] = None,
+    model_type: Optional[str] = None,
 ) -> dict:
     """
     顔写真またはテキストからプラレスラーの初期パラメーターを生成する。
@@ -329,7 +354,7 @@ async def generate_robot_stats(
     """
     client = _get_client()
     if client is None:
-        result = _fallback_result(preset_text)
+        result = _fallback_result(preset_text, model_type)
         result["error_code"] = "model_unavailable"
         result["is_fallback"] = True
         logger.warning(json.dumps({"event": "character_generation", "error_code": "model_unavailable"}))
@@ -379,7 +404,7 @@ async def generate_robot_stats(
             text = "".join(getattr(p, "text", "") for p in parts)
 
         raw = _extract_json(text)
-        return _normalize_result(raw, face_image_base64, preset_text)
+        return _normalize_result(raw, face_image_base64, preset_text, model_type)
 
     except Exception as exc:
         # JSON解析失敗・API障害時はフォールバック
@@ -387,7 +412,7 @@ async def generate_robot_stats(
         if "quota" in str(exc).lower() or "429" in str(exc):
             error_code = "gemini_quota_exceeded"
         logger.error(json.dumps({"event": "character_generation", "error_code": error_code, "error": str(exc)}), exc_info=True)
-        result = _fallback_result(preset_text)
+        result = _fallback_result(preset_text, model_type)
         result["error_code"] = error_code
         result["is_fallback"] = True
         return result

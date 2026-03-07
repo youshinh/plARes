@@ -10,7 +10,7 @@
  */
 
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { getModelTypeCopy, MODEL_TYPE_OPTIONS } from '../constants/modelTypes';
+import { ModelTypeList } from './app/ModelTypeList';
 import { useFSMStore } from '../store/useFSMStore';
 import type { UiText } from '../types/app';
 
@@ -192,16 +192,11 @@ export const FaceScanner: React.FC<FaceScannerProps> = ({ t, onGenerate, isGener
           </div>
         )}
 
-        {/* ── モデル選択（テスト用） ── */}
-        <div style={{ display: 'flex', gap: 16, alignSelf: 'center', marginBottom: 10 }}>
-          {MODEL_TYPE_OPTIONS.map(({ id }) => {
-            const copy = getModelTypeCopy(id, t);
-            return (
-              <label key={id} style={{ color: '#fff', fontSize: 13, cursor: 'pointer' }}>
-                <input type="radio" checked={modelType === id} onChange={() => setModelType(id)} /> {copy.title}
-              </label>
-            );
-          })}
+        <div style={{ width: '100%', marginBottom: 10 }}>
+          <div style={{ color: '#7fd5ff', fontSize: 12, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 8 }}>
+            {t.prepSelectFrame}
+          </div>
+          <ModelTypeList t={t} value={modelType} onChange={setModelType} compact />
         </div>
 
         {/* ── アクションボタン ── */}

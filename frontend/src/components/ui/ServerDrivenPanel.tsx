@@ -13,6 +13,52 @@ interface TacticItem {
   target?: { x: number; y: number; z: number };
 }
 
+const buildLocalizedTacticItem = (action: string, lang: string): TacticItem => {
+  const normalized = action.trim().toLowerCase();
+  const ja = {
+    take_cover: { title: '回避', detail: '遮蔽物へ退避' },
+    observe: { title: '観察', detail: '相手の動きを見る' },
+    charge: { title: '前進', detail: '圧をかけて距離を詰める' },
+    flank_left: { title: '左に回れ', detail: '左側から回り込む' },
+    flank_right: { title: '右に回れ', detail: '右側から回り込む' },
+    attack: { title: '攻撃', detail: '基本攻撃を実行' },
+    heavy_attack: { title: '強打', detail: '大振りの一撃を狙う' },
+  } as const;
+  const es = {
+    take_cover: { title: 'Esquivar', detail: 'Tomar cobertura' },
+    observe: { title: 'Observar', detail: 'Leer el movimiento rival' },
+    charge: { title: 'Avanzar', detail: 'Cerrar distancia con presion' },
+    flank_left: { title: 'Flanco Izquierdo', detail: 'Entrar por la izquierda' },
+    flank_right: { title: 'Flanco Derecho', detail: 'Entrar por la derecha' },
+    attack: { title: 'Atacar', detail: 'Ejecutar ataque basico' },
+    heavy_attack: { title: 'Golpe Fuerte', detail: 'Buscar un impacto pesado' },
+  } as const;
+  const en = {
+    take_cover: { title: 'Evade', detail: 'Move to cover' },
+    observe: { title: 'Observe', detail: 'Read the opponent first' },
+    charge: { title: 'Advance', detail: 'Close distance with pressure' },
+    flank_left: { title: 'Flank Left', detail: 'Move around the left side' },
+    flank_right: { title: 'Flank Right', detail: 'Take side position' },
+    attack: { title: 'Attack', detail: 'Execute basic attack' },
+    heavy_attack: { title: 'Heavy Attack', detail: 'Commit to a stronger strike' },
+  } as const;
+  const table = lang.startsWith('ja') ? ja : lang.startsWith('es') ? es : en;
+  const localized = table[normalized as keyof typeof table] ?? {
+    title: normalized.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase()),
+    detail: lang.startsWith('ja')
+      ? 'ADKが提案した戦術'
+      : lang.startsWith('es')
+        ? 'Tactica sugerida por ADK'
+        : 'ADK suggested tactic',
+  };
+  return {
+    id: `adk-${normalized || 'observe'}`,
+    action: normalized || 'observe',
+    title: localized.title,
+    detail: localized.detail,
+  };
+};
+
 /**
  * ServerDrivenPanel
  *
@@ -47,13 +93,27 @@ export const ServerDrivenPanel: React.FC = () => {
     const unsubscribe = wsService.addHandler((payload: WebRTCDataChannelPayload) => {
       if (payload.type !== 'event') return;
       const evt = payload.data as GameEvent;
-      const items = (evt as any).payload as TacticItem[] | undefined;
+      const rawPayload = (evt as any).payload;
+      if (
+        rawPayload &&
+        typeof rawPayload === 'object' &&
+        !Array.isArray(rawPayload) &&
+        rawPayload.kind === 'tactical_recommendation'
+      ) {
+        const recommended = buildLocalizedTacticItem(String(rawPayload.action ?? 'observe'), lang);
+        setTactics((prev) => {
+          const deduped = prev.filter((item) => item.action !== recommended.action);
+          return [recommended, ...deduped].slice(0, 4);
+        });
+        return;
+      }
+      const items = rawPayload as TacticItem[] | undefined;
       if (Array.isArray(items) && items.length > 0 && items[0].action) {
         setTactics(items);
       }
     });
     return () => { unsubscribe(); };
-  }, []);
+  }, [lang]);
 
   useEffect(() => {
     const handleResize = () => {
