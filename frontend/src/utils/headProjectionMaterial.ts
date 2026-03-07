@@ -44,36 +44,53 @@ export const createHeadProjectionMaterial = (
 export const createFaceDecal = (
   faceTexture: THREE.Texture,
   {
-    width = 10,
-    height = 12,
-    offsetZ = 1.8,
+    radius = 7.2,
+    offsetZ = 0,
     offsetY = 0,
   }: {
-    width?: number;
-    height?: number;
+    radius?: number;
     offsetZ?: number;
     offsetY?: number;
   } = {},
-) => {
+): THREE.Object3D => {
   const decalTexture = faceTexture.clone();
   decalTexture.flipY = true;
   decalTexture.needsUpdate = true;
 
-  const material = new THREE.SpriteMaterial({
+  // Create a sphere-segment that wraps the face around the head.
+  // phiStart / phiLength control horizontal coverage (~162°, ear-to-ear).
+  // thetaStart / thetaLength control vertical coverage (forehead to chin).
+  const phiStart = -Math.PI * 0.45;
+  const phiLength = Math.PI * 0.9;
+  const thetaStart = Math.PI * 0.18;
+  const thetaLength = Math.PI * 0.48;
+
+  const geometry = new THREE.SphereGeometry(
+    radius,
+    32,               // widthSegments
+    24,               // heightSegments
+    phiStart,
+    phiLength,
+    thetaStart,
+    thetaLength,
+  );
+
+  const material = new THREE.MeshBasicMaterial({
     map: decalTexture,
     transparent: true,
+    side: THREE.DoubleSide,
     depthWrite: false,
-    depthTest: false,
+    depthTest: true,
     toneMapped: false,
     opacity: 0.98,
-    sizeAttenuation: true,
+    alphaTest: 0.02,
   });
-  material.alphaTest = 0.02;
-  const sprite = new THREE.Sprite(material);
-  sprite.position.set(0, offsetY, offsetZ);
-  sprite.scale.set(width, height, 1);
-  sprite.center.set(0.5, 0.52);
-  sprite.renderOrder = 48;
-  sprite.frustumCulled = false;
-  return sprite;
+
+  const mesh = new THREE.Mesh(geometry, material);
+  // Rotate 180° so the texture faces inward toward the model surface.
+  mesh.rotation.y = Math.PI;
+  mesh.position.set(0, offsetY, offsetZ);
+  mesh.renderOrder = 48;
+  mesh.frustumCulled = false;
+  return mesh;
 };

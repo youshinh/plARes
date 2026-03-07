@@ -237,6 +237,11 @@ const processHitWindow = (
   if (distToEnemy > hitStatePolicy.hitWindow.range) return;
 
   action._hasHit = true;
+
+  // Apply damage to the enemy locally so solo/CPU battles work.
+  // (The WS/RTC path below notifies the backend for authoritative tracking.)
+  useFSMStore.getState().takeDamage('enemy', hitStatePolicy.hitWindow.damage);
+
   const hitPayload: WebRTCDataChannelPayload = {
     type: 'event',
     data: {

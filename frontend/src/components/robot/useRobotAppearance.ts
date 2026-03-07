@@ -255,9 +255,8 @@ export const useRobotAppearance = ({
         const heavyFrame = isHeavyModelType(modelType);
         const isHeadFrontAnchor = /headfront/i.test(anchor.name);
         faceDecal = createFaceDecal(skinTex!, {
-          width: heavyFrame ? 16.8 : 13.4,
-          height: heavyFrame ? 19.2 : 15.4,
-          offsetZ: isHeadFrontAnchor ? 0 : 8.4,
+          radius: heavyFrame ? 9.6 : 7.2,
+          offsetZ: isHeadFrontAnchor ? 0 : 1.2,
           offsetY: /neck/i.test(anchor.name) ? 7.2 : 0.1,
         });
         anchor.add(faceDecal);
@@ -268,10 +267,10 @@ export const useRobotAppearance = ({
     return () => {
       if (faceDecal) {
         faceDecal.parent?.remove(faceDecal);
-        const faceSprite = faceDecal as THREE.Sprite;
-        const decalMaterial = faceSprite.material as THREE.SpriteMaterial;
-        decalMaterial.map?.dispose();
-        decalMaterial.dispose();
+        const faceMesh = faceDecal as THREE.Mesh;
+        (faceMesh.material as THREE.MeshBasicMaterial).map?.dispose();
+        (faceMesh.material as THREE.MeshBasicMaterial).dispose();
+        faceMesh.geometry?.dispose();
       }
       baseMats.forEach((material) => material.dispose());
       headMat?.dispose();

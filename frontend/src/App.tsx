@@ -1371,6 +1371,47 @@ function App() {
     }
   }, [playMode, setRemoteRobotPosition]);
 
+  // ── Auto-end solo match when either HP reaches 0 ──
+  useEffect(() => {
+    if (playMode !== "match" || !isSolo) return;
+    if (localHp > 0 && enemyHp > 0) return;
+
+    // Give time for FAINT / CELEBRATE animation before ending.
+    const endTimer = window.setTimeout(() => {
+      const remoteMatchId = activeRemotePeerId || "cpu_rival";
+      const playerWon = enemyHp <= 0;
+      wsService.sendEvent({
+        event: "match_end" as any,
+        user: PLAYER_ID,
+        payload: {
+          trigger: "hp_zero",
+          winner: playerWon ? PLAYER_ID : remoteMatchId,
+          loser: playerWon ? remoteMatchId : PLAYER_ID,
+          loser_lang: playerWon ? selectedLanguage : PLAYER_LANG,
+        },
+      });
+      setIsBattlePrepOpen(false);
+      setShowFusionCraft(false);
+      setIsProfileOpen(false);
+      setIsMatchPaused(false);
+      setTrainingSession(null);
+      setWalkSession(null);
+      switchMode("hub");
+      useFSMStore.getState().resetMatch();
+      window.dispatchEvent(
+        new CustomEvent("show_subtitle", {
+          detail: {
+            text: playerWon
+              ? (t.matchVictory || "Victory!")
+              : (t.matchDefeat || "Defeat…"),
+          },
+        }),
+      );
+    }, 3000);
+
+    return () => window.clearTimeout(endTimer);
+  }, [playMode, isSolo, localHp, enemyHp]);
+
   const modeLabel =
     playMode === "hub"
       ? t.modeHub
