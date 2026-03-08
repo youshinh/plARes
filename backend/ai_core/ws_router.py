@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 import uuid
 from typing import Any, Awaitable, Callable, Optional
 from urllib.parse import parse_qs, urlparse
@@ -27,6 +28,11 @@ def parse_sync_rate(
         return default
 
 
+def _sanitize_id(val: str) -> str:
+    """Sanitizes user and room identifiers to prevent path traversal."""
+    return re.sub(r"[^a-zA-Z0-9_-]", "_", str(val))
+
+
 def parse_game_identity(
     request_path: str,
     clamp01: Callable[[float], float],
@@ -36,7 +42,7 @@ def parse_game_identity(
     room_id = query.get("room_id", ["default"])[0]
     lang = parse_lang(query)
     sync_rate = parse_sync_rate(query, clamp01, default=0.5)
-    return user_id, room_id, lang, sync_rate
+    return _sanitize_id(user_id), _sanitize_id(room_id), lang, sync_rate
 
 
 def parse_audio_identity(
@@ -48,7 +54,7 @@ def parse_audio_identity(
     room_id = query.get("room_id", ["default"])[0]
     lang = parse_lang(query)
     sync_rate = parse_sync_rate(query, clamp01, default=0.5)
-    return user_id, room_id, lang, sync_rate
+    return _sanitize_id(user_id), _sanitize_id(room_id), lang, sync_rate
 
 
 def resolve_request_path(websocket: Any, path: Optional[str] = None) -> str:
