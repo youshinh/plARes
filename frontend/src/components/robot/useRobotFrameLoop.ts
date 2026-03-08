@@ -250,7 +250,7 @@ const processHitWindow = (
   }
 };
 
-const applyCombatGlow = (group: THREE.Group, currentState: State, scarRoughnessBoost: number) => {
+const applyCombatGlow = (group: THREE.Group, currentState: State, scarRoughnessBoost: number, combatMaterialsRef: MutableRefObject<(THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial)[] | null>) => {
   const emissiveMap: Partial<Record<State, string>> = {
     [State.HOVERING]: '#000000',
     [State.BASIC_ATTACK]: '#661100',
@@ -262,12 +262,25 @@ const applyCombatGlow = (group: THREE.Group, currentState: State, scarRoughnessB
   const emissiveColor = emissiveMap[currentState] ?? '#000000';
   const emissiveIntensity = currentState === State.HOVERING ? 0.0 : 0.55;
 
-  group.traverse((child) => {
-    if (!(child as THREE.Mesh).isMesh) return;
-    const mat = (child as THREE.Mesh).material as
-      | THREE.MeshStandardMaterial
-      | THREE.MeshPhysicalMaterial;
+  // ⚡ Bolt: Cache materials to avoid expensive scene graph traversal in useFrame
+  if (!combatMaterialsRef.current || combatMaterialsRef.current.length === 0) {
+    const materials: (THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial)[] = [];
+    group.traverse((child) => {
+      if (!(child as THREE.Mesh).isMesh) return;
+      const mat = (child as THREE.Mesh).material as
+        | THREE.MeshStandardMaterial
+        | THREE.MeshPhysicalMaterial;
+      if (mat) materials.push(mat);
+    });
+    // Only cache if we actually found materials (models might not be fully loaded yet)
+    if (materials.length > 0) {
+      combatMaterialsRef.current = materials;
+    } else {
+      return; // No materials yet, skip glow application this frame
+    }
+  }
 
+  for (const mat of combatMaterialsRef.current) {
     if (mat.emissive && mat.emissiveIntensity < 1.2) {
       mat.emissive.set(emissiveColor);
       mat.emissiveIntensity = emissiveIntensity;
@@ -282,7 +295,7 @@ const applyCombatGlow = (group: THREE.Group, currentState: State, scarRoughnessB
         Math.min(0.98, store.baseRoughness + scarRoughnessBoost),
       );
     }
-  });
+  }
 };
 
 const syncStorePosition = ({
@@ -391,6 +404,7 @@ export const useRobotFrameLoop = ({
   const lastLocalStorePosRef = useRef(new THREE.Vector3(0, 0, -1));
   const prevPosRef = useRef(new THREE.Vector3(0, 0, -1));
   const hoverTimerRef = useRef(0);
+  const combatMaterialsRef = useRef<(THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial)[] | null>(null);
 
   useFrame((_, delta) => {
     const group = groupRef.current;
@@ -429,7 +443,7 @@ export const useRobotFrameLoop = ({
     });
     const remotePos = maybeFaceRemoteTarget(group, currentState, pos);
     processHitWindow(currentState, actionRef, pos, remotePos);
-    applyCombatGlow(group, currentState, scarRoughnessBoost);
+    applyCombatGlow(group, currentState, scarRoughnessBoost, combatMaterialsRef);
 
     const now = performance.now();
     syncStorePosition({
