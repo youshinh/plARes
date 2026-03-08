@@ -34,7 +34,7 @@ export const DynamicSubtitle: React.FC = React.memo(() => {
   if (!subtitle) return null;
 
   return (
-    <div className="hud-subtitle">
+    <div className="hud-subtitle" aria-live="polite" aria-atomic="true">
       {subtitle}
     </div>
   );
