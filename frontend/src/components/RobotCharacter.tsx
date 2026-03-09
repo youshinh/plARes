@@ -56,6 +56,7 @@ export const RobotCharacter: React.FC = () => {
     currentState,
     groundBoundsRef,
     groupRef,
+    heroScene,
     heroOffsetY,
     lastAnimStateRef,
     mixerRef,

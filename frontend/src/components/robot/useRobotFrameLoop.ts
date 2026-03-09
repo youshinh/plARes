@@ -28,6 +28,7 @@ type UseRobotFrameLoopArgs = {
   currentState: State;
   groundBoundsRef: MutableRefObject<THREE.Box3>;
   groupRef: RefObject<THREE.Group>;
+  heroScene?: THREE.Group | null;
   heroOffsetY: number;
   lastAnimStateRef: MutableRefObject<State | null>;
   mixerRef: MutableRefObject<THREE.AnimationMixer | null>;
@@ -250,7 +251,7 @@ const processHitWindow = (
   }
 };
 
-const applyCombatGlow = (group: THREE.Group, currentState: State, scarRoughnessBoost: number) => {
+const applyCombatGlow = (materials: (THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial)[], currentState: State, scarRoughnessBoost: number) => {
   const emissiveMap: Partial<Record<State, string>> = {
     [State.HOVERING]: '#000000',
     [State.BASIC_ATTACK]: '#661100',
@@ -262,12 +263,7 @@ const applyCombatGlow = (group: THREE.Group, currentState: State, scarRoughnessB
   const emissiveColor = emissiveMap[currentState] ?? '#000000';
   const emissiveIntensity = currentState === State.HOVERING ? 0.0 : 0.55;
 
-  group.traverse((child) => {
-    if (!(child as THREE.Mesh).isMesh) return;
-    const mat = (child as THREE.Mesh).material as
-      | THREE.MeshStandardMaterial
-      | THREE.MeshPhysicalMaterial;
-
+  for (const mat of materials) {
     if (mat.emissive && mat.emissiveIntensity < 1.2) {
       mat.emissive.set(emissiveColor);
       mat.emissiveIntensity = emissiveIntensity;
@@ -282,7 +278,7 @@ const applyCombatGlow = (group: THREE.Group, currentState: State, scarRoughnessB
         Math.min(0.98, store.baseRoughness + scarRoughnessBoost),
       );
     }
-  });
+  }
 };
 
 const syncStorePosition = ({
@@ -372,6 +368,7 @@ export const useRobotFrameLoop = ({
   currentState,
   groundBoundsRef,
   groupRef,
+  heroScene,
   heroOffsetY,
   lastAnimStateRef,
   mixerRef,
@@ -391,6 +388,25 @@ export const useRobotFrameLoop = ({
   const lastLocalStorePosRef = useRef(new THREE.Vector3(0, 0, -1));
   const prevPosRef = useRef(new THREE.Vector3(0, 0, -1));
   const hoverTimerRef = useRef(0);
+  // ⚡ Bolt: Cache materials to prevent expensive scene graph traversal in useFrame
+  // Impact: Eliminates O(N) scene graph node checks running at 60fps
+  const materialsCacheRef = useRef<(THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial)[]>([]);
+
+  useEffect(() => {
+    const materials: (THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial)[] = [];
+    const sourceGroup = heroScene || groupRef.current;
+    if (sourceGroup) {
+      sourceGroup.traverse((child) => {
+        if ((child as THREE.Mesh).isMesh) {
+          const mat = (child as THREE.Mesh).material as THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial;
+          if (mat) {
+            materials.push(mat);
+          }
+        }
+      });
+    }
+    materialsCacheRef.current = materials;
+  }, [heroScene, groupRef]);
 
   useFrame((_, delta) => {
     const group = groupRef.current;
@@ -429,7 +445,7 @@ export const useRobotFrameLoop = ({
     });
     const remotePos = maybeFaceRemoteTarget(group, currentState, pos);
     processHitWindow(currentState, actionRef, pos, remotePos);
-    applyCombatGlow(group, currentState, scarRoughnessBoost);
+    applyCombatGlow(materialsCacheRef.current, currentState, scarRoughnessBoost);
 
     const now = performance.now();
     syncStorePosition({
