@@ -102,3 +102,4 @@ tmp/
 .playwright-cli/
 output/playwright/
 .jj/
+.Jules/

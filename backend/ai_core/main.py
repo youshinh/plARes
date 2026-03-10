@@ -114,6 +114,16 @@ except Exception:
         build_robot_profile = None
         generate_robot_stats = None
 
+try:
+    from .equipment_generator import MeshyClient, MeshyGenerationError, normalize_craft_kind as _normalize_craft_kind_for_meshy
+except Exception:
+    try:
+        from ai_core.equipment_generator import MeshyClient, MeshyGenerationError, normalize_craft_kind as _normalize_craft_kind_for_meshy
+    except Exception:
+        MeshyClient = None  # type: ignore[assignment,misc]
+        MeshyGenerationError = RuntimeError  # type: ignore[assignment,misc]
+        _normalize_craft_kind_for_meshy = None  # type: ignore[assignment]
+
 load_environment(load_dotenv, __file__)
 
 mcp_server_instance, mcp_firestore_tools = init_mcp_tools(FirestoreMCPServer, logger)
@@ -694,8 +704,44 @@ def _update_persona_tone(
 
 
 async def _generate_fusion_texture(payload: dict[str, Any]) -> str:
+    """
+    フュージョンクラフトの生成処理。
+
+    - craft_kind="attachment": Meshy Image-to-3D API で GLB を生成して GLB URL を返す。
+    - craft_kind="skin":       RealityFusionCrafter でテクスチャを生成して URL を返す(従来)。
+    - MESHY_API_KEY が未設定 or aiohttp 未インストールの場合はフォールバック URL を返す。
+    """
     concept = str(payload.get("concept", "legendary weapon"))
-    image_data = payload.get("reference_image")
+    image_data = payload.get("reference_image", "")
+    craft_kind_raw = payload.get("craft_kind", "skin")
+    craft_kind = (
+        _normalize_craft_kind_for_meshy(craft_kind_raw)
+        if _normalize_craft_kind_for_meshy is not None
+        else ("attachment" if str(craft_kind_raw).strip().lower() == "attachment" else "skin")
+    )
+
+    # attachment → Meshy で GLB 生成
+    if craft_kind == "attachment" and MeshyClient is not None:
+        meshy_api_key = os.getenv("MESHY_API_KEY", "")
+        if meshy_api_key and isinstance(image_data, str) and image_data:
+            try:
+                client = MeshyClient(api_key=meshy_api_key)
+                glb_url = await client.generate(
+                    image_base64=image_data,
+                    prompt=concept,
+                    craft_kind="attachment",
+                )
+                logger.info(f"[Meshy] GLB generated: {glb_url}")
+                return glb_url
+            except Exception as exc:
+                logger.warning(f"[Meshy] GLB generation failed, falling back: {exc}")
+        else:
+            logger.warning(
+                "[Meshy] MESHY_API_KEY が未設定または画像データがありません。"
+                "フォールバック URL を使用します。"
+            )
+
+    # skin / フォールバック → 従来の RealityFusionCrafter
     image_bytes = b""
     if isinstance(image_data, str) and image_data:
         try:
