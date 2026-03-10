@@ -101,3 +101,4 @@ output/
 tmp/
 .playwright-cli/
 output/playwright/
+.jj/
