@@ -105,9 +105,10 @@ _TEXT_USER_PROMPT = """\
 
 _FACE_TEXTURE_PROMPT = """\
 Take the face from the provided image and generate a flat, unwrapped facial texture for a 3D head model.
-Erase the background and surrounding environment completely.
-The final image should look like a facial UV map with flat, neutral lighting, focusing only on the skin texture, eyes, nose, and mouth without any hair, neck, clothes, or accessories.
-Keep the face centered, front-facing, symmetric where possible, and ready for direct 1:1 texture projection.
+Replace the background and all non-face areas (hair, neck, clothes, accessories, ears beyond the earlobes) with a solid, uniform chroma-key green color exactly #00FF00 (RGB 0, 255, 0).
+The face itself — skin, eyes, eyebrows, nose, mouth — must be faithfully reproduced with flat, neutral even lighting.
+Keep the face centered, front-facing, and symmetric where possible.
+The image should resemble a UV face map: flat lighting, no shadows from the background, face only on a bright green field.
 Return image only.
 """
 

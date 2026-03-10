@@ -54,14 +54,29 @@ export const createFaceDecal = (
   } = {},
 ): THREE.Object3D => {
   const decalTexture = faceTexture.clone();
+  // PNG with alpha from chroma-key removal — keep flipY=true (Three.js default for canvas sources).
   decalTexture.flipY = true;
+  decalTexture.colorSpace = THREE.SRGBColorSpace;
+  decalTexture.premultiplyAlpha = false;
   decalTexture.needsUpdate = true;
 
-  // Create a sphere-segment that wraps the face around the head.
-  // phiStart / phiLength control horizontal coverage (~162°, ear-to-ear).
-  // thetaStart / thetaLength control vertical coverage (forehead to chin).
-  const phiStart = -Math.PI * 0.45;
-  const phiLength = Math.PI * 0.9;
+  // ── Sphere-segment wrapping the face around the head ──
+  //
+  // SphereGeometry phi sweeps horizontally starting from +X.
+  // A negative phiStart centers the patch symmetrically around phi=0 (+X).
+  //
+  // The head bone's local +Y typically points "up along the spine" which,
+  // for the head, maps to the CHARACTER'S FORWARD direction in world
+  // space.  That means the sphere's equator (outward normals horizontal
+  // in bone-local space) actually faces UPWARD in world space — which is
+  // why photos showed the face on top of the head.
+  //
+  // Fix: after generating the sphere patch, rotate -90° around X so the
+  // equatorial outward normals tilt from bone-horizontal (+X) to bone +Y
+  // (= character forward).  Then rotate +90° around Y so phi=0 (+X after
+  // the X-rotation it becomes +Z in bone space) points forward.
+  const phiStart = -Math.PI * 0.45;          // centered on +X
+  const phiLength = Math.PI * 0.9;           // ~162°, ear-to-ear
   const thetaStart = Math.PI * 0.18;
   const thetaLength = Math.PI * 0.48;
 
@@ -87,8 +102,10 @@ export const createFaceDecal = (
   });
 
   const mesh = new THREE.Mesh(geometry, material);
-  // Rotate 180° so the texture faces inward toward the model surface.
-  mesh.rotation.y = Math.PI;
+  // 1. Tip the face patch forward: -90° around X (bone-horizontal → bone +Y = char forward)
+  // 2. No additional Y rotation needed since the patch is already centered on +X
+  //    which, after the X-rotation, aligns with the bone's forward.
+  mesh.rotation.set(Math.PI / 2, 0, 0);
   mesh.position.set(0, offsetY, offsetZ);
   mesh.renderOrder = 48;
   mesh.frustumCulled = false;

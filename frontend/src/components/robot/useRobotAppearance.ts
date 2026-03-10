@@ -117,6 +117,40 @@ export const useRobotAppearance = ({
       };
     }
 
+    const applyChromaKey = (loadedTex: THREE.Texture): THREE.Texture => {
+      try {
+        const img = loadedTex.image as HTMLImageElement | null;
+        if (!img || !img.width) return loadedTex;
+
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return loadedTex;
+
+        ctx.drawImage(img, 0, 0);
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const d = imageData.data;
+        for (let i = 0; i < d.length; i += 4) {
+          const r = d[i], g = d[i + 1], b = d[i + 2];
+          // Match chroma-key green: g dominates r and b significantly
+          if (g > 80 && g > r * 1.5 && g > b * 1.5 && r < 160 && b < 160) {
+            const greenness = Math.min(1, (g - Math.max(r, b)) / 100);
+            d[i + 3] = Math.round(d[i + 3] * (1 - greenness));
+          }
+        }
+        ctx.putImageData(imageData, 0, 0);
+        loadedTex.dispose();
+
+        const canvasTex = new THREE.CanvasTexture(canvas);
+        canvasTex.colorSpace = THREE.SRGBColorSpace;
+        canvasTex.flipY = false;
+        return canvasTex;
+      } catch {
+        return loadedTex;
+      }
+    };
+
     const loader = new THREE.TextureLoader();
     loader.load(
       robotDna.skinUrl,
@@ -127,7 +161,8 @@ export const useRobotAppearance = ({
         }
         tex.colorSpace = THREE.SRGBColorSpace;
         tex.flipY = false;
-        setSkinTex(tex);
+        const finalTex = applyChromaKey(tex);
+        setSkinTex(finalTex);
       },
       undefined,
       () => {
@@ -140,6 +175,7 @@ export const useRobotAppearance = ({
       active = false;
     };
   }, [robotDna.skinUrl]);
+
 
   useEffect(
     () => () => {
