@@ -60,16 +60,16 @@ interface ClipSource {
 }
 
 const CLIP_SOURCES: ClipSource[] = [
-  { target: 'Idle', aliases: ['Idle', 'Alert', 'Boxing_Practice'] },
+  { target: 'Idle', aliases: ['Idle', 'Alert'] },
   { target: 'Walking', aliases: ['Walking', 'Casual_Walk'] },
   { target: 'Running', aliases: ['Running', 'RunFast'] },
-  { target: 'Jump', aliases: ['BeHit_FlyUp', 'Arise'] },
-  { target: 'Punch', aliases: ['Skill_01'] },
-  { target: 'Kick', aliases: ['Skill_03'] },
+  { target: 'Jump', aliases: ['Regular_Jump', 'Arise', 'BeHit_FlyUp'] },
+  { target: 'Punch', aliases: ['Punch_Combo_1', 'Punch_Combo_4', 'Left_Uppercut_from_Guard', 'Skill_01'] },
+  { target: 'Kick', aliases: ['High_Kick', 'Rising_Flying_Kick', 'Sweeping_Kick', 'Skill_03'] },
   { target: 'Death', aliases: ['Dead'] },
-  { target: 'Yes', aliases: ['Boom_Dance', 'All_Night_Dance'] },
-  { target: 'HeavyWalk', aliases: ['Slow_Orc_Walk'] },
-  { target: 'StaggerWalk', aliases: ['Unsteady_Walk'] },
+  { target: 'Yes', aliases: ['Victory_Cheer', 'Boom_Dance'] },
+  { target: 'HeavyWalk', aliases: ['Step_Back', 'Block1', 'Slow_Orc_Walk'] },
+  { target: 'StaggerWalk', aliases: ['Dodge_and_Counter', 'Unsteady_Walk'] },
 ];
 
 export const ONE_SHOT_CLIPS = new Set<CharacterClipName>(['Jump', 'Punch', 'Kick', 'Death']);

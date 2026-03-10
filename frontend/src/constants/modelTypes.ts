@@ -1,18 +1,18 @@
 import type { UiText } from '../types/app';
 
 export const MODEL_TYPE_OPTIONS = [
-  { id: 'wood_heavy', material: 'Wood', bodyType: 'heavy', assetSlot: 'B' },
-  { id: 'wood_slim', material: 'Wood', bodyType: 'slim', assetSlot: 'A' },
-  { id: 'resin_heavy', material: 'Resin', bodyType: 'heavy', assetSlot: 'B' },
-  { id: 'resin_slim', material: 'Resin', bodyType: 'slim', assetSlot: 'A' },
-  { id: 'metal_heavy', material: 'Metal', bodyType: 'heavy', assetSlot: 'B' },
-  { id: 'metal_slim', material: 'Metal', bodyType: 'slim', assetSlot: 'A' },
+  { id: 'wood_heavy', material: 'Wood', bodyType: 'heavy', assetSlot: 'C' },
+  { id: 'wood_slim', material: 'Wood', bodyType: 'slim', assetSlot: 'C' },
+  { id: 'resin_heavy', material: 'Resin', bodyType: 'heavy', assetSlot: 'C' },
+  { id: 'resin_slim', material: 'Resin', bodyType: 'slim', assetSlot: 'C' },
+  { id: 'metal_heavy', material: 'Metal', bodyType: 'heavy', assetSlot: 'C' },
+  { id: 'metal_slim', material: 'Metal', bodyType: 'slim', assetSlot: 'C' },
 ] as const;
 
 export type ModelTypeId = (typeof MODEL_TYPE_OPTIONS)[number]['id'];
 export type ModelMaterial = (typeof MODEL_TYPE_OPTIONS)[number]['material'];
 export type ModelBodyType = (typeof MODEL_TYPE_OPTIONS)[number]['bodyType'];
-export type LegacyModelAssetSlot = 'A' | 'B';
+export type LegacyModelAssetSlot = 'A' | 'B' | 'C';
 
 export const BASE_STAT_PRESETS: Record<ModelTypeId, { hp: number; speed: number; power: number }> = {
   wood_heavy: { hp: 80, speed: 30, power: 65 },
@@ -37,7 +37,7 @@ export const isModelTypeId = (value: string | null | undefined): value is ModelT
 export const normalizeModelTypeId = (value: string | null | undefined): ModelTypeId => {
   if (isModelTypeId(value)) return value;
   if (value === 'A') return 'wood_slim';
-  if (value === 'B') return 'metal_heavy';
+  if (value === 'B' || value === 'C') return 'metal_heavy';
   return 'wood_slim';
 };
 
@@ -49,14 +49,14 @@ export const isHeavyModelType = (modelType: ModelTypeId) => MODEL_TYPE_MAP[model
 export const resolveLegacyAssetSlot = (modelType: ModelTypeId): LegacyModelAssetSlot =>
   MODEL_TYPE_MAP[modelType].assetSlot;
 
-export const resolveLegacyFallbackAssetSlot = (modelType: ModelTypeId): LegacyModelAssetSlot =>
-  resolveLegacyAssetSlot(modelType) === 'A' ? 'B' : 'A';
+export const resolveLegacyFallbackAssetSlot = (_modelType: ModelTypeId): LegacyModelAssetSlot =>
+  'C';
 
-export const resolveModelGlbPath = (modelType: ModelTypeId) =>
-  `/models/${resolveLegacyAssetSlot(modelType)}/Character_output.glb`;
+export const resolveModelGlbPath = (_modelType: ModelTypeId) =>
+  `/models/C/Character_output.glb`;
 
-export const resolveFallbackModelGlbPath = (modelType: ModelTypeId) =>
-  `/models/${resolveLegacyFallbackAssetSlot(modelType)}/Character_output.glb`;
+export const resolveFallbackModelGlbPath = (_modelType: ModelTypeId) =>
+  `/models/C/Character_output.glb`;
 
 const getMaterialLabel = (material: ModelMaterial, t: UiText) =>
   ({
