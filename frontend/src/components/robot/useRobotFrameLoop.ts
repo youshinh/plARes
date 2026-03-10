@@ -250,7 +250,7 @@ const processHitWindow = (
   }
 };
 
-const applyCombatGlow = (group: THREE.Group, currentState: State, scarRoughnessBoost: number) => {
+const applyCombatGlow = (materialsCache: Array<THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial>, currentState: State, scarRoughnessBoost: number) => {
   const emissiveMap: Partial<Record<State, string>> = {
     [State.HOVERING]: '#000000',
     [State.BASIC_ATTACK]: '#661100',
@@ -262,12 +262,7 @@ const applyCombatGlow = (group: THREE.Group, currentState: State, scarRoughnessB
   const emissiveColor = emissiveMap[currentState] ?? '#000000';
   const emissiveIntensity = currentState === State.HOVERING ? 0.0 : 0.55;
 
-  group.traverse((child) => {
-    if (!(child as THREE.Mesh).isMesh) return;
-    const mat = (child as THREE.Mesh).material as
-      | THREE.MeshStandardMaterial
-      | THREE.MeshPhysicalMaterial;
-
+  for (const mat of materialsCache) {
     if (mat.emissive && mat.emissiveIntensity < 1.2) {
       mat.emissive.set(emissiveColor);
       mat.emissiveIntensity = emissiveIntensity;
@@ -282,7 +277,7 @@ const applyCombatGlow = (group: THREE.Group, currentState: State, scarRoughnessB
         Math.min(0.98, store.baseRoughness + scarRoughnessBoost),
       );
     }
-  });
+  }
 };
 
 const syncStorePosition = ({
@@ -391,10 +386,30 @@ export const useRobotFrameLoop = ({
   const lastLocalStorePosRef = useRef(new THREE.Vector3(0, 0, -1));
   const prevPosRef = useRef(new THREE.Vector3(0, 0, -1));
   const hoverTimerRef = useRef(0);
+  // ⚡ Bolt: Cache materials to prevent expensive group.traverse() calls every frame inside useFrame.
+  // This reduces CPU overhead significantly, especially for complex models.
+  const materialsCacheRef = useRef<Array<THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial>>([]);
+  const lastModelGroupUuidRef = useRef<string | null>(null);
 
   useFrame((_, delta) => {
     const group = groupRef.current;
     if (!group) return;
+
+    // Invalidate and rebuild the material cache only when the underlying model changes.
+    const currentModelUuid = modelGroupRef.current?.children[0]?.uuid ?? null;
+    if (currentModelUuid !== lastModelGroupUuidRef.current) {
+      lastModelGroupUuidRef.current = currentModelUuid;
+      materialsCacheRef.current = [];
+      group.traverse((child) => {
+        if (!(child as THREE.Mesh).isMesh) return;
+        const mat = (child as THREE.Mesh).material as
+          | THREE.MeshStandardMaterial
+          | THREE.MeshPhysicalMaterial;
+        if (mat) {
+          materialsCacheRef.current.push(mat);
+        }
+      });
+    }
 
     group.scale.setScalar(bodyScale);
     const pos = group.position;
@@ -429,7 +444,7 @@ export const useRobotFrameLoop = ({
     });
     const remotePos = maybeFaceRemoteTarget(group, currentState, pos);
     processHitWindow(currentState, actionRef, pos, remotePos);
-    applyCombatGlow(group, currentState, scarRoughnessBoost);
+    applyCombatGlow(materialsCacheRef.current, currentState, scarRoughnessBoost);
 
     const now = performance.now();
     syncStorePosition({
