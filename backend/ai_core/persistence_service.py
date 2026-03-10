@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -40,6 +41,9 @@ class PersistenceService:
             return None
 
     def load_profile_from_firestore(self, user_id: str) -> dict[str, Any] | None:
+        user_id = re.sub(r'[^a-zA-Z0-9_\-]', '', str(user_id))
+        if not user_id:
+            return None
         db = self.get_firestore_client()
         if db is None:
             return None
@@ -53,11 +57,11 @@ class PersistenceService:
             return None
 
     def save_profile_to_firestore(self, profile: dict[str, Any]) -> None:
+        user_id = re.sub(r'[^a-zA-Z0-9_\-]', '', str(profile.get("user_id", "")))
+        if not user_id:
+            return
         db = self.get_firestore_client()
         if db is None:
-            return
-        user_id = str(profile.get("user_id", ""))
-        if not user_id:
             return
         try:
             robot = profile.get("robot", {})
@@ -87,6 +91,9 @@ class PersistenceService:
             return
 
     def save_match_log_to_firestore(self, user_id: str, match_log: dict[str, Any]) -> None:
+        user_id = re.sub(r'[^a-zA-Z0-9_\-]', '', str(user_id))
+        if not user_id:
+            return
         db = self.get_firestore_client()
         if db is None:
             return
