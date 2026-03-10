@@ -181,11 +181,12 @@ export const FusionCraftScreen: React.FC<FusionCraftScreenProps> = ({
                 openPicker(cameraInputRef.current);
               }
             }}
+            aria-label={t.fusionCapturePrompt}
           >
             {image ? (
-              <img src={image} alt="Captured" className="captured-preview" />
+              <img src={image} alt={t.fusionCapturePrompt || 'Captured'} className="captured-preview" />
             ) : (
-              <div className="capture-placeholder">
+              <div className="capture-placeholder" aria-hidden="true">
                 <span className="icon">📷</span>
                 <span>{t.fusionCapturePrompt}</span>
               </div>
@@ -218,8 +219,11 @@ export const FusionCraftScreen: React.FC<FusionCraftScreenProps> = ({
           </button>
 
           <div className="input-group">
-            <label>{craftKind === 'attachment' ? t.scanEquipmentPromptLabel : t.fusionConceptLabel}</label>
+            <label htmlFor="fusion-concept-input">
+              {craftKind === 'attachment' ? t.scanEquipmentPromptLabel : t.fusionConceptLabel}
+            </label>
             <input
+              id="fusion-concept-input"
               type="text"
               placeholder={craftKind === 'attachment' ? t.scanEquipmentPromptPlaceholder : t.fusionConceptPlaceholder}
               value={concept}
@@ -229,7 +233,7 @@ export const FusionCraftScreen: React.FC<FusionCraftScreenProps> = ({
           </div>
 
           {errorText && localStatus === 'error' && (
-            <div className="fusion-flow-error">{errorText}</div>
+            <div className="fusion-flow-error" role="alert">{errorText}</div>
           )}
           {flow.textureUrl && localStatus === 'success' && (
             <div className="fusion-flow-success-url">{flow.textureUrl}</div>

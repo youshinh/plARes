@@ -1,3 +1,7 @@
 ## 2024-05-24 - Interactive Elements using Non-Interactive Tags
 **Learning:** This application uses semantic structural tags (like `<h3>`) for interactive toggles in custom panels (e.g., `ServerDrivenPanel`). These elements often have `onClick` handlers but lack `role="button"`, `tabIndex`, and keyboard event handlers, making them completely inaccessible to keyboard and screen reader users. Additionally, custom buttons like `.hud-btn` lack standard focus-visible rings.
 **Action:** When adding or modifying custom panels and HUD elements, ensure any non-standard interactive element (like `<h3>` or `<div>`) is given `role="button"`, `tabIndex={0}`, an `onKeyDown` handler for 'Enter'/'Space', and appropriate ARIA attributes. Apply `:focus-visible` styling to custom button classes.
+
+## 2025-03-09 - Accessibility of Modals and Custom Inputs
+**Learning:** Many interactive "button-like" zones and custom modal overlays in the app (like `ShareArenaModal`'s overlay, or the custom image capture region in `FusionCraftScreen`) are missing appropriate `aria-`, `role=`, `tabIndex=`, or `htmlFor=`/`id=` pairs linking descriptive text to fields.
+**Action:** Always add `role="presentation"` to `onClick` modal dismissal overlays so they don't get read by screen readers as broken buttons. Give custom capture regions clear `aria-label`s, ensure error states have `role="alert"`, and explicitly link `<label>` and `<input>` using `htmlFor` and `id` when possible.

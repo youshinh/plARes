@@ -79,7 +79,7 @@ export const ShareArenaModal: React.FC<ShareArenaModalProps> = ({
   };
 
   return (
-    <div className="hud-modal-overlay" onClick={onClose}>
+    <div className="hud-modal-overlay" onClick={onClose} role="presentation">
       <div
         className="hud-modal-content"
         style={{ textAlign: 'center' }}
@@ -87,9 +87,10 @@ export const ShareArenaModal: React.FC<ShareArenaModalProps> = ({
         role="dialog"
         aria-modal="true"
         aria-labelledby="share-modal-title"
+        aria-describedby="share-modal-desc"
       >
         <h2 id="share-modal-title">{t.title}</h2>
-        <p className="hud-dim">{t.desc}</p>
+        <p id="share-modal-desc" className="hud-dim">{t.desc}</p>
         
         <div style={{ background: '#fff', padding: '16px', borderRadius: '8px', display: 'inline-block', margin: '16px 0' }}>
           <QRCodeSVG value={shareHref} size={200} />
@@ -103,7 +104,7 @@ export const ShareArenaModal: React.FC<ShareArenaModalProps> = ({
           <button className="hud-btn hud-btn-blue" onClick={handleCopy}>
             {copied ? t.copied : t.copy}
           </button>
-          <button className="hud-btn hud-btn-steel" onClick={onClose}>
+          <button className="hud-btn hud-btn-steel" onClick={onClose} autoFocus>
             {t.close}
           </button>
         </div>
