@@ -1,0 +1,3 @@
+## 2025-02-28 - Avoid scene graph traversal inside useFrame loop
+**Learning:** In React Three Fiber, scene graph traversals (like `group.traverse()`) inside the hot `useFrame` callback cause severe performance bottlenecks, especially when used to apply effects like emissive glows every frame based on game state.
+**Action:** Move the traversal to a conditional cache update strategy or `useEffect`. Since game loops interact with non-reactive state (like zustand or FSM states), caching target materials in a flat array (e.g. `cachedMaterialsRef.current`) when the model changes and then iterating over that flat array inside `useFrame` improves performance significantly.

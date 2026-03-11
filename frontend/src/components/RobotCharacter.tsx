@@ -66,6 +66,7 @@ export const RobotCharacter: React.FC = () => {
     scarRoughnessBoost,
     targetPosition,
     worldScaleRef,
+    attachments,
   });
 
   useEffect(() => {
