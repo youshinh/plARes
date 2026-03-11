@@ -3,6 +3,13 @@ from typing import Any
 
 
 class PersistenceService:
+    @staticmethod
+    def _sanitize_id(val: str) -> str:
+        """Sanitize identifiers used in Firestore paths to prevent NoSQL path traversal."""
+        # Replace forward and backward slashes to prevent traversal, and handle consecutive dots
+        sanitized = str(val).replace("/", "_").replace("\\", "_")
+        return sanitized.replace("..", "__")
+
     def __init__(
         self,
         *,
@@ -43,8 +50,10 @@ class PersistenceService:
         db = self.get_firestore_client()
         if db is None:
             return None
+
+        safe_user_id = self._sanitize_id(user_id)
         try:
-            snap = db.collection("users").document(user_id).get()
+            snap = db.collection("users").document(safe_user_id).get()
             if not snap.exists:
                 return None
             data = snap.to_dict()
@@ -59,6 +68,8 @@ class PersistenceService:
         user_id = str(profile.get("user_id", ""))
         if not user_id:
             return
+
+        safe_user_id = self._sanitize_id(user_id)
         try:
             robot = profile.get("robot", {})
             logs = profile.get("match_logs", [])
@@ -82,7 +93,7 @@ class PersistenceService:
                 "recent_dna_ab_tests": recent_ab,
                 "updated_at": datetime.now(timezone.utc).isoformat(),
             }
-            db.collection("users").document(user_id).set(payload, merge=True)
+            db.collection("users").document(safe_user_id).set(payload, merge=True)
         except Exception:
             return
 
@@ -90,9 +101,14 @@ class PersistenceService:
         db = self.get_firestore_client()
         if db is None:
             return
+
+        safe_user_id = self._sanitize_id(user_id)
+
         ts = str(match_log.get("timestamp", datetime.now(timezone.utc).isoformat()))
         room = str(match_log.get("room_id", "unknown"))
         doc_id = f"{ts}_{room}".replace(":", "-")
+        safe_doc_id = self._sanitize_id(doc_id)
+
         try:
             payload = dict(match_log)
             expires = payload.get("expires_at")
@@ -101,6 +117,6 @@ class PersistenceService:
                     payload["expires_at"] = datetime.fromisoformat(expires)
                 except Exception:
                     pass
-            db.collection("users").document(user_id).collection("matchLogs").document(doc_id).set(payload)
+            db.collection("users").document(safe_user_id).collection("matchLogs").document(safe_doc_id).set(payload)
         except Exception:
             return

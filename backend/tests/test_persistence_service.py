@@ -92,6 +92,28 @@ def test_save_profile_to_firestore_keeps_recent_windows():
     assert payload["recent_dna_ab_tests"] == [5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
 
 
+from unittest.mock import MagicMock
+
+def test_persistence_service_sanitization():
+    db = MagicMock()
+    ps = PersistenceService(
+        firestore_enabled=True,
+        firebase_admin_module=MagicMock(),
+        firebase_firestore_module=MagicMock(),
+    )
+    ps.get_firestore_client = MagicMock(return_value=db)
+
+    ps.load_profile_from_firestore("user123/../../other")
+    db.collection.assert_called_with("users")
+    db.collection().document.assert_called_with("user123_______other")
+
+    ps.save_profile_to_firestore({"user_id": "user123/../../other", "player_name": "Test"})
+    db.collection().document.assert_called_with("user123_______other")
+
+    ps.save_match_log_to_firestore("user/123", {"timestamp": "2023-01-01T00:00:00Z", "room_id": "room/456"})
+    db.collection().document.assert_called_with("user_123")
+
+
 def test_load_profile_from_firestore_returns_document_dict():
     client = FakeFirestoreClient()
     client.store["users/u1"] = {"user_id": "u1", "player_name": "User 1"}
