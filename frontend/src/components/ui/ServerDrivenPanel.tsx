@@ -156,34 +156,41 @@ export const ServerDrivenPanel: React.FC = () => {
 
   return (
     <div className={`tactics-panel hud-animate ${!isOpen ? 'is-collapsed' : ''} ${isMobileViewport ? 'is-mobile' : ''}`}>
-      <h3
-        className="tactics-title"
-        onClick={() => setIsOpen(!isOpen)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            setIsOpen(!isOpen);
-          }
-        }}
-        style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between' }}
-        role="button"
-        tabIndex={0}
-        aria-expanded={isOpen}
-      >
-        {title}
-        <span aria-hidden="true">{isOpen ? '▼' : '▲'}</span>
-      </h3>
-      
-      {isOpen && activeTactics.map(t => (
+      <h3 className="tactics-title" style={{ margin: 0, padding: 0 }}>
         <button
-          key={t.id}
-          onClick={() => onSelect(t)}
-          className="tactics-item"
+          onClick={() => setIsOpen(!isOpen)}
+          style={{
+            all: 'unset',
+            cursor: 'pointer',
+            display: 'flex',
+            justifyContent: 'space-between',
+            width: '100%',
+            boxSizing: 'border-box',
+          }}
+          aria-expanded={isOpen}
+          aria-controls="tactics-panel-content"
+          className="tactics-title"
         >
-          <strong className="tactics-item-title">{t.title}</strong>
-          <small className="tactics-item-detail">{t.detail}</small>
+          {title}
+          <span aria-hidden="true">{isOpen ? '▼' : '▲'}</span>
         </button>
-      ))}
+      </h3>
+
+      {isOpen && (
+        <div id="tactics-panel-content">
+          {activeTactics.map(t => (
+            <button
+              key={t.id}
+              onClick={() => onSelect(t)}
+              className="tactics-item"
+              aria-label={`${t.title}: ${t.detail}`}
+            >
+              <strong className="tactics-item-title">{t.title}</strong>
+              <small className="tactics-item-detail">{t.detail}</small>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 };
