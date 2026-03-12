@@ -21,6 +21,8 @@ export const ScanEquipmentFlow: FC<ScanEquipmentFlowProps> = ({
     <div className="scan-equipment-kind-picker" role="tablist" aria-label={t.scanEquipmentModeLabel}>
       <button
         type="button"
+        role="tab"
+        aria-selected={craftKind === 'skin'}
         className={`hud-btn hud-btn-carbon ${craftKind === 'skin' ? 'is-selected' : ''}`}
         onClick={() => onChangeCraftKind('skin')}
       >
@@ -28,6 +30,8 @@ export const ScanEquipmentFlow: FC<ScanEquipmentFlowProps> = ({
       </button>
       <button
         type="button"
+        role="tab"
+        aria-selected={craftKind === 'attachment'}
         className={`hud-btn hud-btn-carbon ${craftKind === 'attachment' ? 'is-selected' : ''}`}
         onClick={() => onChangeCraftKind('attachment')}
       >
@@ -36,12 +40,14 @@ export const ScanEquipmentFlow: FC<ScanEquipmentFlowProps> = ({
     </div>
     {craftKind === 'attachment' && (
       <div className="scan-equipment-mounts">
-        <label>{t.scanEquipmentMountLabel}</label>
-        <div className="scan-equipment-mount-grid">
+        <label id="scan-mount-label">{t.scanEquipmentMountLabel}</label>
+        <div className="scan-equipment-mount-grid" role="radiogroup" aria-labelledby="scan-mount-label">
           {MOUNT_POINT_OPTIONS.map((option) => (
             <button
               key={option.id}
               type="button"
+              role="radio"
+              aria-checked={mountPoint === option.id}
               className={`hud-btn hud-btn-carbon ${mountPoint === option.id ? 'is-selected' : ''}`}
               onClick={() => onChangeMountPoint(option.id)}
             >
