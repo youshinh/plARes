@@ -44,7 +44,8 @@ class PersistenceService:
         if db is None:
             return None
         try:
-            snap = db.collection("users").document(user_id).get()
+            safe_user_id = user_id.replace("/", "_").replace("\\", "_").replace("..", "_")
+            snap = db.collection("users").document(safe_user_id).get()
             if not snap.exists:
                 return None
             data = snap.to_dict()
@@ -60,6 +61,7 @@ class PersistenceService:
         if not user_id:
             return
         try:
+            safe_user_id = user_id.replace("/", "_").replace("\\", "_").replace("..", "_")
             robot = profile.get("robot", {})
             logs = profile.get("match_logs", [])
             training_logs = profile.get("training_logs", [])
@@ -82,7 +84,7 @@ class PersistenceService:
                 "recent_dna_ab_tests": recent_ab,
                 "updated_at": datetime.now(timezone.utc).isoformat(),
             }
-            db.collection("users").document(user_id).set(payload, merge=True)
+            db.collection("users").document(safe_user_id).set(payload, merge=True)
         except Exception:
             return
 
@@ -94,6 +96,8 @@ class PersistenceService:
         room = str(match_log.get("room_id", "unknown"))
         doc_id = f"{ts}_{room}".replace(":", "-")
         try:
+            safe_user_id = user_id.replace("/", "_").replace("\\", "_").replace("..", "_")
+            safe_doc_id = doc_id.replace("/", "_").replace("\\", "_").replace("..", "_")
             payload = dict(match_log)
             expires = payload.get("expires_at")
             if isinstance(expires, str):
@@ -101,6 +105,6 @@ class PersistenceService:
                     payload["expires_at"] = datetime.fromisoformat(expires)
                 except Exception:
                     pass
-            db.collection("users").document(user_id).collection("matchLogs").document(doc_id).set(payload)
+            db.collection("users").document(safe_user_id).collection("matchLogs").document(safe_doc_id).set(payload)
         except Exception:
             return
