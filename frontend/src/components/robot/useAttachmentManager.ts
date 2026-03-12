@@ -39,6 +39,7 @@ const createImageFallbackAttachment = async (slot: AttachmentSlot): Promise<Atta
 export const useAttachmentManager = (
   heroScene: THREE.Group | null,
   attachments: AttachmentSlot[],
+  onAttachmentsLoaded?: () => void,
 ) => {
   const mountedRef = useRef(new Map<MountPointId, AttachmentRecord>());
 
@@ -96,6 +97,8 @@ export const useAttachmentManager = (
         mountNode.add(record.root);
         mountedRef.current.set(slot.mountPoint, record);
       }
+
+      onAttachmentsLoaded?.();
     };
 
     void sync();
@@ -104,5 +107,5 @@ export const useAttachmentManager = (
       disposed = true;
       (Array.from(mountedRef.current.keys()) as MountPointId[]).forEach(clearMount);
     };
-  }, [attachments, heroScene]);
+  }, [attachments, heroScene, onAttachmentsLoaded]);
 };

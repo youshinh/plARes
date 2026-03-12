@@ -25,6 +25,7 @@ type UseRobotFrameLoopArgs = {
   actionRef: MutableRefObject<PlayedAction | null>;
   bodyScale: number;
   clipGroundOffsetRef: MutableRefObject<Partial<Record<CharacterClipName, number>>>;
+  combatGlowMaterialsRef: RefObject<(THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial)[]>;
   currentState: State;
   groundBoundsRef: MutableRefObject<THREE.Box3>;
   groupRef: RefObject<THREE.Group>;
@@ -255,7 +256,11 @@ const processHitWindow = (
   }
 };
 
-const applyCombatGlow = (group: THREE.Group, currentState: State, scarRoughnessBoost: number) => {
+const applyCombatGlow = (
+  materials: (THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial)[],
+  currentState: State,
+  scarRoughnessBoost: number,
+) => {
   const emissiveMap: Partial<Record<State, string>> = {
     [State.HOVERING]: '#000000',
     [State.BASIC_ATTACK]: '#661100',
@@ -267,12 +272,7 @@ const applyCombatGlow = (group: THREE.Group, currentState: State, scarRoughnessB
   const emissiveColor = emissiveMap[currentState] ?? '#000000';
   const emissiveIntensity = currentState === State.HOVERING ? 0.0 : 0.55;
 
-  group.traverse((child) => {
-    if (!(child as THREE.Mesh).isMesh) return;
-    const mat = (child as THREE.Mesh).material as
-      | THREE.MeshStandardMaterial
-      | THREE.MeshPhysicalMaterial;
-
+  for (const mat of materials) {
     if (mat.emissive && mat.emissiveIntensity < 1.2) {
       mat.emissive.set(emissiveColor);
       mat.emissiveIntensity = emissiveIntensity;
@@ -287,7 +287,7 @@ const applyCombatGlow = (group: THREE.Group, currentState: State, scarRoughnessB
         Math.min(0.98, store.baseRoughness + scarRoughnessBoost),
       );
     }
-  });
+  }
 };
 
 const syncStorePosition = ({
@@ -374,6 +374,7 @@ export const useRobotFrameLoop = ({
   actionRef,
   bodyScale,
   clipGroundOffsetRef,
+  combatGlowMaterialsRef,
   currentState,
   groundBoundsRef,
   groupRef,
@@ -434,7 +435,9 @@ export const useRobotFrameLoop = ({
     });
     const remotePos = maybeFaceRemoteTarget(group, currentState, pos);
     processHitWindow(currentState, actionRef, pos, remotePos);
-    applyCombatGlow(group, currentState, scarRoughnessBoost);
+    if (combatGlowMaterialsRef.current) {
+      applyCombatGlow(combatGlowMaterialsRef.current, currentState, scarRoughnessBoost);
+    }
 
     const now = performance.now();
     syncStorePosition({

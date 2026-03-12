@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useFSMStore } from '../store/useFSMStore';
 import * as THREE from 'three';
 import { useRobotAssetBundle } from './robot/useRobotAssetBundle';
@@ -30,6 +30,9 @@ export const RobotCharacter: React.FC = () => {
   const playMode = useFSMStore(s => s.playMode);
   const localRobotPosition = useFSMStore(s => s.localRobotPosition);
   const attachments = useFSMStore(s => s.attachments);
+  const [attachmentVersion, setAttachmentVersion] = useState(0);
+  const combatGlowMaterialsRef = useRef<(THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial)[]>([]);
+
   const { heroAnimations, heroBaseMinY, heroScene } = useRobotAssetBundle(modelType);
   const {
     actionRef,
@@ -49,11 +52,34 @@ export const RobotCharacter: React.FC = () => {
     vit: robotStats.vit,
   });
   useRobotBoneScaling(heroScene, robotStats, robotDna);
-  useAttachmentManager(heroScene, attachments);
+
+  const handleAttachmentsLoaded = React.useCallback(() => {
+    setAttachmentVersion((v) => v + 1);
+  }, []);
+
+  useAttachmentManager(heroScene, attachments, handleAttachmentsLoaded);
+
+  useEffect(() => {
+    const materials: (THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial)[] = [];
+    if (groupRef.current) {
+      groupRef.current.traverse((child) => {
+        if (!(child as THREE.Mesh).isMesh) return;
+        const mat = (child as THREE.Mesh).material as
+          | THREE.MeshStandardMaterial
+          | THREE.MeshPhysicalMaterial;
+        if (mat && ((mat as THREE.MeshStandardMaterial).isMeshStandardMaterial || (mat as THREE.MeshPhysicalMaterial).isMeshPhysicalMaterial)) {
+          materials.push(mat);
+        }
+      });
+    }
+    combatGlowMaterialsRef.current = materials;
+  }, [heroScene, attachmentVersion]);
+
   useRobotFrameLoop({
     actionRef,
     bodyScale,
     clipGroundOffsetRef,
+    combatGlowMaterialsRef,
     currentState,
     groundBoundsRef,
     groupRef,
