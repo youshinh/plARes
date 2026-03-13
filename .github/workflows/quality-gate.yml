@@ -1,0 +1,39 @@
+name: Character Quality Gate
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+      - develop
+
+jobs:
+  quality-gate:
+    runs-on: ubuntu-latest
+    env:
+      PRARES_DRAW_CALL_MAX: "160"
+      PRARES_MATERIAL_MAX: "64"
+      PRARES_TEXTURE_MAX_RES: "1024"
+      PRARES_TEXTURE_MAX_COUNT: "64"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend deps
+        run: npm ci
+        working-directory: frontend
+
+      - name: Build frontend
+        run: npm run build
+        working-directory: frontend
+
+      - name: Run character quality gate
+        run: node scripts/character_quality_gate.mjs

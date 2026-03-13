@@ -1,0 +1,94 @@
+steps:
+  # ── Build Backend ──────────────────────────────────────────────────
+  - name: "gcr.io/cloud-builders/docker"
+    id: "build-backend"
+    args:
+      - "build"
+      - "-t"
+      - "asia-northeast1-docker.pkg.dev/$PROJECT_ID/plaresar/backend:$COMMIT_SHA"
+      - "-t"
+      - "asia-northeast1-docker.pkg.dev/$PROJECT_ID/plaresar/backend:latest"
+      - "./backend"
+    waitFor: ["-"]
+
+  # ── Build Frontend ─────────────────────────────────────────────────
+  - name: "gcr.io/cloud-builders/docker"
+    id: "build-frontend"
+    args:
+      - "build"
+      - "-t"
+      - "asia-northeast1-docker.pkg.dev/$PROJECT_ID/plaresar/frontend:$COMMIT_SHA"
+      - "-t"
+      - "asia-northeast1-docker.pkg.dev/$PROJECT_ID/plaresar/frontend:latest"
+      - "-f"
+      - "frontend/Dockerfile"
+      - "."
+    waitFor: ["-"]
+
+  # ── Push Backend ───────────────────────────────────────────────────
+  - name: "gcr.io/cloud-builders/docker"
+    id: "push-backend"
+    args:
+      - "push"
+      - "--all-tags"
+      - "asia-northeast1-docker.pkg.dev/$PROJECT_ID/plaresar/backend"
+    waitFor: ["build-backend"]
+
+  # ── Push Frontend ──────────────────────────────────────────────────
+  - name: "gcr.io/cloud-builders/docker"
+    id: "push-frontend"
+    args:
+      - "push"
+      - "--all-tags"
+      - "asia-northeast1-docker.pkg.dev/$PROJECT_ID/plaresar/frontend"
+    waitFor: ["build-frontend"]
+
+  # ── Deploy Backend to Cloud Run ────────────────────────────────────
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    id: "deploy-backend"
+    entrypoint: gcloud
+    args:
+      - "run"
+      - "deploy"
+      - "plaresar-backend"
+      - "--image=asia-northeast1-docker.pkg.dev/$PROJECT_ID/plaresar/backend:$COMMIT_SHA"
+      - "--region=asia-northeast1"
+      - "--platform=managed"
+      - "--allow-unauthenticated"
+      - "--port=8080"
+      - "--min-instances=0"
+      - "--max-instances=10"
+      - "--memory=1Gi"
+      - "--cpu=1"
+      - "--timeout=3600" # 1h: WebSocket long-running sessions
+      - "--session-affinity" # Required for sticky WebSocket sessions
+      - "--set-env-vars=PLARES_HOST=0.0.0.0,PLARES_FIRESTORE_MODE=auto,GCP_PROJECT=$PROJECT_ID"
+      - "--set-secrets=GEMINI_API_KEY=GEMINI_API_KEY:latest"
+    waitFor: ["push-backend"]
+
+  # ── Deploy Frontend to Cloud Run ───────────────────────────────────
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    id: "deploy-frontend"
+    entrypoint: gcloud
+    args:
+      - "run"
+      - "deploy"
+      - "plaresar-frontend"
+      - "--image=asia-northeast1-docker.pkg.dev/$PROJECT_ID/plaresar/frontend:$COMMIT_SHA"
+      - "--region=asia-northeast1"
+      - "--platform=managed"
+      - "--allow-unauthenticated"
+      - "--port=8080"
+      - "--min-instances=0"
+      - "--max-instances=5"
+      - "--memory=256Mi"
+      - "--cpu=1"
+    waitFor: ["push-frontend"]
+
+images:
+  - "asia-northeast1-docker.pkg.dev/$PROJECT_ID/plaresar/backend:$COMMIT_SHA"
+  - "asia-northeast1-docker.pkg.dev/$PROJECT_ID/plaresar/frontend:$COMMIT_SHA"
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: "E2_HIGHCPU_8"

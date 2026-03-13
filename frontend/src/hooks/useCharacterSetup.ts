@@ -1,0 +1,315 @@
+/**
+ * useCharacterSetup.ts
+ *
+ * 初回キャラクター生成フロー管理フック。
+ * - localStorage に "plares_robot_initialized" フラグを保持し、初回のみFaceScannerを表示
+ * - バックエンドの POST /api/character/generate を呼び出し、レスポンスをFSM storeへ保存
+ *
+ * 設計参照:
+ *   NotebookLM: "顔写真からロボットのパラメータを生成するフロー"
+ *   (notebook_id: 46106b3a-80d5-4567-85c4-25dc3ee293cc)
+ */
+
+import { useState, useCallback } from "react";
+import { useFSMStore } from "../store/useFSMStore";
+import type {
+  RobotGenerationRequest,
+  RobotGenerationResult,
+} from "../../../shared/types/firestore";
+import { PLAYER_ID } from "../utils/identity";
+import { analyzePhotoForDNA } from "../utils/photoDNAAnalyzer";
+import { analyzeFaceLandmarksForDNA } from "../utils/faceLandmarkAnalyzer";
+import { getModelTypeMeta } from "../constants/modelTypes";
+import { useFaceTexture } from "./useFaceTexture";
+import {
+  buildCharacterDNA,
+  evolveCharacterDNAByMatchCount,
+  normalizeCharacterDNA,
+  refineCharacterDNAWithPhotoHints,
+} from "../utils/characterDNA";
+
+const INIT_KEY = "plares_robot_initialized";
+
+const defaultBackendHost = (() => {
+  const h = window.location.hostname || "127.0.0.1";
+  return h === "localhost" || h === "::1" ? "127.0.0.1" : h;
+})();
+const backendProtocol =
+  window.location.protocol === "https:" ? "https" : "http";
+const configuredGameWsUrl = import.meta.env.VITE_WS_URL as string | undefined;
+const derivedCharacterWsUrl = configuredGameWsUrl
+  ? configuredGameWsUrl.replace(/\/ws\/game(?:\?.*)?$/i, "/ws/character")
+  : undefined;
+const CHARACTER_WS_URL =
+  import.meta.env.VITE_CHARACTER_WS_URL ??
+  derivedCharacterWsUrl ??
+  `${backendProtocol === "https" ? "wss" : "ws"}://${defaultBackendHost}:8000/ws/character`;
+
+type NormalizedGenerationResult = {
+  name: string;
+  material: "Wood" | "Metal" | "Resin";
+  stats: {
+    power: number;
+    speed: number;
+    vit: number;
+  };
+  personality: {
+    talkSkill: number;
+    adlibSkill: number;
+    tone: string;
+  };
+  network: {
+    syncRate: number;
+    unison: number;
+  };
+  characterDna?: unknown;
+  character_dna?: unknown;
+  error_code?: string;
+  is_fallback?: boolean;
+};
+
+const toFiniteNumber = (value: unknown, fallback: number): number => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const normalizeGenerationResult = (
+  raw: unknown,
+): NormalizedGenerationResult => {
+  const obj =
+    raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const statsObj =
+    obj.stats && typeof obj.stats === "object"
+      ? (obj.stats as Record<string, unknown>)
+      : {};
+  const personalityObj =
+    obj.personality && typeof obj.personality === "object"
+      ? (obj.personality as Record<string, unknown>)
+      : {};
+  const networkObj =
+    obj.network && typeof obj.network === "object"
+      ? (obj.network as Record<string, unknown>)
+      : {};
+
+  const materialRaw = String(obj.material ?? "Wood");
+  const material: "Wood" | "Metal" | "Resin" =
+    materialRaw === "Metal" || materialRaw === "Resin" ? materialRaw : "Wood";
+
+  const tone = String(personalityObj.tone ?? obj.tone ?? "balanced");
+
+  return {
+    name: String(obj.name ?? "レスラーMk1"),
+    material,
+    stats: {
+      power: toFiniteNumber(statsObj.power ?? obj.power, 40),
+      speed: toFiniteNumber(statsObj.speed ?? obj.speed, 40),
+      vit: toFiniteNumber(statsObj.vit ?? obj.vit, 40),
+    },
+    personality: {
+      talkSkill: toFiniteNumber(
+        personalityObj.talkSkill ?? personalityObj.talk_skill ?? obj.talk_skill,
+        30,
+      ),
+      adlibSkill: toFiniteNumber(
+        personalityObj.adlibSkill ??
+          personalityObj.adlib_skill ??
+          obj.adlib_skill,
+        30,
+      ),
+      tone,
+    },
+    network: {
+      syncRate: toFiniteNumber(
+        networkObj.syncRate ?? networkObj.sync_rate,
+        0.5,
+      ),
+      unison: toFiniteNumber(networkObj.unison, 100),
+    },
+    characterDna: obj.characterDna,
+    character_dna: obj.character_dna,
+    error_code: typeof obj.error_code === "string" ? obj.error_code : undefined,
+    is_fallback: Boolean(obj.is_fallback),
+  };
+};
+
+export function useCharacterSetup() {
+  const setRobotStats = useFSMStore((s) => s.setRobotStats);
+  const setRobotDna = useFSMStore((s) => s.setRobotDna);
+  const modelType = useFSMStore((s) => s.modelType);
+  const { createFaceTexture } = useFaceTexture();
+
+  // 既に初期化済みかどうか
+  const [isSetupDone, setIsSetupDone] = useState<boolean>(() => {
+    // E2E / CI環境ではFaceScannerをスキップして即完了扱いにする
+    if (import.meta.env.VITE_SKIP_FACE_SCANNER === "true") return true;
+    return localStorage.getItem(INIT_KEY) === "done";
+  });
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  /**
+   * 顔写真またはテキストでロボットを生成し、storeに反映する。
+   * @param faceImageBase64 - インカメラで撮影したBase64 JPEG（undefined = スキップ）
+   * @param presetText - スキップ時のテキストプロンプト
+   */
+  const generateCharacter = useCallback(
+    async (faceImageBase64?: string, presetText?: string) => {
+      setIsGenerating(true);
+      setError(null);
+
+      try {
+        const photoHintsPromise = analyzePhotoForDNA(faceImageBase64);
+        const landmarkHintsPromise =
+          analyzeFaceLandmarksForDNA(faceImageBase64);
+        const req: RobotGenerationRequest = {
+          user_id: PLAYER_ID,
+          face_image_base64: faceImageBase64,
+          preset_text: presetText,
+          model_type: modelType,
+        };
+
+        const data = await new Promise<NormalizedGenerationResult>(
+          (resolve, reject) => {
+            const ws = new WebSocket(CHARACTER_WS_URL);
+            const timeoutId = window.setTimeout(() => {
+              try {
+                ws.close();
+              } catch {}
+              reject(new Error("Character generation timed out"));
+            }, 15000);
+
+            const settle = (fn: () => void) => {
+              window.clearTimeout(timeoutId);
+              fn();
+            };
+
+            ws.onopen = () => {
+              ws.send(JSON.stringify(req));
+            };
+
+            ws.onmessage = (event) => {
+              try {
+                const result = JSON.parse(event.data);
+                if (result.error) settle(() => reject(new Error(result.error)));
+                else {
+                  // T2-3: If the result is a fallback, warn the user but still resolve
+                  if (result.is_fallback || result.error_code) {
+                    const code = result.error_code || "unknown";
+                    console.warn(
+                      `[useCharacterSetup] Fallback result used (error_code: ${code})`,
+                    );
+                    window.dispatchEvent(
+                      new CustomEvent("show_subtitle", {
+                        detail: {
+                          text: `AI生成が一時的に利用不可のためデフォルト値を使用しました (${code})`,
+                        },
+                      }),
+                    );
+                  }
+                  settle(() => resolve(normalizeGenerationResult(result)));
+                }
+              } catch {
+                // 'e' is removed as it was unused in the error message
+                settle(() =>
+                  reject(new Error("Failed to parse generation result")),
+                );
+              } finally {
+                ws.close();
+              }
+            };
+
+            ws.onerror = () => {
+              settle(() =>
+                reject(
+                  new Error(
+                    "WebSocket connection failed during character generation",
+                  ),
+                ),
+              );
+            };
+
+            ws.onclose = () => {
+              window.clearTimeout(timeoutId);
+            };
+          },
+        );
+        const photoHints = await photoHintsPromise;
+        const landmarkHints = await landmarkHintsPromise;
+        const modelMeta = getModelTypeMeta(modelType);
+
+        setRobotStats(
+          {
+            power: data.stats.power,
+            speed: data.stats.speed,
+            vit: data.stats.vit,
+          },
+          {
+            name: data.name,
+            material: modelMeta.material,
+            tone: data.personality.tone,
+          },
+        );
+
+        const maybeSnakeCaseDna = data.character_dna;
+        const apiDna =
+          normalizeCharacterDNA(
+            data.characterDna as RobotGenerationResult["characterDna"],
+          ) ?? normalizeCharacterDNA(maybeSnakeCaseDna);
+        // Prefer Gemini-generated UV map from backend; fall back to local compression
+        const localFaceTextureUrl = await createFaceTexture(faceImageBase64);
+        const faceTextureUrl = apiDna?.skinUrl || localFaceTextureUrl || "";
+        const dna = apiDna
+          ? evolveCharacterDNAByMatchCount(
+              {
+                ...refineCharacterDNAWithPhotoHints(
+                  apiDna,
+                  photoHints,
+                  data.personality.tone,
+                  landmarkHints,
+                ),
+                skinUrl: faceTextureUrl,
+              },
+              0,
+            )
+          : buildCharacterDNA({
+              playerId: PLAYER_ID,
+              name: data.name,
+              material: modelMeta.material,
+              tone: data.personality.tone,
+              power: data.stats.power,
+              speed: data.stats.speed,
+              vit: data.stats.vit,
+              modelType,
+              faceImageBase64,
+              presetText,
+              photoHints,
+              landmarkHints,
+            });
+        if (!apiDna && faceTextureUrl) {
+          dna.skinUrl = faceTextureUrl;
+        }
+        setRobotDna(dna);
+
+        localStorage.setItem(INIT_KEY, "done");
+        setIsSetupDone(true);
+      } catch (err) {
+        console.error("[useCharacterSetup] generation failed:", err);
+        setError(String(err));
+        // エラーでもデフォルト値のままゲームを開始できるようセットアップ完了扱いにする
+        localStorage.setItem(INIT_KEY, "done");
+        setIsSetupDone(true);
+      } finally {
+        setIsGenerating(false);
+      }
+    },
+    [modelType, setRobotStats, setRobotDna, createFaceTexture],
+  );
+
+  /** デバッグ用：初期化フラグをリセットして再度FaceScannerを表示させる */
+  const resetSetup = useCallback(() => {
+    localStorage.removeItem(INIT_KEY);
+    setIsSetupDone(false);
+  }, []);
+
+  return { isSetupDone, isGenerating, error, generateCharacter, resetSetup };
+}

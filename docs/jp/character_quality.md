@@ -1,0 +1,155 @@
+# plARes：キャラクター商用品質化計画
+
+[English Version (EN)](../character_quality.md)
+
+**更新日**: 2026-02-21  
+**目的**: 「ダサい」を構造的に解消し、写真入力時でも品質を崩さないキャラ生成フローを確立する。
+
+---
+
+## 1. 品質方針（Style Lock）
+
+商用品質を維持するため、写真から直接メッシュ生成は行わず、以下の順に変換する。
+
+1. 顔写真/テキスト入力
+2. Character DNA（離散パラメータ）
+3. パーツ・配色・質感への適用
+4. 3D描画
+
+これにより、入力差が大きくても「世界観の外」に出ない。
+
+---
+
+## 2. 実装済み（v1）
+
+### 2.1 Character DNA 追加
+
+- `silhouette`: `striker | tank | ace`
+- `finish`: `matte | satin | gloss`
+- `paletteFamily`: `ember | marine | forest | royal | obsidian | sunset`
+- `eyeGlow`
+- `seed`（写真/テキスト/ステータス由来の決定論シード）
+
+### 2.2 フロント実装
+
+- `frontend/src/utils/characterDNA.ts`
+  - `buildCharacterDNA()`
+  - `refineCharacterDNAWithPhotoHints()`
+  - `resolveRobotPalette()`
+  - `getSilhouetteScales()`
+  - `getFinishMaterialTuning()`
+- `frontend/src/utils/photoDNAAnalyzer.ts`
+  - `analyzePhotoForDNA()`
+  - 64x64中央クロップ + K-means（K=3）で代表色抽出
+  - hue / saturation / luminance / contrast をDNA推定に使用
+- `frontend/src/hooks/useCharacterSetup.ts`
+  - API応答の `characterDna`（または `character_dna`）を優先採用
+  - 未提供時はローカルでDNAを決定生成
+  - API提供DNAがある場合も写真解析ヒントで最終補正
+- `frontend/src/store/useFSMStore.ts`
+  - `robotDna` 状態と `setRobotDna()` 追加
+- `frontend/src/components/RobotCharacter.tsx`
+  - DNAに応じて配色、質感（roughness/metalnessバイアス）、シルエット倍率を反映
+
+### 2.3 バックエンド実装
+
+- `backend/ai_core/character_generator.py`
+  - `character_dna` の生成ロジック追加
+  - `build_robot_profile()` に `character_dna` を格納
+- `backend/infrastructure/models.py`
+  - `character_dna` フィールド追加（optional）
+
+---
+
+## 3. 無料素材候補（商用可）
+
+以下は現時点で商用利用に向く素材源。実運用前に各ページの最新ライセンス再確認を行う。
+
+1. **Poly Haven**
+   - HDRI/Texture/Model
+   - CC0（商用可・帰属不要）
+   - https://polyhaven.com/license
+2. **ambientCG**
+   - PBR材質/HDRI/3D
+   - CC0（商用可・帰属不要）
+   - https://docs.ambientcg.com/license/
+3. **Kenney**
+   - ゲーム向けローポリ大量
+   - CC0（商用可・帰属不要）
+   - https://www.kenney.nl/knowledge-base/general/can-i-use-the-assets-for-my-commercial-game
+4. **Quaternius**
+   - キャラ・環境・アニメーション
+   - CC0（個別パック注記あり、商用可）
+   - https://quaternius.com/
+5. **Mixamo**
+   - 人型アニメーション/オートリグ
+   - Adobe FAQ上で royalty free（商用可）
+   - https://community.adobe.com/t5/mixamo-discussions/mixamo-faq-licensing-royalties-ownership-eula-and-tos/td-p/13234775
+
+---
+
+## 4. 参考アルゴリズム（写真バリエーション）
+
+1. **Face Landmarker (MediaPipe)**
+   - 3D顔ランドマーク、blendshape、変換行列を取得
+   - DNA推定の入力に使う
+   - https://ai.google.dev/edge/mediapipe/solutions/vision/face_landmarker/web_js
+2. **K-means（OpenCV）**
+   - 顔画像の代表色抽出
+   - `paletteFamily` の候補選定に使う
+   - https://docs.opencv.org/4.x/d1/d5c/tutorial_py_kmeans_opencv.html
+3. **solvePnP（OpenCV）**
+   - 2D-3D対応点から頭部姿勢を推定
+   - カメラ角度/表情バイアスの補正に使う
+   - https://docs.opencv.org/4.x/d5/d1f/calib3d_solvePnP.html
+4. **Single-image 3D再構成（TripoSR）**
+   - 研究検証用。直接本番採用ではなく、オフラインの形状探索用として利用
+   - https://github.com/VAST-AI-Research/TripoSR
+
+---
+
+## 5. 実装レシピ（写真→DNA→見た目）
+
+### 5.1 オンライン推奨フロー（本番）
+
+1. FaceScannerで写真1枚取得
+2. 顔領域クロップ + ランドマーク抽出（MediaPipe）
+3. 代表色抽出（K-means, K=4）
+4. `character_dna` を確定（silhouette / finish / paletteFamily）
+5. `RobotCharacter` のパーツと色に適用
+
+### 5.2 変化の作り方（写真バリエーション）
+
+- 同一人物でも `seed` を `photoHash + seasonTag + matchCountBand` で変える
+- 例: `v1:seed = hash(face + "S2" + floor(totalMatches/5))`
+- 5試合ごとに軽微な変化（色味・パネル傷・発光色）を追加
+
+### 5.3 品質ゲート（必須）
+
+- 1キャラあたり draw call 上限: 35
+- マテリアル数上限: 8
+- テクスチャ解像度上限: 1024
+- 破った場合は自動でLOD/統合マテリアルにフォールバック
+
+---
+
+## 6. 次フェーズ（v2）
+
+1. DNAと実パーツの完全分離
+   - 頭/胴/腕/脚/装備をモジュール化し、DNAで組み合わせる
+2. 品質ゲートの自動化
+   - tris、material数、draw call、テクスチャ解像度の上限検査
+3. 類似度制御
+   - 写真との一致度を強/中/弱で選択可能にし、本人酷似リスクを制御
+4. アニメーション統合
+   - Mixamo/Quaternius Rigをベースに、共通Humanoidリターゲットを固定
+
+---
+
+## 7. 素材調達パイプライン
+
+- CC0素材の自動インポート規約は [CC0素材調達パイプライン規約](cc0_pipeline.md) を参照。
+- 実装ファイル:
+  - `assets/cc0/manifest.json`
+  - `scripts/import_cc0_assets.py`
+  - `assets/cc0/import-lock.json`（実行時生成）

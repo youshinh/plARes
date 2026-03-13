@@ -1,0 +1,265 @@
+# plARes：ゲーム機能拡張仕様書
+
+**対象**: 実装担当エージェント・開発者  
+**目的**: [ゲームシステム補完設計書](game_supplement.md)に加え、NotebookLM照会（2026-02-21）で判明した拡張機能の仕様をまとめる。  
+**情報源**: NotebookLM `46106b3a-80d5-4567-85c4-25dc3ee293cc`
+
+---
+
+## §1. 修行モード（TrainingSession）
+
+`totalTrainingSessions` でカウントされるソロ練習モード。
+
+### 目的
+
+- **プレイヤースキル**：反射神経（正確・速い回避コマンド）
+- **機体ステータス**：`syncRate`（シンクロ率）を上昇させる
+
+### 実装フロー
+
+```
+AR空間に丸太・鉄板が機体へ迫ってくる
+  ↓ プレイヤーが「右！」と発声
+  ↓ Web Speech API でローカル即時回避（Priority 1）
+  ↓ ボス障害物出現時のみ Gemini Live API に詠唱音声をストリーミング
+  ↓ 滑舌判定エージェントが3軸スコアを算出
+  ↓ Firestore users/{id}/robots/{id}/network/syncRate を加算Update
+  ↓ セッション終了時 → trainingLogs + aiMemorySummary をマージ
+```
+
+### Firestoreスキーマ追加
+
+```typescript
+// users/{userId}/trainingLogs/{sessionId}
+interface TrainingLog {
+  sessionId: string;
+  timestamp: string;
+  syncRateBefore: number;
+  syncRateAfter: number;
+  accuracyScore: number; // 0.0–1.0
+  speedScore: number; // 0.0–1.0
+  passionScore: number; // 0.0–1.0（気迫=声の大きさ）
+  highlights: string[]; // Geminiが抽出した成長メモ
+}
+```
+
+---
+
+## §2. 散歩モード（WalkSession）
+
+`totalWalkSessions` でカウントされる現実連動探索モード。
+
+### 目的
+
+- **環境連動**：現実の風景と機体AIが対話する
+- **現地調達**：散歩中に見たものをスキャン → 次回の試合で使える装備を生成
+
+### 実装フロー
+
+```
+スマホのアウトカメラ映像を 1〜2fps でバックエンドにBidi-streaming
+  ↓ Gemini Live API Visionが環境を監視
+  ↓ 公園のベンチを認識 → "マスター、いい木材だな！" とプロアクティブ発話
+  ↓ 周囲が暗くなる → Function Calling { action: "glow_eyes" } を発行
+  ↓ プレイヤーが物体を撮影 → テキストプロンプト付きで送信
+  ↓ gemini-3.1-flash-image-preview が 1〜2秒でテクスチャ生成
+  ↓ Firestore users/{id}/inventory に保存（次回対戦で装備可能）
+```
+
+### Vision連動トリガー例
+
+| 検知した環境変化     | AIの反応                                     |
+| -------------------- | -------------------------------------------- |
+| 環境光が急に暗くなる | カメラアイを光らせる Function Calling を発行 |
+| 木製の家具を認識     | 「いい木材だな」とプロアクティブ発話         |
+| 夕日・夕焼け         | 感情的な独り言（口調は `tone` に準拠）       |
+| 食事中の揚げ春巻き   | 近づいてスキャンを促す + 武器生成を提案      |
+
+---
+
+## §3. ロボット外見の動的進化システム
+
+試合・修行・散歩を経てロボットの外見が3段階で進化する。
+
+### 進化レイヤー1: ボーン制御（骨格・サイズ）
+
+レベルアップ時、Firestoreの `stats` 変化をフックに **`bone.scale.set()`** を動的に書き換える。
+
+```typescript
+// RobotCharacter.tsx の useFrame 内で毎フレーム適用済み（実装済み）
+const armScale = 1.0 + (robotStats.power / 99) * 0.6;
+const legScaleY = 1.0 + (robotStats.speed / 99) * 0.3;
+```
+
+**`syncRate` が閾値を超えると全体スケールが10%増加**（貫禄演出）：
+
+```typescript
+const bodyScale = robotStats.syncRate >= 80 ? 1.1 : 1.0;
+groupRef.current.scale.setScalar(bodyScale);
+```
+
+### 進化レイヤー2: プロシージャルテクスチャ（戦歴の刻印）
+
+**トリガー**: `totalMatches % 10 == 0`（10試合ごと）
+
+```
+aiMemorySummary から戦歴ハイライトを抽出
+  ↓ "炎の攻撃を受けた黒い焦げ跡" などを gemini-3.1-flash-image-preview に送信
+  ↓ ベーステクスチャ + プロンプト → 生成 → 新テクスチャURL
+  ↓ Firestore の textureUrl を上書き Update
+  ↓ フロントエンドが TextureLoader で非同期ロード → material.needsUpdate = true
+```
+
+**シェーダーパラメータも連動**：
+
+- 傷の深さ → `normalMap` の強さを加算
+- 戦歴が多い → `roughness` を増加（歴戦の猛者感）
+
+### 進化レイヤー3: リアルタイムクラフト装備
+
+散歩モードや観客クラフトで生成したアイテムを装備：
+
+```typescript
+// Three.js でボーンに動的アタッチ
+const rightHandBone = robot.getObjectByName("RightHandBone");
+rightHandBone?.add(craftedWeaponMesh);
+```
+
+---
+
+## §4. 観客応援バフシステム
+
+`talkSkill`（機体の愛嬌）が観客行動の確率を制御する。
+
+### talkSkill の役割
+
+| talkSkill    | 観客への影響                             |
+| ------------ | ---------------------------------------- |
+| 低（〜30）   | 応援アイテムのポップアップ確率：低       |
+| 中（31〜65） | 応援アイテムのポップアップ確率：中       |
+| 高（66〜）   | HP回復アイテム・有利なトラップが優先表示 |
+
+### ダイナミック・ペルソナ・シフト（観客介入）
+
+観客が「もっと関西のオカンみたいに！」と入力すると：
+
+```
+WebSocket event: "persona_shift_request" { prompt: "関西のオカン" }
+  ↓ バックエンドが Firestore personality.tone を上書き
+  ↓ Gemini Live API のシステムプロンプトバインド変数が即時更新
+  ↓ 実況ボイスのトーンがリアルタイム変化
+```
+
+### アイテム拒絶システム（The "Reject" Function Calling）
+
+```json
+// 機体の性格と合わないカオスアイテムを受け取った場合
+{ "action": "reject_item", "reason": "プライドが許さない" }
+```
+
+→ 拒絶が蓄積すると `tone` が「観客不信のやさぐれキャラ」に自律進化。
+
+---
+
+## §5. 勝利者インタビュー（エモーショナル翻訳）
+
+試合終了、勝者の State が `Epilogue` へ遷移した瞬間に発火。
+
+### 動的プロンプト構築
+
+```python
+system_prompt = f"""
+あなたはプラレスラー「{robot_name}」です。
+今、アリーナバトルで勝利を収めました。
+性格・口調: {personality_tone}（例: 陽気なアメリカン）
+試合ログ: {highlight_json}
+成長評価: 今回マスターの声の震えが {tremor_delta:.1f} 減少しました。
+
+対戦相手の言語({opponent_language})で、
+性格のニュアンスを保ったまま150文字で勝利メッセージを生成してください。
+さりげなくマスターの成長を称える1文を添えること。
+"""
+```
+
+### 出力例
+
+日本人プレイヤーが英語圏ロボットに負けると、相手ロボットが**日本語**で言ってくる：
+
+> 「HAHAHA！マスターの滑舌は最高だったぜ！でも『カゲブンシン』は見掛け倒しだったな。出直してきな！」
+
+### gemini-2.5-flash-preview-tts によるBGM生成（非同期）
+
+勝利確定と同時に非同期で gemini-2.5-flash-preview-tts または相当するAPIをコール：
+
+```python
+# バックグラウンドタスクで実行（フロントをブロックしない）
+asyncio.create_task(generate_victory_bgm(highlight_summary))
+# → WebSocket event: "bgm_ready" { url: "..." } でフロントに通知
+```
+
+---
+
+## §6. DIYアリーナ仕様
+
+### 基本グリッド
+
+- **タイル規格**: 30cm角の木質フローリングタイル
+- **DIYブロック規格**: 10cm角（公式サイズ）のDIYブロックをスキャンで自動スナップ
+- カメラで読み取ると → 該当グリッド座標に障害物として配置
+
+### 障害物の耐久値と破壊
+
+```typescript
+interface ObstacleState {
+  id: string;
+  position: THREE.Vector3;
+  material: "Wood" | "Metal" | "Resin";
+  hp: number; // 初期値は material ごとに設定（Wood:50, Metal:120, Resin:30）
+  maxHp: number;
+}
+```
+
+破壊されると → **マテリアルオーブ**を座標付近にランダム散乱。
+
+### オーブ効果
+
+| オーブ種類 | 効果                                      |
+| ---------- | ----------------------------------------- |
+| 木材オーブ | 木の盾をクラフト → VIT一時+20             |
+| 金属オーブ | 金属の剣をクラフト → ダメージ×1.3（一撃） |
+| 樹脂オーブ | ブースターをクラフト → speed一時+30       |
+
+### オンライン同期（仮想アリーナ重畳）
+
+```
+ホスト側の障害物 3Dメッシュ → 軽量 JSON にシリアライズ
+  → ゲスト側に WebSocket で送信
+  → ゲストの床の上に半透明ホログラムとして AR 描画
+```
+
+---
+
+## §7. プロアクティブ音声（自発的発話）仕様
+
+### 発火トリガー
+
+| 状況                   | 発話例                                             |
+| ---------------------- | -------------------------------------------------- |
+| 環境光が急に暗くなる   | 「マスター…夜か。好きだ、この時間」                |
+| ラウンド間インターバル | 「さっきの右回り込み、完璧だった。左ももう少し…」  |
+| 再戦相手を認識         | 「マスター、前の春巻きの恨み、根に持ってそうだな」 |
+| HP20%以下（ヒート）    | 「……面白くなってきた」BGM変化                      |
+| `syncRate` が閾値超え  | 「俺たち、繋がってきた気がする」                   |
+
+### 出力制約（プロンプト設計）
+
+```
+システムプロンプト制約:
+- アドバイスは必ず15文字以内の1文に収めること
+- 「〜すべき」表現を禁止し、自身の感想として述べること
+- 独り言トーン（subtle_reflection）を維持すること
+```
+
+### MCP による記憶の自律検索
+
+AIは **Managed MCP servers for Firestore** を通じて自律的に `aiMemorySummary` を検索し、過去の文脈と現在をリンクさせる。開発者がデータベース検索APIを手書きする必要なし。

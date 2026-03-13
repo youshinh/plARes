@@ -1,0 +1,109 @@
+# ==========================
+# Python
+# ==========================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*__pycache__*
+*.egg
+dist/
+build/
+.eggs/
+venv/
+.venv/
+env/
+.env
+*.env.local
+backend/.secrets/
+.pytest_cache/
+backend/.pytest_cache/
+backend/tests/__pycache__/
+backend/**/__pycache__/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# ==========================
+# Node.js / Frontend
+# ==========================
+node_modules/
+dist/
+dist-ssr/
+*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+.turbo/
+
+# ==========================
+# OS
+# ==========================
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ==========================
+# Agent Config (selective tracking)
+# ==========================
+# Keep repository-shared skills/rules tracked, ignore local runtime/cache.
+.claude/*
+!.claude/README.md
+!.claude/skills/
+!.claude/skills/**
+.claude/skills/google-adk/resources/
+.claude/**/.env*
+.claude/**/secrets*
+.claude/cache/
+.claude/tmp/
+
+.agents/*
+!.agents/rules/
+!.agents/rules/**
+.agents/**/*.log
+.agents/**/tmp/
+.agents/**/cache/
+
+# ==========================
+# Editors / IDEs
+# ==========================
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*~
+
+# ==========================
+# Logs
+# ==========================
+logs/
+*.log
+backend/runtime/
+output/
+
+# ==========================
+# Misc
+# ==========================
+*.local
+*.DS_Store
+.cache/
+tmp/
+.temp/
+.playwright-cli/
+output/
+extracted/
+extracted_k/
+extracted_k_full/
+.jj/
+.Jules/
