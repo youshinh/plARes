@@ -102,6 +102,9 @@ export const useAudioStreamer = () => {
         mediaStream = new MediaStream([preferredTrack]);
         ownsStreamRef.current = false;
       } else {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          throw new Error("Microphone API not available (requires HTTPS or localhost).");
+        }
         mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
         ownsStreamRef.current = true;
       }

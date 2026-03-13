@@ -112,6 +112,10 @@ class WebRTCDataChannelService {
     const video = options.video ?? true;
 
     if (!audio && !video) return;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      console.warn('[RTC] getUserMedia not available (requires HTTPS or localhost). Cannot enable media.');
+      return;
+    }
     const stream = await navigator.mediaDevices.getUserMedia({ audio, video });
     this.stopLocalTracks();
     this.localStream = stream;

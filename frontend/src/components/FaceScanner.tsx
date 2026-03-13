@@ -50,6 +50,13 @@ export const FaceScanner: React.FC<FaceScannerProps> = ({ t, onGenerate, isGener
     setIsCameraReady(false);
     setCameraError(null);
 
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      if (!active) return;
+      setCameraError(t.scanCameraDenied || "Camera API not authorized over HTTP.");
+      console.warn('[FaceScanner] getUserMedia is not supported in this context (requires HTTPS or localhost).');
+      return;
+    }
+
     navigator.mediaDevices
       .getUserMedia({ video: { facingMode: 'user', width: 480, height: 480 } })
       .then((stream) => {

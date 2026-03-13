@@ -138,6 +138,10 @@ export class GeminiLiveService {
 
   async startMic() {
     if (!this.session || this.micActive) return;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      console.warn('[GeminiLive] getUserMedia not available (requires HTTPS or localhost). Cannot start mic.');
+      return;
+    }
     this.captureStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
     this.captureContext = new AudioContext({ sampleRate: 16000 });
     const source = this.captureContext.createMediaStreamSource(this.captureStream);
