@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import type { AttachmentSlot, MountPointId } from './constants';
@@ -41,6 +41,7 @@ export const useAttachmentManager = (
   attachments: AttachmentSlot[],
 ) => {
   const mountedRef = useRef(new Map<MountPointId, AttachmentRecord>());
+  const [version, setVersion] = useState(0);
 
   useEffect(() => {
     if (!heroScene) return;
@@ -95,6 +96,7 @@ export const useAttachmentManager = (
 
         mountNode.add(record.root);
         mountedRef.current.set(slot.mountPoint, record);
+        setVersion((v) => v + 1);
       }
     };
 
@@ -105,4 +107,6 @@ export const useAttachmentManager = (
       (Array.from(mountedRef.current.keys()) as MountPointId[]).forEach(clearMount);
     };
   }, [attachments, heroScene]);
+
+  return version;
 };

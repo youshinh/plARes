@@ -49,7 +49,7 @@ export const RobotCharacter: React.FC = () => {
     vit: robotStats.vit,
   });
   useRobotBoneScaling(heroScene, robotStats, robotDna);
-  useAttachmentManager(heroScene, attachments);
+  const attachmentVersion = useAttachmentManager(heroScene, attachments);
   useRobotFrameLoop({
     actionRef,
     bodyScale,
@@ -66,6 +66,7 @@ export const RobotCharacter: React.FC = () => {
     scarRoughnessBoost,
     targetPosition,
     worldScaleRef,
+    attachmentVersion,
   });
 
   useEffect(() => {
