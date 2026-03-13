@@ -99,11 +99,22 @@ export const ShareArenaModal: React.FC<ShareArenaModalProps> = ({
           {t.roomIdLabel}: {roomId}
         </div>
 
+        {/* Visually hidden assertive region to announce the success state */}
+        <div aria-live="assertive" className="sr-only" style={{ position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clip: 'rect(0, 0, 0, 0)', whiteSpace: 'nowrap', border: 0 }}>
+          {copied ? t.copied : ''}
+        </div>
+
         <div className="hud-modal-actions" style={{ justifyContent: 'center' }}>
-          <button className="hud-btn hud-btn-blue" onClick={handleCopy}>
+          <button
+            className="hud-btn hud-btn-blue"
+            onClick={handleCopy}
+          >
             {copied ? t.copied : t.copy}
           </button>
-          <button className="hud-btn hud-btn-steel" onClick={onClose}>
+          <button
+            className="hud-btn hud-btn-steel"
+            onClick={onClose}
+          >
             {t.close}
           </button>
         </div>
