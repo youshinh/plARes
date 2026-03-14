@@ -44,7 +44,7 @@ export const createHeadProjectionMaterial = (
 export const createFaceDecal = (
   faceTexture: THREE.Texture,
   {
-    radius = 50,
+    // radius = 50,
   }: {
     radius?: number;
     offsetZ?: number;
