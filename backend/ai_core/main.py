@@ -750,7 +750,7 @@ async def _generate_fusion_texture(payload: dict[str, Any]) -> str:
             image_bytes = image_data.encode("utf-8")
 
     if reality_crafter is None:
-        return f"https://praresar.storage/textures/fallback_{hash(concept)}.png"
+        return f"https://placehold.co/512x512/333/fff.png?text=Fallback"
     return await reality_crafter.generate_fused_item(image_bytes, concept)
 
 

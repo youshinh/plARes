@@ -12,7 +12,13 @@ type AttachmentRecord = {
 
 const createImageFallbackAttachment = async (slot: AttachmentSlot): Promise<AttachmentRecord> => {
   const group = new THREE.Group();
-  const texture = slot.sourceImageUrl ? await new THREE.TextureLoader().loadAsync(slot.sourceImageUrl) : null;
+  let fetchUrl = slot.sourceImageUrl || '';
+  if (fetchUrl.startsWith('https://assets.meshy.ai/')) {
+    fetchUrl = fetchUrl.replace('https://assets.meshy.ai/', '/meshy-assets/');
+  }
+  const loader = new THREE.TextureLoader();
+  loader.setCrossOrigin('anonymous');
+  const texture = fetchUrl ? await loader.loadAsync(fetchUrl) : null;
   if (texture) {
     texture.colorSpace = THREE.SRGBColorSpace;
   }
@@ -69,7 +75,11 @@ export const useAttachmentManager = (
 
         let record: AttachmentRecord;
         try {
-          const gltf = await loader.loadAsync(slot.glbUrl);
+          let fetchUrl = slot.glbUrl;
+          if (fetchUrl.startsWith('https://assets.meshy.ai/')) {
+            fetchUrl = fetchUrl.replace('https://assets.meshy.ai/', '/meshy-assets/');
+          }
+          const gltf = await loader.loadAsync(fetchUrl);
           if (disposed) return;
           const scene = gltf.scene.clone(true);
           normalizeEquipmentGlb(scene, 0.24 * (slot.scale || 1));

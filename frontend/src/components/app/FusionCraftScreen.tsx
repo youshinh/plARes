@@ -192,6 +192,12 @@ export const FusionCraftScreen: React.FC<FusionCraftScreenProps> = ({
     setErrorText('');
   };
 
+  const handleCraftKindChange = (next: 'skin' | 'attachment') => {
+    setCraftKind(next);
+    handleRetake();
+    setLocalRequestId('');
+  };
+
   const isSubmitting = localStatus === 'submitting';
   const cameraButtonLabel = t.fusionCaptureNow || '写真を撮る';
   const uploadButtonLabel = t.fusionUploadFromLibrary || '画像を選ぶ';
@@ -207,7 +213,7 @@ export const FusionCraftScreen: React.FC<FusionCraftScreenProps> = ({
             t={t}
             craftKind={craftKind}
             mountPoint={mountPoint}
-            onChangeCraftKind={setCraftKind}
+            onChangeCraftKind={handleCraftKindChange}
             onChangeMountPoint={setMountPoint}
           />
           <div

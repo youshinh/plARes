@@ -209,6 +209,28 @@ export const useRemoteBattleEvents = ({
             ? profile.recent_dna_ab_tests
             : [];
           setRecentABFeedbackCount(recentAb.length);
+
+          const inventoryRaw = Array.isArray(profile.inventory) ? profile.inventory : [];
+          const activeAttachments = new Map<string, any>();
+          
+          inventoryRaw.forEach((item: any) => {
+            if (item.action === 'attach' && item.mount_point && item.url) {
+              const url = String(item.url);
+              const isModel = url.includes('.glb') || url.includes('.gltf') || url.includes('meshy');
+              activeAttachments.set(String(item.mount_point), {
+                mountPoint: String(item.mount_point) as "WEAPON_R" | "WEAPON_L" | "HEAD_ACCESSORY" | "BACKPACK",
+                glbUrl: isModel ? url : "",
+                label: String(item.name || 'fused item'),
+                scale: 0.28,
+                sourceImageUrl: isModel ? "" : url,
+              });
+            }
+          });
+          
+          activeAttachments.forEach((attachment) => {
+            useFSMStore.getState().setAttachment(attachment as any);
+          });
+
           setProfileInfo({
             totalMatches,
             totalTrainingSessions: Number(profile.total_training_sessions ?? 0),
@@ -428,31 +450,22 @@ export const useRemoteBattleEvents = ({
           return;
         }
         if (payload.kind === "fused_item") {
-          const concept =
-            typeof payload.concept === "string"
-              ? payload.concept
-              : "fused item";
-          const action =
-            typeof payload.action === "string" ? payload.action : "";
-          const url =
-            typeof payload.texture_url === "string" ? payload.texture_url : "";
-          const requestId =
-            typeof payload.request_id === "string" ? payload.request_id : "";
-          const mountPoint =
-            typeof payload.mount_point === "string" ? payload.mount_point : "";
+          const concept = typeof payload.concept === "string" ? payload.concept : "fused item";
+          const action = typeof payload.action === "string" ? payload.action : "";
+          const url = typeof payload.texture_url === "string" ? payload.texture_url : "";
+          const requestId = typeof payload.request_id === "string" ? payload.request_id : "";
+          const mountPoint = typeof payload.mount_point === "string" ? payload.mount_point : "";
           const scale = Number(payload.scale ?? 0.28);
+
+          const isModel = url.includes('.glb') || url.includes('.gltf') || url.includes('meshy');
 
           if (action === "attach" && url && mountPoint) {
             useFSMStore.getState().setAttachment({
-              mountPoint: mountPoint as
-                | "WEAPON_R"
-                | "WEAPON_L"
-                | "HEAD_ACCESSORY"
-                | "BACKPACK",
-              glbUrl: "",
+              mountPoint: mountPoint as "WEAPON_R" | "WEAPON_L" | "HEAD_ACCESSORY" | "BACKPACK",
+              glbUrl: isModel ? url : "",
               label: concept,
               scale: Number.isFinite(scale) ? scale : 0.28,
-              sourceImageUrl: url,
+              sourceImageUrl: isModel ? "" : url,
             });
             showSubtitle(`Attachment Ready: ${concept}`);
           } else if (action === "equip" && url) {

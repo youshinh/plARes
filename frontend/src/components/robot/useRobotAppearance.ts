@@ -152,8 +152,14 @@ export const useRobotAppearance = ({
     };
 
     const loader = new THREE.TextureLoader();
+    loader.setCrossOrigin('anonymous');
+    let fetchUrl = robotDna.skinUrl;
+    if (fetchUrl.startsWith('https://assets.meshy.ai/')) {
+      fetchUrl = fetchUrl.replace('https://assets.meshy.ai/', '/meshy-assets/');
+    }
+
     loader.load(
-      robotDna.skinUrl,
+      fetchUrl,
       (tex) => {
         if (!active) {
           tex.dispose();

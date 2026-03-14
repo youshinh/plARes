@@ -44,9 +44,7 @@ export const createHeadProjectionMaterial = (
 export const createFaceDecal = (
   faceTexture: THREE.Texture,
   {
-    radius = 7.2,
-    offsetZ = 0,
-    offsetY = 0,
+    radius = 50,
   }: {
     radius?: number;
     offsetZ?: number;
@@ -54,36 +52,30 @@ export const createFaceDecal = (
   } = {},
 ): THREE.Object3D => {
   const decalTexture = faceTexture.clone();
-  // PNG with alpha from chroma-key removal — keep flipY=true (Three.js default for canvas sources).
-  decalTexture.flipY = true;
+  // We want the texture to appear correctly oriented.
+  // Since the source is often a CanvasTexture with flipY=false or a standard loader result,
+  // we align it with Three.js SphereGeometry mapping expectations.
+  decalTexture.flipY = false;
   decalTexture.colorSpace = THREE.SRGBColorSpace;
-  decalTexture.premultiplyAlpha = false;
   decalTexture.needsUpdate = true;
 
   // ── Sphere-segment wrapping the face around the head ──
   //
-  // SphereGeometry phi sweeps horizontally starting from +X.
-  // A negative phiStart centers the patch symmetrically around phi=0 (+X).
+  // Geometry is centered around phi=0 (which is +X in Three.js).
+  // Head bone's local +Y is "up", +Z is usually "forward" or -Z.
   //
-  // The head bone's local +Y typically points "up along the spine" which,
-  // for the head, maps to the CHARACTER'S FORWARD direction in world
-  // space.  That means the sphere's equator (outward normals horizontal
-  // in bone-local space) actually faces UPWARD in world space — which is
-  // why photos showed the face on top of the head.
-  //
-  // Fix: after generating the sphere patch, rotate -90° around X so the
-  // equatorial outward normals tilt from bone-horizontal (+X) to bone +Y
-  // (= character forward).  Then rotate +90° around Y so phi=0 (+X after
-  // the X-rotation it becomes +Z in bone space) points forward.
-  const phiStart = -Math.PI * 0.45;          // centered on +X
-  const phiLength = Math.PI * 0.9;           // ~162°, ear-to-ear
-  const thetaStart = Math.PI * 0.18;
-  const thetaLength = Math.PI * 0.48;
+  // To align phi=0 with "character forward":
+  // If we assume bone forward is Z:
+  // 1. Rotate 90° around Y so +X faces Z.
+  const phiStart = -Math.PI * -0.75;
+  const phiLength = Math.PI * 0.45;
+  const thetaStart = Math.PI * 0.05;
+  const thetaLength = Math.PI * 0.8;
 
   const geometry = new THREE.SphereGeometry(
-    radius,
-    32,               // widthSegments
-    24,               // heightSegments
+    10,
+    32,
+    24,
     phiStart,
     phiLength,
     thetaStart,
@@ -102,11 +94,11 @@ export const createFaceDecal = (
   });
 
   const mesh = new THREE.Mesh(geometry, material);
-  // 1. Tip the face patch forward: -90° around X (bone-horizontal → bone +Y = char forward)
-  // 2. No additional Y rotation needed since the patch is already centered on +X
-  //    which, after the X-rotation, aligns with the bone's forward.
-  mesh.rotation.set(Math.PI / 2, 0, 0);
-  mesh.position.set(0, offsetY, offsetZ);
+  // Correcting the observed 180° + 90° rotation:
+  // PI/2 on X tips it, but we also need to account for the sideways tilt.
+  // Let's use a rotation that aligns the patch's Y-up with the bone's Y-up.
+  mesh.rotation.set(0, Math.PI / 2, Math.PI / 1.7);
+  mesh.position.set(0, -9, -5);
   mesh.renderOrder = 48;
   mesh.frustumCulled = false;
   return mesh;

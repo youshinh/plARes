@@ -2031,8 +2031,15 @@ function App() {
               <MainScene shadowsEnabled={SHADOWS_ENABLED} />
               <OrbitControls
                 makeDefault
-                enablePan={false}
-                enableDamping={false}
+                enablePan={true}
+                enableDamping={true}
+                dampingFactor={0.05}
+                screenSpacePanning={true}
+                mouseButtons={{
+                  LEFT: THREE.MOUSE.ROTATE,
+                  MIDDLE: THREE.MOUSE.PAN,
+                  RIGHT: THREE.MOUSE.ROTATE,
+                }}
                 autoRotate={false}
               />
             </>

@@ -13,6 +13,13 @@ export default defineConfig({
       'Cross-Origin-Opener-Policy': 'same-origin',
       'Cross-Origin-Embedder-Policy': 'require-corp',
     },
+    proxy: {
+      '/meshy-assets/': {
+        target: 'https://assets.meshy.ai',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/meshy-assets\//, '/'),
+      },
+    },
   },
   // Ensure relative asset paths work correctly on Cloud Run
   base: '/',
