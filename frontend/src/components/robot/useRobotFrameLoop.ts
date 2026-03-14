@@ -37,6 +37,7 @@ type UseRobotFrameLoopArgs = {
   scarRoughnessBoost: number;
   targetPosition: THREE.Vector3 | null;
   worldScaleRef: MutableRefObject<THREE.Vector3>;
+  attachmentVersion: number;
 };
 
 const setFacingYaw = (group: THREE.Group, from: THREE.Vector3, to: THREE.Vector3) => {
@@ -255,7 +256,7 @@ const processHitWindow = (
   }
 };
 
-const applyCombatGlow = (group: THREE.Group, currentState: State, scarRoughnessBoost: number) => {
+const applyCombatGlow = (materials: Array<THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial>, currentState: State, scarRoughnessBoost: number) => {
   const emissiveMap: Partial<Record<State, string>> = {
     [State.HOVERING]: '#000000',
     [State.BASIC_ATTACK]: '#661100',
@@ -267,12 +268,7 @@ const applyCombatGlow = (group: THREE.Group, currentState: State, scarRoughnessB
   const emissiveColor = emissiveMap[currentState] ?? '#000000';
   const emissiveIntensity = currentState === State.HOVERING ? 0.0 : 0.55;
 
-  group.traverse((child) => {
-    if (!(child as THREE.Mesh).isMesh) return;
-    const mat = (child as THREE.Mesh).material as
-      | THREE.MeshStandardMaterial
-      | THREE.MeshPhysicalMaterial;
-
+  materials.forEach((mat) => {
     if (mat.emissive && mat.emissiveIntensity < 1.2) {
       mat.emissive.set(emissiveColor);
       mat.emissiveIntensity = emissiveIntensity;
@@ -386,6 +382,7 @@ export const useRobotFrameLoop = ({
   scarRoughnessBoost,
   targetPosition,
   worldScaleRef,
+  attachmentVersion,
 }: UseRobotFrameLoopArgs) => {
   const waypointsRef = useRef<THREE.Vector3[]>([]);
   const lastTargetRef = useRef<THREE.Vector3 | null>(null);
@@ -396,6 +393,29 @@ export const useRobotFrameLoop = ({
   const lastLocalStorePosRef = useRef(new THREE.Vector3(0, 0, -1));
   const prevPosRef = useRef(new THREE.Vector3(0, 0, -1));
   const hoverTimerRef = useRef(0);
+  const materialsCacheRef = useRef<Array<THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial>>([]);
+
+  useEffect(() => {
+    const group = groupRef.current;
+    if (!group) return;
+    const mats: Array<THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial> = [];
+    group.traverse((child) => {
+      if (!(child as THREE.Mesh).isMesh) return;
+      const mat = (child as THREE.Mesh).material;
+      if (mat) {
+        if (Array.isArray(mat)) {
+          mat.forEach(m => {
+            if ((m as THREE.MeshStandardMaterial).isMeshStandardMaterial || (m as THREE.MeshPhysicalMaterial).isMeshPhysicalMaterial) {
+              mats.push(m as THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial);
+            }
+          });
+        } else if ((mat as THREE.MeshStandardMaterial).isMeshStandardMaterial || (mat as THREE.MeshPhysicalMaterial).isMeshPhysicalMaterial) {
+          mats.push(mat as THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial);
+        }
+      }
+    });
+    materialsCacheRef.current = mats;
+  }, [groupRef, attachmentVersion]);
 
   useFrame((_, delta) => {
     const group = groupRef.current;
@@ -434,7 +454,7 @@ export const useRobotFrameLoop = ({
     });
     const remotePos = maybeFaceRemoteTarget(group, currentState, pos);
     processHitWindow(currentState, actionRef, pos, remotePos);
-    applyCombatGlow(group, currentState, scarRoughnessBoost);
+    applyCombatGlow(materialsCacheRef.current, currentState, scarRoughnessBoost);
 
     const now = performance.now();
     syncStorePosition({

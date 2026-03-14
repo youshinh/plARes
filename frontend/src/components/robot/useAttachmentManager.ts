@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import type { AttachmentSlot, MountPointId } from './constants';
@@ -46,9 +46,11 @@ export const useAttachmentManager = (
   heroScene: THREE.Group | null,
   attachments: AttachmentSlot[],
 ) => {
+  const [version, setVersion] = useState(0);
   const mountedRef = useRef(new Map<MountPointId, AttachmentRecord>());
 
   useEffect(() => {
+    const currentMountedMap = mountedRef.current;
     if (!heroScene) return;
     const mountNodes = injectMountPoints(heroScene);
     const loader = new GLTFLoader();
@@ -104,7 +106,8 @@ export const useAttachmentManager = (
         }
 
         mountNode.add(record.root);
-        mountedRef.current.set(slot.mountPoint, record);
+        currentMountedMap.set(slot.mountPoint, record);
+        setVersion((v) => v + 1);
       }
     };
 
@@ -112,7 +115,20 @@ export const useAttachmentManager = (
 
     return () => {
       disposed = true;
-      (Array.from(mountedRef.current.keys()) as MountPointId[]).forEach(clearMount);
+      // Copy ref to variable to ensure cleanup operates on current reference
+      const currentMountedKeys = Array.from(currentMountedMap.keys()) as MountPointId[];
+      currentMountedKeys.forEach((mountPoint) => {
+         const record = currentMountedMap.get(mountPoint);
+         if (!record) return;
+         record.root.removeFromParent();
+         record.dispose();
+         currentMountedMap.delete(mountPoint);
+      });
+      if (currentMountedKeys.length > 0) {
+        setVersion((v) => v + 1);
+      }
     };
   }, [attachments, heroScene]);
+
+  return version;
 };
