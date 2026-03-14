@@ -100,7 +100,7 @@ export const ShareArenaModal: React.FC<ShareArenaModalProps> = ({
         </div>
 
         <div className="hud-modal-actions" style={{ justifyContent: 'center' }}>
-          <button className="hud-btn hud-btn-blue" onClick={handleCopy}>
+          <button className="hud-btn hud-btn-blue" onClick={handleCopy} aria-live="polite">
             {copied ? t.copied : t.copy}
           </button>
           <button className="hud-btn hud-btn-steel" onClick={onClose}>
