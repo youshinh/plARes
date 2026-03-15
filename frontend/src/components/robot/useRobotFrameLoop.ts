@@ -23,6 +23,7 @@ import { navMesh } from '../../utils/NavMeshGenerator';
 
 type UseRobotFrameLoopArgs = {
   actionRef: MutableRefObject<PlayedAction | null>;
+  attachmentVersion?: number;
   bodyScale: number;
   clipGroundOffsetRef: MutableRefObject<Partial<Record<CharacterClipName, number>>>;
   currentState: State;
@@ -255,7 +256,8 @@ const processHitWindow = (
   }
 };
 
-const applyCombatGlow = (group: THREE.Group, currentState: State, scarRoughnessBoost: number) => {
+// Performance Optimization: Iterates over a flat cache instead of recursive group.traverse()
+const applyCombatGlow = (materials: (THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial)[], currentState: State, scarRoughnessBoost: number) => {
   const emissiveMap: Partial<Record<State, string>> = {
     [State.HOVERING]: '#000000',
     [State.BASIC_ATTACK]: '#661100',
@@ -267,12 +269,7 @@ const applyCombatGlow = (group: THREE.Group, currentState: State, scarRoughnessB
   const emissiveColor = emissiveMap[currentState] ?? '#000000';
   const emissiveIntensity = currentState === State.HOVERING ? 0.0 : 0.55;
 
-  group.traverse((child) => {
-    if (!(child as THREE.Mesh).isMesh) return;
-    const mat = (child as THREE.Mesh).material as
-      | THREE.MeshStandardMaterial
-      | THREE.MeshPhysicalMaterial;
-
+  for (const mat of materials) {
     if (mat.emissive && mat.emissiveIntensity < 1.2) {
       mat.emissive.set(emissiveColor);
       mat.emissiveIntensity = emissiveIntensity;
@@ -287,7 +284,7 @@ const applyCombatGlow = (group: THREE.Group, currentState: State, scarRoughnessB
         Math.min(0.98, store.baseRoughness + scarRoughnessBoost),
       );
     }
-  });
+  }
 };
 
 const syncStorePosition = ({
@@ -372,6 +369,7 @@ const syncPeerPosition = ({
 
 export const useRobotFrameLoop = ({
   actionRef,
+  attachmentVersion,
   bodyScale,
   clipGroundOffsetRef,
   currentState,
@@ -396,6 +394,23 @@ export const useRobotFrameLoop = ({
   const lastLocalStorePosRef = useRef(new THREE.Vector3(0, 0, -1));
   const prevPosRef = useRef(new THREE.Vector3(0, 0, -1));
   const hoverTimerRef = useRef(0);
+  const materialsRef = useRef<(THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial)[]>([]);
+
+  // Performance Optimization: Cache materials with a useEffect hook
+  // This prevents running an expensive group.traverse() inside the useFrame loop
+  useEffect(() => {
+    const group = groupRef.current;
+    if (!group) return;
+    const mats: (THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial)[] = [];
+    group.traverse((child) => {
+      if (!(child as THREE.Mesh).isMesh) return;
+      const mat = (child as THREE.Mesh).material as
+        | THREE.MeshStandardMaterial
+        | THREE.MeshPhysicalMaterial;
+      if (mat) mats.push(mat);
+    });
+    materialsRef.current = mats;
+  }, [groupRef, attachmentVersion]);
 
   useFrame((_, delta) => {
     const group = groupRef.current;
@@ -434,7 +449,7 @@ export const useRobotFrameLoop = ({
     });
     const remotePos = maybeFaceRemoteTarget(group, currentState, pos);
     processHitWindow(currentState, actionRef, pos, remotePos);
-    applyCombatGlow(group, currentState, scarRoughnessBoost);
+    applyCombatGlow(materialsRef.current, currentState, scarRoughnessBoost);
 
     const now = performance.now();
     syncStorePosition({

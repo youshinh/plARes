@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import type { AttachmentSlot, MountPointId } from './constants';
@@ -47,6 +47,7 @@ export const useAttachmentManager = (
   attachments: AttachmentSlot[],
 ) => {
   const mountedRef = useRef(new Map<MountPointId, AttachmentRecord>());
+  const [version, setVersion] = useState(0);
 
   useEffect(() => {
     if (!heroScene) return;
@@ -60,6 +61,8 @@ export const useAttachmentManager = (
       record.root.removeFromParent();
       record.dispose();
       mountedRef.current.delete(mountPoint);
+      // Trigger cache rebuild on removal to prevent memory leak of old materials
+      setVersion((v) => v + 1);
     };
 
     const sync = async () => {
@@ -105,6 +108,7 @@ export const useAttachmentManager = (
 
         mountNode.add(record.root);
         mountedRef.current.set(slot.mountPoint, record);
+        setVersion((v) => v + 1);
       }
     };
 
@@ -112,7 +116,10 @@ export const useAttachmentManager = (
 
     return () => {
       disposed = true;
-      (Array.from(mountedRef.current.keys()) as MountPointId[]).forEach(clearMount);
+      const keys = Array.from(mountedRef.current.keys()) as MountPointId[];
+      keys.forEach(clearMount);
     };
   }, [attachments, heroScene]);
+
+  return { attachmentVersion: version };
 };
