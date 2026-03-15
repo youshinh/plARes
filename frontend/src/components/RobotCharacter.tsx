@@ -49,9 +49,10 @@ export const RobotCharacter: React.FC = () => {
     vit: robotStats.vit,
   });
   useRobotBoneScaling(heroScene, robotStats, robotDna);
-  useAttachmentManager(heroScene, attachments);
+  const { attachmentVersion } = useAttachmentManager(heroScene, attachments);
   useRobotFrameLoop({
     actionRef,
+    attachmentVersion,
     bodyScale,
     clipGroundOffsetRef,
     currentState,
