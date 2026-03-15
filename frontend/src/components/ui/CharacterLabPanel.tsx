@@ -61,13 +61,13 @@ export const CharacterLabPanel: React.FC<CharacterLabPanelProps> = ({
 
   return (
     <div className="lab-overlay">
-      <section className="lab-card">
+      <section className="lab-card" role="dialog" aria-modal="true" aria-labelledby="lab-panel-title">
         <header className="lab-head">
           <div>
-            <h3>Character Lab (A/B)</h3>
+            <h3 id="lab-panel-title">Character Lab (A/B)</h3>
             <p>{`Matches: ${totalMatches} / Feedback: ${recentFeedbackCount}`}</p>
           </div>
-          <button className="hud-btn hud-btn-carbon" onClick={onClose}>Close</button>
+          <button className="hud-btn hud-btn-carbon" onClick={onClose} aria-label="Close Character Lab panel">Close</button>
         </header>
 
         <div className="lab-grid">
@@ -80,9 +80,9 @@ export const CharacterLabPanel: React.FC<CharacterLabPanelProps> = ({
               <span style={{ background: paletteA.cyan }} />
             </div>
             <div className="lab-meta">{`${variants.variantA.finish} / ${variants.variantA.paletteFamily}`}</div>
-            <label className="lab-score">
+            <label className="lab-score" htmlFor="scoreA">
               Score A {scoreA.toFixed(2)}
-              <input type="range" min={0} max={1} step={0.01} value={scoreA} onChange={(e) => setScoreA(Number(e.target.value))} />
+              <input id="scoreA" type="range" min={0} max={1} step={0.01} value={scoreA} onChange={(e) => setScoreA(Number(e.target.value))} />
             </label>
             <button className="hud-btn hud-btn-blue" onClick={() => setChoice('A')}>Choose A</button>
           </article>
@@ -96,17 +96,18 @@ export const CharacterLabPanel: React.FC<CharacterLabPanelProps> = ({
               <span style={{ background: paletteB.cyan }} />
             </div>
             <div className="lab-meta">{`${variants.variantB.finish} / ${variants.variantB.paletteFamily}`}</div>
-            <label className="lab-score">
+            <label className="lab-score" htmlFor="scoreB">
               Score B {scoreB.toFixed(2)}
-              <input type="range" min={0} max={1} step={0.01} value={scoreB} onChange={(e) => setScoreB(Number(e.target.value))} />
+              <input id="scoreB" type="range" min={0} max={1} step={0.01} value={scoreB} onChange={(e) => setScoreB(Number(e.target.value))} />
             </label>
             <button className="hud-btn hud-btn-teal" onClick={() => setChoice('B')}>Choose B</button>
           </article>
         </div>
 
-        <label className="lab-note">
+        <label className="lab-note" htmlFor="lab-note-input">
           Comment
           <textarea
+            id="lab-note-input"
             rows={2}
             value={note}
             onChange={(e) => setNote(e.target.value)}
