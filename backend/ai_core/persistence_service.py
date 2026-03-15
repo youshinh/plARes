@@ -43,6 +43,11 @@ class PersistenceService:
         db = self.get_firestore_client()
         if db is None:
             return None
+
+        # Security: Prevent NoSQL path traversal
+        if "/" in user_id or ".." in user_id:
+            raise ValueError(f"Invalid user_id: {user_id!r}")
+
         try:
             snap = db.collection("users").document(user_id).get()
             if not snap.exists:
@@ -59,6 +64,11 @@ class PersistenceService:
         user_id = str(profile.get("user_id", ""))
         if not user_id:
             return
+
+        # Security: Prevent NoSQL path traversal
+        if "/" in user_id or ".." in user_id:
+            raise ValueError(f"Invalid user_id: {user_id!r}")
+
         try:
             robot = profile.get("robot", {})
             logs = profile.get("match_logs", [])
@@ -90,9 +100,19 @@ class PersistenceService:
         db = self.get_firestore_client()
         if db is None:
             return
+
+        # Security: Prevent NoSQL path traversal
+        if "/" in user_id or ".." in user_id:
+            raise ValueError(f"Invalid user_id: {user_id!r}")
+
         ts = str(match_log.get("timestamp", datetime.now(timezone.utc).isoformat()))
         room = str(match_log.get("room_id", "unknown"))
         doc_id = f"{ts}_{room}".replace(":", "-")
+
+        # Security: Prevent NoSQL path traversal
+        if "/" in doc_id or ".." in doc_id:
+            raise ValueError(f"Invalid doc_id: {doc_id!r}")
+
         try:
             payload = dict(match_log)
             expires = payload.get("expires_at")
