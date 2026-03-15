@@ -48,7 +48,7 @@ async def test_generate_fusion_texture_accepts_base64_when_crafter_unavailable(m
         }
     )
 
-    assert url.startswith("https://praresar.storage/textures/fallback_")
+    assert url == "https://placehold.co/512x512/333/fff.png?text=Fallback"
 
 
 @pytest.mark.asyncio

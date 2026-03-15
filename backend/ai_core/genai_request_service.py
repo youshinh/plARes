@@ -1,6 +1,9 @@
 import asyncio
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
+
+logger = logging.getLogger(__name__)
 
 
 class GenAIRequestService:
@@ -111,11 +114,12 @@ class GenAIRequestService:
             )
             token = client.auth_tokens.create(config=config)
         except Exception as exc:
+            logger.error(f"Token creation failed: {exc}")
             return {
                 "kind": "live_ephemeral_token",
                 "ok": False,
                 "error": "auth_token_create_failed",
-                "detail": str(exc),
+                "detail": "An internal error occurred during token creation.",
                 "model": model,
                 "response_modalities": modalities,
                 "user_id": user_id,
@@ -219,11 +223,12 @@ class GenAIRequestService:
         try:
             interaction = client.interactions.create(**kwargs)
         except Exception as exc:
+            logger.error(f"Interaction creation failed: {exc}")
             return {
                 "kind": "interaction_response",
                 "ok": False,
                 "error": "interaction_create_failed",
-                "detail": str(exc),
+                "detail": "An internal error occurred during interaction.",
                 "model": model,
                 "user_id": user_id,
                 "room_id": room_id,
