@@ -71,45 +71,57 @@ export const useAttachmentManager = (
         .filter((mountPoint) => !desired.has(mountPoint))
         .forEach(clearMount);
 
-      for (const slot of attachments) {
-        const mountNode = mountNodes[slot.mountPoint];
-        if (!mountNode) continue;
+      const results = await Promise.all(
+        attachments.map(async (slot) => {
+          const mountNode = mountNodes[slot.mountPoint];
+          if (!mountNode) return null;
+
+          try {
+            let fetchUrl = slot.glbUrl;
+            if (fetchUrl.startsWith('https://assets.meshy.ai/')) {
+              fetchUrl = fetchUrl.replace('https://assets.meshy.ai/', '/meshy-assets/');
+            }
+            const gltf = await loader.loadAsync(fetchUrl);
+            if (disposed) return null;
+            const scene = gltf.scene.clone(true);
+            normalizeEquipmentGlb(scene, 0.24 * (slot.scale || 1));
+            const record: AttachmentRecord = {
+              root: scene,
+              dispose: () => {
+                scene.traverse((node) => {
+                  const mesh = node as THREE.Mesh;
+                  if (!mesh.isMesh) return;
+                  mesh.geometry?.dispose?.();
+                  const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+                  mats.forEach((material) => material?.dispose?.());
+                });
+              },
+            };
+            return { slot, record, mountNode };
+          } catch {
+            const record = await createImageFallbackAttachment(slot);
+            if (disposed) {
+              record.dispose();
+              return null;
+            }
+            return { slot, record, mountNode };
+          }
+        }),
+      );
+
+      if (disposed) {
+        results.forEach((res) => res?.record.dispose());
+        return;
+      }
+
+      results.forEach((res) => {
+        if (!res) return;
+        const { slot, record, mountNode } = res;
         clearMount(slot.mountPoint);
-
-        let record: AttachmentRecord;
-        try {
-          let fetchUrl = slot.glbUrl;
-          if (fetchUrl.startsWith('https://assets.meshy.ai/')) {
-            fetchUrl = fetchUrl.replace('https://assets.meshy.ai/', '/meshy-assets/');
-          }
-          const gltf = await loader.loadAsync(fetchUrl);
-          if (disposed) return;
-          const scene = gltf.scene.clone(true);
-          normalizeEquipmentGlb(scene, 0.24 * (slot.scale || 1));
-          record = {
-            root: scene,
-            dispose: () => {
-              scene.traverse((node) => {
-                const mesh = node as THREE.Mesh;
-                if (!mesh.isMesh) return;
-                mesh.geometry?.dispose?.();
-                const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-                mats.forEach((material) => material?.dispose?.());
-              });
-            },
-          };
-        } catch {
-          record = await createImageFallbackAttachment(slot);
-          if (disposed) {
-            record.dispose();
-            return;
-          }
-        }
-
         mountNode.add(record.root);
         mountedRef.current.set(slot.mountPoint, record);
-        setVersion((v) => v + 1);
-      }
+      });
+      setVersion((v) => v + 1);
     };
 
     void sync();
