@@ -71,45 +71,49 @@ export const useAttachmentManager = (
         .filter((mountPoint) => !desired.has(mountPoint))
         .forEach(clearMount);
 
-      for (const slot of attachments) {
-        const mountNode = mountNodes[slot.mountPoint];
-        if (!mountNode) continue;
-        clearMount(slot.mountPoint);
+      // Fetch multiple 3D assets concurrently using Promise.all
+      // instead of a sequential for...of loop to significantly reduce rendering latency
+      await Promise.all(
+        attachments.map(async (slot) => {
+          const mountNode = mountNodes[slot.mountPoint];
+          if (!mountNode) return;
+          clearMount(slot.mountPoint);
 
-        let record: AttachmentRecord;
-        try {
-          let fetchUrl = slot.glbUrl;
-          if (fetchUrl.startsWith('https://assets.meshy.ai/')) {
-            fetchUrl = fetchUrl.replace('https://assets.meshy.ai/', '/meshy-assets/');
+          let record: AttachmentRecord;
+          try {
+            let fetchUrl = slot.glbUrl;
+            if (fetchUrl.startsWith('https://assets.meshy.ai/')) {
+              fetchUrl = fetchUrl.replace('https://assets.meshy.ai/', '/meshy-assets/');
+            }
+            const gltf = await loader.loadAsync(fetchUrl);
+            if (disposed) return;
+            const scene = gltf.scene.clone(true);
+            normalizeEquipmentGlb(scene, 0.24 * (slot.scale || 1));
+            record = {
+              root: scene,
+              dispose: () => {
+                scene.traverse((node) => {
+                  const mesh = node as THREE.Mesh;
+                  if (!mesh.isMesh) return;
+                  mesh.geometry?.dispose?.();
+                  const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+                  mats.forEach((material) => material?.dispose?.());
+                });
+              },
+            };
+          } catch {
+            record = await createImageFallbackAttachment(slot);
+            if (disposed) {
+              record.dispose();
+              return;
+            }
           }
-          const gltf = await loader.loadAsync(fetchUrl);
-          if (disposed) return;
-          const scene = gltf.scene.clone(true);
-          normalizeEquipmentGlb(scene, 0.24 * (slot.scale || 1));
-          record = {
-            root: scene,
-            dispose: () => {
-              scene.traverse((node) => {
-                const mesh = node as THREE.Mesh;
-                if (!mesh.isMesh) return;
-                mesh.geometry?.dispose?.();
-                const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-                mats.forEach((material) => material?.dispose?.());
-              });
-            },
-          };
-        } catch {
-          record = await createImageFallbackAttachment(slot);
-          if (disposed) {
-            record.dispose();
-            return;
-          }
-        }
 
-        mountNode.add(record.root);
-        mountedRef.current.set(slot.mountPoint, record);
-        setVersion((v) => v + 1);
-      }
+          mountNode.add(record.root);
+          mountedRef.current.set(slot.mountPoint, record);
+          setVersion((v) => v + 1);
+        })
+      );
     };
 
     void sync();
@@ -117,7 +121,13 @@ export const useAttachmentManager = (
     return () => {
       disposed = true;
       const keys = Array.from(mountedRef.current.keys()) as MountPointId[];
-      keys.forEach(clearMount);
+      keys.forEach((mountPoint) => {
+        const record = mountedRef.current.get(mountPoint);
+        if (!record) return;
+        record.root.removeFromParent();
+        record.dispose();
+        mountedRef.current.delete(mountPoint);
+      });
     };
   }, [attachments, heroScene]);
 
