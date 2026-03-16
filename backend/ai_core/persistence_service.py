@@ -72,8 +72,6 @@ class PersistenceService:
         if db is None:
             return
         user_id = str(profile.get("user_id", ""))
-        if not user_id:
-            return
 
         self._validate_firestore_id(user_id)
 
