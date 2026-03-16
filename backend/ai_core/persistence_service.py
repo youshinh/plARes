@@ -20,6 +20,18 @@ class PersistenceService:
     def firestore_disabled_reason(self) -> str:
         return self._firestore_disabled_reason
 
+    @staticmethod
+    def _validate_firestore_id(doc_id: str) -> None:
+        """Validates doc_id to prevent NoSQL path traversal and invalid characters."""
+        if not doc_id:
+            raise ValueError("Firestore ID cannot be empty.")
+        if "/" in doc_id:
+            raise ValueError("Firestore ID cannot contain '/'.")
+        if doc_id in {".", ".."}:
+            raise ValueError("Firestore ID cannot be '.' or '..'.")
+        if doc_id.startswith("__") and doc_id.endswith("__"):
+            raise ValueError("Firestore ID cannot be a reserved name (matching '__.*__').")
+
     def get_firestore_client(self) -> Any | None:
         if self._firestore_client is not None:
             return self._firestore_client
@@ -44,9 +56,7 @@ class PersistenceService:
         if db is None:
             return None
 
-        # Security: Prevent NoSQL path traversal
-        if "/" in user_id or ".." in user_id:
-            raise ValueError(f"Invalid user_id: {user_id!r}")
+        self._validate_firestore_id(user_id)
 
         try:
             snap = db.collection("users").document(user_id).get()
@@ -65,9 +75,7 @@ class PersistenceService:
         if not user_id:
             return
 
-        # Security: Prevent NoSQL path traversal
-        if "/" in user_id or ".." in user_id:
-            raise ValueError(f"Invalid user_id: {user_id!r}")
+        self._validate_firestore_id(user_id)
 
         try:
             robot = profile.get("robot", {})
@@ -101,17 +109,13 @@ class PersistenceService:
         if db is None:
             return
 
-        # Security: Prevent NoSQL path traversal
-        if "/" in user_id or ".." in user_id:
-            raise ValueError(f"Invalid user_id: {user_id!r}")
+        self._validate_firestore_id(user_id)
 
         ts = str(match_log.get("timestamp", datetime.now(timezone.utc).isoformat()))
         room = str(match_log.get("room_id", "unknown"))
         doc_id = f"{ts}_{room}".replace(":", "-")
 
-        # Security: Prevent NoSQL path traversal
-        if "/" in doc_id or ".." in doc_id:
-            raise ValueError(f"Invalid doc_id: {doc_id!r}")
+        self._validate_firestore_id(doc_id)
 
         try:
             payload = dict(match_log)

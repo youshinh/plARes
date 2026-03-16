@@ -71,21 +71,25 @@ export const useAttachmentManager = (
         .filter((mountPoint) => !desired.has(mountPoint))
         .forEach(clearMount);
 
-      const results = await Promise.all(
+      // Fetch multiple 3D assets concurrently using Promise.all
+      // instead of a sequential for...of loop to significantly reduce rendering latency
+      await Promise.all(
         attachments.map(async (slot) => {
           const mountNode = mountNodes[slot.mountPoint];
-          if (!mountNode) return null;
+          if (!mountNode) return;
+          clearMount(slot.mountPoint);
 
+          let record: AttachmentRecord;
           try {
             let fetchUrl = slot.glbUrl;
             if (fetchUrl.startsWith('https://assets.meshy.ai/')) {
               fetchUrl = fetchUrl.replace('https://assets.meshy.ai/', '/meshy-assets/');
             }
             const gltf = await loader.loadAsync(fetchUrl);
-            if (disposed) return null;
+            if (disposed) return;
             const scene = gltf.scene.clone(true);
             normalizeEquipmentGlb(scene, 0.24 * (slot.scale || 1));
-            const record: AttachmentRecord = {
+            record = {
               root: scene,
               dispose: () => {
                 scene.traverse((node) => {
@@ -97,31 +101,19 @@ export const useAttachmentManager = (
                 });
               },
             };
-            return { slot, record, mountNode };
           } catch {
-            const record = await createImageFallbackAttachment(slot);
+            record = await createImageFallbackAttachment(slot);
             if (disposed) {
               record.dispose();
-              return null;
+              return;
             }
-            return { slot, record, mountNode };
           }
-        }),
+
+          mountNode.add(record.root);
+          mountedRef.current.set(slot.mountPoint, record);
+          setVersion((v) => v + 1);
+        })
       );
-
-      if (disposed) {
-        results.forEach((res) => res?.record.dispose());
-        return;
-      }
-
-      results.forEach((res) => {
-        if (!res) return;
-        const { slot, record, mountNode } = res;
-        clearMount(slot.mountPoint);
-        mountNode.add(record.root);
-        mountedRef.current.set(slot.mountPoint, record);
-      });
-      setVersion((v) => v + 1);
     };
 
     void sync();
@@ -129,7 +121,13 @@ export const useAttachmentManager = (
     return () => {
       disposed = true;
       const keys = Array.from(mountedRef.current.keys()) as MountPointId[];
-      keys.forEach(clearMount);
+      keys.forEach((mountPoint) => {
+        const record = mountedRef.current.get(mountPoint);
+        if (!record) return;
+        record.root.removeFromParent();
+        record.dispose();
+        mountedRef.current.delete(mountPoint);
+      });
     };
   }, [attachments, heroScene]);
 
