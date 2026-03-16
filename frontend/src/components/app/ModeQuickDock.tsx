@@ -47,11 +47,13 @@ export const ModeQuickDock: FC<ModeQuickDockProps> = ({
         className="mode-quick-dock-toggle"
         onClick={() => setCollapsed((prev) => !prev)}
         aria-label={collapsed ? t.quickActions : (t.closeMenu ?? 'Close')}
+        aria-expanded={!collapsed}
+        aria-controls="mode-quick-dock-content"
       >
         {collapsed ? '+' : '-'}
       </button>
       {!collapsed && (
-        <div className="mode-quick-dock-body">
+        <div id="mode-quick-dock-content" className="mode-quick-dock-body">
           <div className="mode-quick-dock-label">
             {playMode === 'walk' ? t.modeWalk : t.modeTraining}
           </div>
