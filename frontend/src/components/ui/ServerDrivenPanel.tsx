@@ -156,22 +156,16 @@ export const ServerDrivenPanel: React.FC = () => {
 
   return (
     <div className={`tactics-panel hud-animate ${!isOpen ? 'is-collapsed' : ''} ${isMobileViewport ? 'is-mobile' : ''}`}>
-      <h3
-        className="tactics-title"
-        onClick={() => setIsOpen(!isOpen)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            setIsOpen(!isOpen);
-          }
-        }}
-        style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between' }}
-        role="button"
-        tabIndex={0}
-        aria-expanded={isOpen}
-      >
-        {title}
-        <span aria-hidden="true">{isOpen ? '▼' : '▲'}</span>
+      <h3>
+        <button
+          className="tactics-title"
+          onClick={() => setIsOpen(!isOpen)}
+          style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', width: '100%', background: 'none', border: 'none', padding: 0, textAlign: 'left', font: 'inherit' }}
+          aria-expanded={isOpen}
+        >
+          {title}
+          <span aria-hidden="true">{isOpen ? '▼' : '▲'}</span>
+        </button>
       </h3>
       
       {isOpen && activeTactics.map(t => (
