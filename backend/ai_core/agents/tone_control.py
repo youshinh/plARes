@@ -1,5 +1,3 @@
-from typing import List, Dict
-
 def get_base_system_prompt() -> str:
     """
     Returns the core system prompt template for Tone Control and Persona.
