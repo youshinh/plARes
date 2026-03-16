@@ -6,6 +6,24 @@ import { useArenaSyncStore } from '../store/useArenaSyncStore';
 
 export type ScanState = 'idle' | 'searching' | 'tracking' | 'ready' | 'unsupported';
 
+const withTimeout = <T>(promise: Promise<T>, timeoutMs: number, errorMessage = 'Promise timed out'): Promise<T> => {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(errorMessage));
+    }, timeoutMs);
+
+    promise
+      .then((value) => {
+        clearTimeout(timer);
+        resolve(value);
+      })
+      .catch((err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+  });
+};
+
 interface XRScannerState {
   isScanning: boolean;
   hoverMatrix: THREE.Matrix4 | null; // latest hit-test pose
@@ -163,14 +181,16 @@ export const useWebXRScanner = () => {
         depthRawToMetersRef.current = 0.001;
 
         // 'local-floor' gives y=0 at floor level; fall back to 'local'
-        const localSpace = await session.requestReferenceSpace('local-floor')
+        const localSpaceReq = session.requestReferenceSpace('local-floor')
           .catch(() => session.requestReferenceSpace('local'));
+        const localSpace = await withTimeout(localSpaceReq, 5000, 'localSpace timeout');
         localSpaceRef.current = localSpace;
 
         // Hit-test MUST use 'viewer' space per WebXR spec.
         // Using 'local' was a bug that caused silent failure on ARCore devices.
-        const viewerSpace = await session.requestReferenceSpace('viewer').catch((err) => {
-          console.warn('[XR] Viewer reference space unavailable, fallback scanner only:', err);
+        const viewerSpaceReq = session.requestReferenceSpace('viewer');
+        const viewerSpace = await withTimeout(viewerSpaceReq, 5000, 'viewerSpace timeout').catch((err) => {
+          console.warn('[XR] Viewer reference space unavailable or timed out, fallback scanner only:', err);
           return null;
         });
         viewerSpaceRef.current = viewerSpace;
@@ -179,14 +199,15 @@ export const useWebXRScanner = () => {
         // (Desktop, iOS Safari which has no WebXR support at all)
         if (viewerSpace && typeof (session as any).requestHitTestSource === 'function') {
           try {
-            hitSource = await (session as any).requestHitTestSource({ space: viewerSpace });
+            const hitSourceReq = (session as any).requestHitTestSource({ space: viewerSpace });
+            hitSource = await withTimeout(hitSourceReq, 5000, 'requestHitTestSource timeout');
             if (!cancelled) {
               hasHitTestSource = true;
               hitTestSourceRef.current = hitSource;
               console.log('[XR] Hit-test source acquired (viewer space)');
             }
           } catch (err) {
-            console.warn('[XR] Hit-test source request failed, using fallback floor projection:', err);
+            console.warn('[XR] Hit-test source request failed or timed out, using fallback floor projection:', err);
           }
         } else {
           console.warn('[XR] Hit-test not supported on this device – fallback floor projection only');
