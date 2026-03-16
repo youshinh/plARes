@@ -156,6 +156,8 @@ export const useRobotAppearance = ({
     let fetchUrl = robotDna.skinUrl;
     if (fetchUrl.startsWith('https://assets.meshy.ai/')) {
       fetchUrl = fetchUrl.replace('https://assets.meshy.ai/', '/meshy-assets/');
+    } else if (fetchUrl.startsWith('https://storage.googleapis.com/')) {
+      fetchUrl = fetchUrl.replace('https://storage.googleapis.com/', '/gcs-storage/');
     }
 
     loader.load(

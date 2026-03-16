@@ -15,6 +15,8 @@ const createImageFallbackAttachment = async (slot: AttachmentSlot): Promise<Atta
   let fetchUrl = slot.sourceImageUrl || '';
   if (fetchUrl.startsWith('https://assets.meshy.ai/')) {
     fetchUrl = fetchUrl.replace('https://assets.meshy.ai/', '/meshy-assets/');
+  } else if (fetchUrl.startsWith('https://storage.googleapis.com/')) {
+    fetchUrl = fetchUrl.replace('https://storage.googleapis.com/', '/gcs-storage/');
   }
   const loader = new THREE.TextureLoader();
   loader.setCrossOrigin('anonymous');
@@ -54,6 +56,7 @@ export const useAttachmentManager = (
     const mountNodes = injectMountPoints(heroScene);
     const loader = new GLTFLoader();
     let disposed = false;
+    const refMap = mountedRef.current;
 
     const clearMount = (mountPoint: MountPointId) => {
       const record = mountedRef.current.get(mountPoint);
@@ -84,6 +87,8 @@ export const useAttachmentManager = (
             let fetchUrl = slot.glbUrl;
             if (fetchUrl.startsWith('https://assets.meshy.ai/')) {
               fetchUrl = fetchUrl.replace('https://assets.meshy.ai/', '/meshy-assets/');
+            } else if (fetchUrl.startsWith('https://storage.googleapis.com/')) {
+              fetchUrl = fetchUrl.replace('https://storage.googleapis.com/', '/gcs-storage/');
             }
             const gltf = await loader.loadAsync(fetchUrl);
             if (disposed) return;
@@ -120,13 +125,13 @@ export const useAttachmentManager = (
 
     return () => {
       disposed = true;
-      const keys = Array.from(mountedRef.current.keys()) as MountPointId[];
+      const keys = Array.from(refMap.keys()) as MountPointId[];
       keys.forEach((mountPoint) => {
-        const record = mountedRef.current.get(mountPoint);
+        const record = refMap.get(mountPoint);
         if (!record) return;
         record.root.removeFromParent();
         record.dispose();
-        mountedRef.current.delete(mountPoint);
+        refMap.delete(mountPoint);
       });
     };
   }, [attachments, heroScene]);

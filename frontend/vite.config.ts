@@ -19,6 +19,11 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/meshy-assets\//, '/'),
       },
+      '/gcs-storage/': {
+        target: 'https://storage.googleapis.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/gcs-storage\//, '/'),
+      },
     },
   },
   // Ensure relative asset paths work correctly on Cloud Run
