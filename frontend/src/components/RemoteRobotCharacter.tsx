@@ -426,6 +426,33 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
     playAction(resolved.action, 0.15);
   }, [modelScene, animations, playAction]);
 
+  // Performance Optimization: Cache static hologram materials to avoid per-frame traversal updates
+  useEffect(() => {
+    const isHologram = hasRemotePeer && matchAlignmentReady;
+    allMaterialsRef.current.forEach(m => {
+      const mat = m as THREE.Material & {
+        transparent?: boolean;
+        opacity?: number;
+        emissive?: THREE.Color;
+        emissiveIntensity?: number;
+      };
+      if (isHologram) {
+        if ('transparent' in mat) mat.transparent = true;
+        if ('opacity' in mat) mat.opacity = 0.72;
+        if ('emissive' in mat && mat.emissive) {
+          mat.emissive.setHex(0x4a9dff);
+        }
+      } else {
+        if ('transparent' in mat) mat.transparent = false;
+        if ('opacity' in mat) mat.opacity = 1.0;
+        if ('emissive' in mat && mat.emissive) {
+          mat.emissive.setHex(0x0f2b66);
+          mat.emissiveIntensity = 1.0;
+        }
+      }
+    });
+  }, [hasRemotePeer, matchAlignmentReady, modelScene]);
+
   useFrame((frameState, delta) => {
     for (const mat of occlusionMaterialsRef.current) {
       updateDepthOcclusionUniforms(mat, {
@@ -683,24 +710,16 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
 
     // ── HOLOGRAM EFFECT ──
     const isHologram = hasRemotePeer && matchAlignmentReady;
-    const time = window.performance.now() * 0.001;
-    allMaterialsRef.current.forEach(m => {
-      if (isHologram) {
-        if ('transparent' in m) (m as any).transparent = true;
-        if ('opacity' in m) (m as any).opacity = 0.72;
-        if ('emissive' in m) {
-          (m as any).emissive.setHex(0x4a9dff);
-          (m as any).emissiveIntensity = 0.8 + Math.sin(time * 5.0) * 0.2;
+    if (isHologram) {
+      const time = window.performance.now() * 0.001;
+      const intensity = 0.8 + Math.sin(time * 5.0) * 0.2;
+      allMaterialsRef.current.forEach(m => {
+        const mat = m as THREE.Material & { emissiveIntensity?: number };
+        if ('emissive' in mat) {
+          mat.emissiveIntensity = intensity;
         }
-      } else {
-        if ('transparent' in m) (m as any).transparent = false;
-        if ('opacity' in m) (m as any).opacity = 1.0;
-        if ('emissive' in m) {
-          (m as any).emissive.setHex(0x0f2b66);
-          (m as any).emissiveIntensity = 1.0;
-        }
-      }
-    });
+      });
+    }
 
   });
 
