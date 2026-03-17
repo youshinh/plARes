@@ -426,6 +426,33 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
     playAction(resolved.action, 0.15);
   }, [modelScene, animations, playAction]);
 
+  // Performance Optimization: Cache static hologram materials to avoid per-frame traversal updates
+  useEffect(() => {
+    const isHologram = hasRemotePeer && matchAlignmentReady;
+    allMaterialsRef.current.forEach(m => {
+      const mat = m as THREE.Material & {
+        transparent?: boolean;
+        opacity?: number;
+        emissive?: THREE.Color;
+        emissiveIntensity?: number;
+      };
+      if (isHologram) {
+        if ('transparent' in mat) mat.transparent = true;
+        if ('opacity' in mat) mat.opacity = 0.72;
+        if ('emissive' in mat && mat.emissive) {
+          mat.emissive.setHex(0x4a9dff);
+        }
+      } else {
+        if ('transparent' in mat) mat.transparent = false;
+        if ('opacity' in mat) mat.opacity = 1.0;
+        if ('emissive' in mat && mat.emissive) {
+          mat.emissive.setHex(0x0f2b66);
+          mat.emissiveIntensity = 1.0;
+        }
+      }
+    });
+  }, [hasRemotePeer, matchAlignmentReady, modelScene]);
+
   useFrame((frameState, delta) => {
     for (const mat of occlusionMaterialsRef.current) {
       updateDepthOcclusionUniforms(mat, {
@@ -683,47 +710,18 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
 
     // ── HOLOGRAM EFFECT ──
     const isHologram = hasRemotePeer && matchAlignmentReady;
-    const time = window.performance.now() * 0.001;
     if (isHologram) {
+      const time = window.performance.now() * 0.001;
+      const intensity = 0.8 + Math.sin(time * 5.0) * 0.2;
       allMaterialsRef.current.forEach(m => {
-        if ('emissiveIntensity' in m) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (m as any).emissiveIntensity = 0.8 + Math.sin(time * 5.0) * 0.2;
+        const mat = m as THREE.Material & { emissiveIntensity?: number };
+        if ('emissive' in mat) {
+          mat.emissiveIntensity = intensity;
         }
       });
     }
 
   });
-
-  // Performance Optimization: Cache static material properties with a useEffect hook
-  // This prevents running an expensive iteration and assigning static values inside the useFrame loop
-  useEffect(() => {
-    const isHologram = hasRemotePeer && matchAlignmentReady;
-    allMaterialsRef.current.forEach((m) => {
-      if (isHologram) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        if ('transparent' in m) (m as any).transparent = true;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        if ('opacity' in m) (m as any).opacity = 0.72;
-        if ('emissive' in m) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (m as any).emissive.setHex(0x4a9dff);
-        }
-      } else {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        if ('transparent' in m) (m as any).transparent = false;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        if ('opacity' in m) (m as any).opacity = 1.0;
-        if ('emissive' in m) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (m as any).emissive.setHex(0x0f2b66);
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (m as any).emissiveIntensity = 1.0;
-        }
-      }
-      m.needsUpdate = true;
-    });
-  }, [hasRemotePeer, matchAlignmentReady]);
 
   return (
     <group ref={groupRef} position={[1, 0, -1.5]}>
