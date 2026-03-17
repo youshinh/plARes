@@ -684,25 +684,46 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
     // ── HOLOGRAM EFFECT ──
     const isHologram = hasRemotePeer && matchAlignmentReady;
     const time = window.performance.now() * 0.001;
-    allMaterialsRef.current.forEach(m => {
-      if (isHologram) {
-        if ('transparent' in m) (m as any).transparent = true;
-        if ('opacity' in m) (m as any).opacity = 0.72;
-        if ('emissive' in m) {
-          (m as any).emissive.setHex(0x4a9dff);
+    if (isHologram) {
+      allMaterialsRef.current.forEach(m => {
+        if ('emissiveIntensity' in m) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (m as any).emissiveIntensity = 0.8 + Math.sin(time * 5.0) * 0.2;
         }
+      });
+    }
+
+  });
+
+  // Performance Optimization: Cache static material properties with a useEffect hook
+  // This prevents running an expensive iteration and assigning static values inside the useFrame loop
+  useEffect(() => {
+    const isHologram = hasRemotePeer && matchAlignmentReady;
+    allMaterialsRef.current.forEach((m) => {
+      if (isHologram) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if ('transparent' in m) (m as any).transparent = true;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if ('opacity' in m) (m as any).opacity = 0.72;
+        if ('emissive' in m) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (m as any).emissive.setHex(0x4a9dff);
+        }
       } else {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         if ('transparent' in m) (m as any).transparent = false;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         if ('opacity' in m) (m as any).opacity = 1.0;
         if ('emissive' in m) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (m as any).emissive.setHex(0x0f2b66);
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (m as any).emissiveIntensity = 1.0;
         }
       }
+      m.needsUpdate = true;
     });
-
-  });
+  }, [hasRemotePeer, matchAlignmentReady]);
 
   return (
     <group ref={groupRef} position={[1, 0, -1.5]}>
