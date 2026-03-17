@@ -1,4 +1,5 @@
 import asyncio
+import re
 import json
 import uuid
 from typing import Any, Awaitable, Callable, Optional
@@ -13,6 +14,9 @@ def query_from_path(request_path: str) -> dict[str, list[str]]:
 def parse_lang(query: dict[str, list[str]]) -> str:
     raw = str(query.get("lang", ["en-US"])[0]).strip()
     return raw if raw else "en-US"
+
+def sanitize_id(val: str) -> str:
+    return re.sub(r"[^a-zA-Z0-9_-]", "_", str(val))
 
 
 def parse_sync_rate(
@@ -32,8 +36,8 @@ def parse_game_identity(
     clamp01: Callable[[float], float],
 ) -> tuple[str, str, str, float]:
     query = query_from_path(request_path)
-    user_id = query.get("user_id", [f"user_{uuid.uuid4().hex[:8]}"])[0]
-    room_id = query.get("room_id", ["default"])[0]
+    user_id = sanitize_id(query.get("user_id", [f"user_{uuid.uuid4().hex[:8]}"])[0])
+    room_id = sanitize_id(query.get("room_id", ["default"])[0])
     lang = parse_lang(query)
     sync_rate = parse_sync_rate(query, clamp01, default=0.5)
     return user_id, room_id, lang, sync_rate
@@ -44,8 +48,8 @@ def parse_audio_identity(
     clamp01: Callable[[float], float],
 ) -> tuple[str, str, str, float]:
     query = query_from_path(request_path)
-    user_id = query.get("user_id", [f"audio_{uuid.uuid4().hex[:8]}"])[0]
-    room_id = query.get("room_id", ["default"])[0]
+    user_id = sanitize_id(query.get("user_id", [f"audio_{uuid.uuid4().hex[:8]}"])[0])
+    room_id = sanitize_id(query.get("room_id", ["default"])[0])
     lang = parse_lang(query)
     sync_rate = parse_sync_rate(query, clamp01, default=0.5)
     return user_id, room_id, lang, sync_rate
