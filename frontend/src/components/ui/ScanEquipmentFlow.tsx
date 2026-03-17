@@ -21,6 +21,8 @@ export const ScanEquipmentFlow: FC<ScanEquipmentFlowProps> = ({
     <div className="scan-equipment-kind-picker" role="tablist" aria-label={t.scanEquipmentModeLabel}>
       <button
         type="button"
+        role="tab"
+        aria-selected={craftKind === 'skin'}
         className={`hud-btn hud-btn-carbon ${craftKind === 'skin' ? 'is-selected' : ''}`}
         onClick={() => onChangeCraftKind('skin')}
       >
@@ -28,6 +30,8 @@ export const ScanEquipmentFlow: FC<ScanEquipmentFlowProps> = ({
       </button>
       <button
         type="button"
+        role="tab"
+        aria-selected={craftKind === 'attachment'}
         className={`hud-btn hud-btn-carbon ${craftKind === 'attachment' ? 'is-selected' : ''}`}
         onClick={() => onChangeCraftKind('attachment')}
       >
