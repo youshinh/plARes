@@ -46,6 +46,7 @@ export const ScanEquipmentFlow: FC<ScanEquipmentFlowProps> = ({
             <button
               key={option.id}
               type="button"
+              aria-pressed={mountPoint === option.id}
               className={`hud-btn hud-btn-carbon ${mountPoint === option.id ? 'is-selected' : ''}`}
               onClick={() => onChangeMountPoint(option.id)}
             >
