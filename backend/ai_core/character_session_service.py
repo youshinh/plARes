@@ -79,7 +79,7 @@ class CharacterSessionService:
                 exc_info=True,
             )
             try:
-                await websocket.send(json.dumps({"error": str(exc), "error_code": "server_error"}))
+                await websocket.send(json.dumps({"error": "An internal error occurred.", "error_code": "server_error"}))
             except Exception:
                 pass
         finally:
