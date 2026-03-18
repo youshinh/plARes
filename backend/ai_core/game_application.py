@@ -833,7 +833,7 @@ class GameApplication:
                         "kind": "fused_item_error",
                         "request_id": request_id,
                         "error": "fusion_generation_failed",
-                        "message": str(exc),
+                        "message": "An internal error occurred during fusion generation.",
                     },
                 },
             }
