@@ -88,6 +88,7 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
   const worldScaleRef = useRef(new THREE.Vector3(1, 1, 1));
   const occlusionMaterialsRef = useRef<Array<THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial>>([]);
   const allMaterialsRef = useRef<THREE.Material[]>([]);
+  const emissiveMaterialsRef = useRef<(THREE.Material & { emissiveIntensity?: number })[]>([]);
   const heightBoundsRef = useRef(new THREE.Box3());
   const lastHeightEmitAtRef = useRef(0);
   const lastSyncAtRef = useRef(0);
@@ -175,6 +176,7 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
     const createdMaterials: THREE.Material[] = [];
     occlusionMaterialsRef.current = [];
     allMaterialsRef.current = [];
+    emissiveMaterialsRef.current = [];
     const loader = new GLTFLoader();
 
     const finalBaseUrl = resolveModelGlbPath(opponentModelType);
@@ -259,6 +261,9 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
             mesh.material = m;
             createdMaterials.push(m);
             allMaterialsRef.current.push(m);
+            if ('emissive' in m) {
+              emissiveMaterialsRef.current.push(m);
+            }
             // Patch for AR depth occlusion (T1-2)
             if (patchDepthOcclusionMaterial(m)) {
               occlusionMaterialsRef.current.push(m);
@@ -295,6 +300,7 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
     return () => {
       disposed = true;
       occlusionMaterialsRef.current = [];
+      emissiveMaterialsRef.current = [];
       createdMaterials.forEach((material) => material.dispose());
       if (mixerRef.current) mixerRef.current.stopAllAction();
     };
@@ -713,11 +719,8 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
     if (isHologram) {
       const time = window.performance.now() * 0.001;
       const intensity = 0.8 + Math.sin(time * 5.0) * 0.2;
-      allMaterialsRef.current.forEach(m => {
-        const mat = m as THREE.Material & { emissiveIntensity?: number };
-        if ('emissive' in mat) {
-          mat.emissiveIntensity = intensity;
-        }
+      emissiveMaterialsRef.current.forEach(mat => {
+        mat.emissiveIntensity = intensity;
       });
     }
 
