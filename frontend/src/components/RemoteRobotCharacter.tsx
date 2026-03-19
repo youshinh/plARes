@@ -37,6 +37,18 @@ interface RemoteRobotCharacterProps {
 }
 
 const ROOT_DRIVE_BONE_RE = /(armature|hips|mixamorighips|root)/i;
+const _arenaCenter = new THREE.Vector3();
+const _anchorVec = new THREE.Vector3();
+const _motionTarget = new THREE.Vector3();
+const _forward = new THREE.Vector3();
+const _right = new THREE.Vector3();
+const _up = new THREE.Vector3(0, 1, 0);
+const _moveDir = new THREE.Vector3();
+const _dir = new THREE.Vector3();
+const _pushDir = new THREE.Vector3();
+const _toLocal = new THREE.Vector3();
+const _predictedTarget = new THREE.Vector3();
+
 const setFacingYaw = (group: THREE.Group, from: THREE.Vector3, to: THREE.Vector3) => {
   const dirX = to.x - from.x;
   const dirZ = to.z - from.z;
@@ -486,10 +498,11 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
       const playerPos = useFSMStore.getState().localRobotPosition;
       
       const localAnchor = useArenaSyncStore.getState().localCalibration?.point ?? { x: 0, y: 0, z: 0 };
-      const arenaCenter = new THREE.Vector3(localAnchor.x, localAnchor.y, localAnchor.z);
+      // Performance Optimization: reuse module-level vectors
+      const arenaCenter = _arenaCenter.set(localAnchor.x, localAnchor.y, localAnchor.z);
       
       // If player tracking isn't initialized yet, default to center
-      const anchorVec = playerPos ? playerPos.clone() : arenaCenter;
+      const anchorVec = playerPos ? _anchorVec.copy(playerPos) : _anchorVec.copy(arenaCenter);
       
       const distToAnchor = currentPos.distanceTo(anchorVec);
 
@@ -527,7 +540,7 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
          }
       }
 
-      const motionTarget = anchorVec.clone();
+      const motionTarget = _motionTarget.copy(anchorVec);
       const applyRelativeMotion = () => {
         if (
           statePolicy.motion.kind !== 'retreat_from_target' &&
@@ -537,7 +550,7 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
           return false;
         }
 
-        const forward = new THREE.Vector3().subVectors(motionTarget, currentPos);
+        const forward = _forward.subVectors(motionTarget, currentPos);
         forward.y = 0;
         if (forward.lengthSq() < 1e-6) {
           group.getWorldDirection(forward);
@@ -549,14 +562,14 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
           forward.normalize();
         }
 
-        const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0));
+        const right = _right.crossVectors(forward, _up);
         if (right.lengthSq() < 1e-6) {
           right.set(1, 0, 0);
         } else {
           right.normalize();
         }
 
-        const moveDir = new THREE.Vector3();
+        const moveDir = _moveDir;
         if (statePolicy.motion.kind === 'retreat_from_target') {
           moveDir.copy(forward).multiplyScalar(-1);
         } else if (statePolicy.motion.kind === 'strafe_left') {
@@ -572,7 +585,7 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
 
       const movedByRelativePolicy = applyRelativeMotion();
       if (!movedByRelativePolicy && statePolicy.motion.kind === 'approach_target') {
-        const dir = new THREE.Vector3().subVectors(anchorVec, currentPos);
+        const dir = _dir.subVectors(anchorVec, currentPos);
         if (dir.lengthSq() > 1e-6) {
           dir.normalize();
           currentPos.addScaledVector(dir, delta * statePolicy.motion.speed);
@@ -613,7 +626,7 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
                currentPos.x -= 0.05;
                currentPos.z += 0.05;
             } else {
-               const pushDir = new THREE.Vector3().subVectors(currentPos, playerPos).normalize();
+               const pushDir = _pushDir.subVectors(currentPos, playerPos).normalize();
                const overlap = minHitDistance - distToPlayer;
                currentPos.add(pushDir.multiplyScalar(overlap * 0.5));
             }
@@ -629,7 +642,7 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
 
       // Keep enemy facing local robot (not camera) for stable combat readability.
       if (localRobotPos) {
-        const toLocal = new THREE.Vector3().subVectors(localRobotPos, currentPos);
+        const toLocal = _toLocal.subVectors(localRobotPos, currentPos);
         toLocal.y = 0;
         if (toLocal.lengthSq() > 1e-6) {
           setFacingYaw(group, currentPos, localRobotPos);
@@ -653,7 +666,7 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
       const timeSinceSync = (performance.now() - lastSyncAtRef.current) / 1000;
       const extrapolationTime = Math.min(timeSinceSync, 0.2); 
       
-      const predictedTarget = targetRef.current.clone();
+      const predictedTarget = _predictedTarget.copy(targetRef.current);
       if (velocityRef.current.lengthSq() > 0.001) {
         predictedTarget.addScaledVector(velocityRef.current, extrapolationTime);
       }
