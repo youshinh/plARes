@@ -1,3 +1,7 @@
 ## 2024-03-15 - React Three Fiber Performance Optimization
 **Learning:** In React Three Fiber, avoid calling scene graph traversals (like group.traverse()) inside useFrame callbacks, as it causes severe performance bottlenecks up to 60 times a second. Because 3D asset loading is asynchronous (e.g., via GLTFLoader), depending solely on props like attachments is unsafe and results in a stale cache that misses dynamically loaded children.
 **Action:** Instead, trigger cache rebuilds by using an incrementing version number (returned via useState from the attachment manager each time an async add() occurs) in the useEffect's dependency array. Iterate over the cached materials rather than traversing the group every frame.
+
+## 2024-05-19 - Safe Vector Reuse in useFrame
+**Learning:** Hoisting `THREE.Vector3` instantiations to module-level variables is highly effective for `useFrame` GC reduction. However, passing these shared mutable variables by reference into async callbacks (like `setTimeout`) or state stores is extremely dangerous, as the next frame will mutate the reference before the async operation fires, causing unpredictable behavior across component instances.
+**Action:** Always allocate a new object or explicitly `.clone()` the module-level variable when crossing async or state-storage boundaries (e.g., `useFSMStore.getState().updateBasicMovement(_randomTarget.clone())` instead of passing `_randomTarget` directly).

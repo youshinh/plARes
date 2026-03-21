@@ -21,6 +21,11 @@ import type {
 } from './useRobotAnimationController';
 import { navMesh } from '../../utils/NavMeshGenerator';
 
+// Reusable module-level variables for useFrame to avoid GC overhead
+const _dir = new THREE.Vector3();
+const _arenaCenter = new THREE.Vector3();
+const _vel = new THREE.Vector3();
+
 type UseRobotFrameLoopArgs = {
   actionRef: MutableRefObject<PlayedAction | null>;
   attachmentVersion?: number;
@@ -90,8 +95,8 @@ const updatePathMovement = ({
       return;
     }
 
-    const dir = new THREE.Vector3().subVectors(nextWp, pos).normalize();
-    pos.addScaledVector(dir, Math.min(speed * delta, dist));
+    _dir.subVectors(nextWp, pos).normalize();
+    pos.addScaledVector(_dir, Math.min(speed * delta, dist));
     setFacingYaw(group, pos, nextWp);
     return;
   }
@@ -118,14 +123,14 @@ const updatePathMovement = ({
 
 const clampToArena = (pos: THREE.Vector3) => {
   const localAnchor = useArenaSyncStore.getState().localCalibration?.point ?? { x: 0, y: 0, z: 0 };
-  const arenaCenter = new THREE.Vector3(localAnchor.x, localAnchor.y, localAnchor.z);
-  if (pos.distanceTo(arenaCenter) <= GAMEPLAY_RULES.arenaRadiusMeters) return;
+  _arenaCenter.set(localAnchor.x, localAnchor.y, localAnchor.z);
+  if (pos.distanceTo(_arenaCenter) <= GAMEPLAY_RULES.arenaRadiusMeters) return;
 
   pos
-    .sub(arenaCenter)
+    .sub(_arenaCenter)
     .normalize()
     .multiplyScalar(GAMEPLAY_RULES.arenaRadiusMeters)
-    .add(arenaCenter);
+    .add(_arenaCenter);
 };
 
 const updateAnimationAndGrounding = ({
@@ -341,15 +346,14 @@ const syncPeerPosition = ({
 }) => {
   if (playMode !== 'match' || now - lastSyncAtRef.current < 50) return;
 
-  const vel = new THREE.Vector3()
-    .subVectors(pos, prevPosRef.current)
+  _vel.subVectors(pos, prevPosRef.current)
     .divideScalar(Math.max(delta, 0.0001));
   const frameId = useArenaSyncStore.getState().localCalibration?.frameId;
   const syncData: SyncData = {
     userId: PLAYER_ID,
     robotId: ROBOT_ID,
     position: { x: pos.x, y: pos.y, z: pos.z },
-    velocity: { x: vel.x, y: vel.y, z: vel.z },
+    velocity: { x: _vel.x, y: _vel.y, z: _vel.z },
     timestamp: Date.now(),
     action: currentState,
     arenaFrameId: frameId,
