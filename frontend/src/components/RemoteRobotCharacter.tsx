@@ -37,17 +37,15 @@ interface RemoteRobotCharacterProps {
 }
 
 const ROOT_DRIVE_BONE_RE = /(armature|hips|mixamorighips|root)/i;
-const _arenaCenter = new THREE.Vector3();
-const _anchorVec = new THREE.Vector3();
-const _motionTarget = new THREE.Vector3();
+
+// Reusable module-level variables for useFrame to avoid GC overhead
 const _forward = new THREE.Vector3();
 const _right = new THREE.Vector3();
-const _up = new THREE.Vector3(0, 1, 0);
 const _moveDir = new THREE.Vector3();
 const _dir = new THREE.Vector3();
 const _pushDir = new THREE.Vector3();
 const _toLocal = new THREE.Vector3();
-const _predictedTarget = new THREE.Vector3();
+const _up = new THREE.Vector3(0, 1, 0);
 
 const setFacingYaw = (group: THREE.Group, from: THREE.Vector3, to: THREE.Vector3) => {
   const dirX = to.x - from.x;
@@ -550,45 +548,44 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
           return false;
         }
 
-        const forward = _forward.subVectors(motionTarget, currentPos);
-        forward.y = 0;
-        if (forward.lengthSq() < 1e-6) {
-          group.getWorldDirection(forward);
-          forward.y = 0;
+        _forward.subVectors(motionTarget, currentPos);
+        _forward.y = 0;
+        if (_forward.lengthSq() < 1e-6) {
+          group.getWorldDirection(_forward);
+          _forward.y = 0;
         }
-        if (forward.lengthSq() < 1e-6) {
-          forward.set(0, 0, -1);
+        if (_forward.lengthSq() < 1e-6) {
+          _forward.set(0, 0, -1);
         } else {
-          forward.normalize();
+          _forward.normalize();
         }
 
-        const right = _right.crossVectors(forward, _up);
-        if (right.lengthSq() < 1e-6) {
-          right.set(1, 0, 0);
+        _right.crossVectors(_forward, _up);
+        if (_right.lengthSq() < 1e-6) {
+          _right.set(1, 0, 0);
         } else {
-          right.normalize();
+          _right.normalize();
         }
 
-        const moveDir = _moveDir;
         if (statePolicy.motion.kind === 'retreat_from_target') {
-          moveDir.copy(forward).multiplyScalar(-1);
+          _moveDir.copy(_forward).multiplyScalar(-1);
         } else if (statePolicy.motion.kind === 'strafe_left') {
-          moveDir.copy(right).multiplyScalar(-1);
+          _moveDir.copy(_right).multiplyScalar(-1);
         } else {
-          moveDir.copy(right);
+          _moveDir.copy(_right);
         }
 
-        currentPos.addScaledVector(moveDir, statePolicy.motion.speed * delta);
+        currentPos.addScaledVector(_moveDir, statePolicy.motion.speed * delta);
         setFacingYaw(group, currentPos, motionTarget);
         return true;
       };
 
       const movedByRelativePolicy = applyRelativeMotion();
       if (!movedByRelativePolicy && statePolicy.motion.kind === 'approach_target') {
-        const dir = _dir.subVectors(anchorVec, currentPos);
-        if (dir.lengthSq() > 1e-6) {
-          dir.normalize();
-          currentPos.addScaledVector(dir, delta * statePolicy.motion.speed);
+        _dir.subVectors(anchorVec, currentPos);
+        if (_dir.lengthSq() > 1e-6) {
+          _dir.normalize();
+          currentPos.addScaledVector(_dir, delta * statePolicy.motion.speed);
           setFacingYaw(group, currentPos, anchorVec);
         }
       }
@@ -626,9 +623,9 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
                currentPos.x -= 0.05;
                currentPos.z += 0.05;
             } else {
-               const pushDir = _pushDir.subVectors(currentPos, playerPos).normalize();
+               _pushDir.subVectors(currentPos, playerPos).normalize();
                const overlap = minHitDistance - distToPlayer;
-               currentPos.add(pushDir.multiplyScalar(overlap * 0.5));
+               currentPos.add(_pushDir.multiplyScalar(overlap * 0.5));
             }
          }
       }
@@ -642,9 +639,9 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
 
       // Keep enemy facing local robot (not camera) for stable combat readability.
       if (localRobotPos) {
-        const toLocal = _toLocal.subVectors(localRobotPos, currentPos);
-        toLocal.y = 0;
-        if (toLocal.lengthSq() > 1e-6) {
+        _toLocal.subVectors(localRobotPos, currentPos);
+        _toLocal.y = 0;
+        if (_toLocal.lengthSq() > 1e-6) {
           setFacingYaw(group, currentPos, localRobotPos);
         }
       }
