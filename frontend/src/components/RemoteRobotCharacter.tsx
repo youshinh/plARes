@@ -496,10 +496,11 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
       const playerPos = useFSMStore.getState().localRobotPosition;
       
       const localAnchor = useArenaSyncStore.getState().localCalibration?.point ?? { x: 0, y: 0, z: 0 };
-      const arenaCenter = new THREE.Vector3(localAnchor.x, localAnchor.y, localAnchor.z);
+      // Performance Optimization: reuse module-level vectors
+      const arenaCenter = _arenaCenter.set(localAnchor.x, localAnchor.y, localAnchor.z);
       
       // If player tracking isn't initialized yet, default to center
-      const anchorVec = playerPos ? playerPos.clone() : arenaCenter;
+      const anchorVec = playerPos ? _anchorVec.copy(playerPos) : _anchorVec.copy(arenaCenter);
       
       const distToAnchor = currentPos.distanceTo(anchorVec);
 
@@ -537,7 +538,7 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
          }
       }
 
-      const motionTarget = anchorVec.clone();
+      const motionTarget = _motionTarget.copy(anchorVec);
       const applyRelativeMotion = () => {
         if (
           statePolicy.motion.kind !== 'retreat_from_target' &&
@@ -662,7 +663,7 @@ export const RemoteRobotCharacter: React.FC<RemoteRobotCharacterProps> = ({
       const timeSinceSync = (performance.now() - lastSyncAtRef.current) / 1000;
       const extrapolationTime = Math.min(timeSinceSync, 0.2); 
       
-      const predictedTarget = targetRef.current.clone();
+      const predictedTarget = _predictedTarget.copy(targetRef.current);
       if (velocityRef.current.lengthSq() > 0.001) {
         predictedTarget.addScaledVector(velocityRef.current, extrapolationTime);
       }
